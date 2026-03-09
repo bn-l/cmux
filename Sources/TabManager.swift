@@ -4,16 +4,22 @@ import Foundation
 import Bonsplit
 import CoreVideo
 import Combine
-
-private func cmuxShellQuoted(_ value: String) -> String {
-    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-}
+import Darwin
 
 enum TmuxCompatHookEvent: String {
     case workspaceCreated = "workspace-created"
     case workspaceClose = "workspace-close"
     case surfaceClose = "surface-close"
     case paneClose = "pane-close"
+}
+
+private func tmuxCompatHookJSONStringArray(_ values: [String]) -> String? {
+    guard !values.isEmpty,
+          let data = try? JSONSerialization.data(withJSONObject: values, options: []),
+          let output = String(data: data, encoding: .utf8) else {
+        return nil
+    }
+    return output
 }
 
 struct TmuxCompatHookContext {
@@ -71,8 +77,8 @@ struct TmuxCompatHookContext {
         if !closedSurfaceIDs.isEmpty {
             env["CMUX_CLOSED_SURFACE_IDS"] = closedSurfaceIDs.map(\.uuidString).joined(separator: ",")
         }
-        if !closedSurfaceDirectories.isEmpty {
-            env["CMUX_CLOSED_SURFACE_DIRECTORIES"] = closedSurfaceDirectories.joined(separator: ":")
+        if let encodedDirectories = tmuxCompatHookJSONStringArray(closedSurfaceDirectories) {
+            env["CMUX_CLOSED_SURFACE_DIRECTORIES"] = encodedDirectories
         }
         if let remainingPanes {
             env["CMUX_REMAINING_PANES"] = String(remainingPanes)
@@ -84,18 +90,19 @@ struct TmuxCompatHookContext {
     }
 }
 
+private struct TmuxCompatHookRunnerRequest: Codable {
+    let kind: String
+    let event: String
+    let environment: [String: String]
+    let workingDirectory: String?
+}
+
 final class TmuxCompatHookDispatcher {
     static let shared = TmuxCompatHookDispatcher()
-
-    private struct TmuxCompatStore: Codable {
-        var buffers: [String: String] = [:]
-        var hooks: [String: String] = [:]
-    }
 
     private let queue = DispatchQueue(label: "com.cmuxterm.tmux-compat-hooks", qos: .utility)
 
     func fire(_ context: TmuxCompatHookContext) {
-        guard let command = command(for: context.event) else { return }
 #if DEBUG
         dlog(
             "hook.fire event=\(context.event.rawValue) workspace=\(context.workspaceId?.uuidString.prefix(5) ?? "nil") " +
@@ -103,66 +110,41 @@ final class TmuxCompatHookDispatcher {
         )
 #endif
         queue.async {
-            self.run(command: command, context: context)
+            self.run(context: context)
         }
     }
 
-    private func command(for event: TmuxCompatHookEvent) -> String? {
-        let url = tmuxCompatStoreURL()
-        guard let data = try? Data(contentsOf: url),
-              let store = try? JSONDecoder().decode(TmuxCompatStore.self, from: data) else {
-            return nil
-        }
-        let command = store.hooks[event.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let command, !command.isEmpty else { return nil }
-        return command
-    }
-
-    private func tmuxCompatStoreURL() -> URL {
+    private func hookRunnerSocketURL() -> URL {
         let root = NSString(string: "~/.cmuxterm").expandingTildeInPath
-        return URL(fileURLWithPath: root).appendingPathComponent("tmux-compat-store.json")
+        return URL(fileURLWithPath: root).appendingPathComponent("tmux-compat-hook.sock")
     }
 
-    private func run(command: String, context: TmuxCompatHookContext) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = [
-            "-e", "on run argv",
-            "-e", "do shell script (item 1 of argv)",
-            "-e", "end run",
-            renderedCommand(command: command, context: context)
-        ]
-
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            NSLog("tmux hook %@ failed to launch via osascript: %@", context.event.rawValue, String(describing: error))
-#if DEBUG
-            dlog("hook.exec.fail event=\(context.event.rawValue) reason=launch")
-#endif
+    private func run(context: TmuxCompatHookContext) {
+        let socketURL = hookRunnerSocketURL()
+        var st = stat()
+        guard lstat(socketURL.path, &st) == 0,
+              (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
             return
         }
 
-        guard process.terminationStatus == 0 else {
-            let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let stdoutText = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let details = stderrText.isEmpty ? stdoutText : stderrText
-            NSLog(
-                "tmux hook %@ failed (%d): %@",
-                context.event.rawValue,
-                process.terminationStatus,
-                details
-            )
+        let request = TmuxCompatHookRunnerRequest(
+            kind: "fire",
+            event: context.event.rawValue,
+            environment: renderedEnvironment(context: context),
+            workingDirectory: normalizedWorkingDirectory(context.workingDirectory)
+        )
+        do {
+            let response = try send(request: request, to: socketURL)
+            if response == "SKIP" {
 #if DEBUG
-            dlog("hook.exec.fail event=\(context.event.rawValue) reason=exit status=\(process.terminationStatus)")
+                dlog("hook.exec.skip event=\(context.event.rawValue)")
+#endif
+                return
+            }
+        } catch {
+            NSLog("tmux hook %@ failed to dispatch: %@", context.event.rawValue, String(describing: error))
+#if DEBUG
+            dlog("hook.exec.fail event=\(context.event.rawValue) reason=dispatch")
 #endif
             return
         }
@@ -171,13 +153,13 @@ final class TmuxCompatHookDispatcher {
 #endif
     }
 
-    private func renderedCommand(command: String, context: TmuxCompatHookContext) -> String {
-        var shellCommand = command
-        if let workingDirectory = context.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !workingDirectory.isEmpty {
-            shellCommand = "cd \(cmuxShellQuoted(workingDirectory)) && \(shellCommand)"
-        }
+    private func normalizedWorkingDirectory(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 
+    private func renderedEnvironment(context: TmuxCompatHookContext) -> [String: String] {
         var env = context.environment(socketPath: SocketControlSettings.socketPath())
         if let currentHome = ProcessInfo.processInfo.environment["HOME"], !currentHome.isEmpty {
             env["HOME"] = currentHome
@@ -195,27 +177,116 @@ final class TmuxCompatHookDispatcher {
             env["SHELL"] = currentShell
         }
 
-        let inheritedPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-        if let bundledBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true).path,
-           !bundledBinPath.isEmpty {
-            if inheritedPath.isEmpty {
-                env["PATH"] = bundledBinPath
-            } else if inheritedPath.split(separator: ":").contains(Substring(bundledBinPath)) {
-                env["PATH"] = inheritedPath
-            } else {
-                env["PATH"] = bundledBinPath + ":" + inheritedPath
+        // Preserve the detached runner's shell-derived PATH so hooks can resolve
+        // user-installed tools (Homebrew, asdf, etc.) outside the app sandbox.
+        return env
+    }
+
+    private func send(request: TmuxCompatHookRunnerRequest, to socketURL: URL) throws -> String {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw posixError("socket")
+        }
+        defer { Darwin.close(fd) }
+
+        var disableSigPipe: Int32 = 1
+        _ = withUnsafePointer(to: &disableSigPipe) {
+            setsockopt(
+                fd,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                $0,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+        }
+
+        guard var address = socketAddress(path: socketURL.path) else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileWriteInvalidFileNameError,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid tmux hook runner socket path"]
+            )
+        }
+
+        let connectResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.connect(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
-        } else {
-            env["PATH"] = inheritedPath
+        }
+        guard connectResult == 0 else {
+            throw posixError("connect")
         }
 
-        let assignments = env.keys.sorted().compactMap { key -> String? in
-            guard let value = env[key], !value.isEmpty else { return nil }
-            return "\(key)=\(cmuxShellQuoted(value))"
-        }
+        var payload = try JSONEncoder().encode(request)
+        payload.append(0x0A)
+        try writeAll(payload, to: fd)
 
-        let envPrefix = assignments.isEmpty ? "" : assignments.joined(separator: " ") + " "
-        return "/usr/bin/env \(envPrefix)/bin/sh -c \(cmuxShellQuoted(shellCommand))"
+        let response = try readResponse(from: fd)
+        guard response == "OK" || response == "SKIP" else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileWriteUnknownError,
+                userInfo: [NSLocalizedDescriptionKey: response.isEmpty ? "tmux hook runner did not acknowledge request" : response]
+            )
+        }
+        return response
+    }
+
+    private func socketAddress(path: String) -> sockaddr_un? {
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
+        guard path.utf8.count < maxLength else { return nil }
+        path.withCString { ptr in
+            withUnsafeMutablePointer(to: &address.sun_path) { pathPtr in
+                let buffer = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+                strncpy(buffer, ptr, maxLength - 1)
+            }
+        }
+        return address
+    }
+
+    private func writeAll(_ data: Data, to fd: Int32) throws {
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            var offset = 0
+            while offset < rawBuffer.count {
+                let written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+                guard written >= 0 else {
+                    throw posixError("write")
+                }
+                offset += written
+            }
+        }
+    }
+
+    private func readResponse(from fd: Int32) throws -> String {
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 256)
+        while true {
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            guard count >= 0 else {
+                throw posixError("read")
+            }
+            if count == 0 {
+                break
+            }
+            data.append(buffer, count: count)
+            if data.contains(0x0A) {
+                break
+            }
+        }
+        return String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func posixError(_ operation: String) -> NSError {
+        let code = errno
+        return NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(code),
+            userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(code))) (\(code))"]
+        )
     }
 }
 
@@ -1480,7 +1551,6 @@ class TabManager: ObservableObject {
         let effectiveSurfaceCount = max(tab.panels.count, bonsplitTabCount)
         let isLastTabInWorkspace = effectiveSurfaceCount <= 1
         if isLastTabInWorkspace {
-            fireSurfaceCloseHook(workspace: tab, panelId: panelId)
             let willCloseWindow = tabs.count <= 1
             let needsConfirm = workspaceNeedsConfirmClose(tab)
             if needsConfirm {
@@ -1508,6 +1578,7 @@ class TabManager: ObservableObject {
                 }
             }
 
+            fireSurfaceCloseHook(workspace: tab, panelId: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
             if willCloseWindow {
                 AppDelegate.shared?.closeMainWindowContainingTabId(tab.id)

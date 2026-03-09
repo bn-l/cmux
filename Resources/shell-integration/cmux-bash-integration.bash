@@ -53,6 +53,7 @@ _CMUX_ASYNC_JOB_TIMEOUT="${_CMUX_ASYNC_JOB_TIMEOUT:-20}"
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
 _CMUX_TTY_REPORTED="${_CMUX_TTY_REPORTED:-0}"
+_CMUX_TMUX_HOOK_RUNNER_ENSURED="${_CMUX_TMUX_HOOK_RUNNER_ENSURED:-0}"
 
 _cmux_git_resolve_head_path() {
     # Resolve the HEAD file path without invoking git (fast; works for worktrees).
@@ -112,6 +113,15 @@ _cmux_ports_kick() {
     _CMUX_PORTS_LAST_RUN=$SECONDS
     {
         _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    } >/dev/null 2>&1 & disown
+}
+
+_cmux_ensure_tmux_hook_runner_once() {
+    [[ "${_CMUX_TMUX_HOOK_RUNNER_ENSURED:-0}" == "1" ]] && return 0
+    _CMUX_TMUX_HOOK_RUNNER_ENSURED=1
+    command -v cmux >/dev/null 2>&1 || return 0
+    {
+        cmux tmux-hook-runner --ensure >/dev/null 2>&1 || true
     } >/dev/null 2>&1 & disown
 }
 
@@ -314,6 +324,7 @@ _cmux_fix_path() {
     fi
 }
 _cmux_fix_path
+_cmux_ensure_tmux_hook_runner_once
 unset -f _cmux_fix_path
 
 _cmux_install_prompt_command

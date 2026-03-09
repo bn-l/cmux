@@ -58,6 +58,7 @@ typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
+typeset -g _CMUX_TMUX_HOOK_RUNNER_ENSURED=0
 
 _cmux_git_resolve_head_path() {
     # Resolve the HEAD file path without invoking git (fast; works for worktrees).
@@ -120,6 +121,15 @@ _cmux_ports_kick() {
     _CMUX_PORTS_LAST_RUN=$EPOCHSECONDS
     {
         _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    } >/dev/null 2>&1 &!
+}
+
+_cmux_ensure_tmux_hook_runner_once() {
+    (( _CMUX_TMUX_HOOK_RUNNER_ENSURED )) && return 0
+    _CMUX_TMUX_HOOK_RUNNER_ENSURED=1
+    command -v cmux >/dev/null 2>&1 || return 0
+    {
+        cmux tmux-hook-runner --ensure >/dev/null 2>&1 || true
     } >/dev/null 2>&1 &!
 }
 
@@ -414,6 +424,7 @@ _cmux_fix_path() {
             PATH="${bin_dir}:${(j/:/)parts}"
         fi
     fi
+    _cmux_ensure_tmux_hook_runner_once
     add-zsh-hook -d precmd _cmux_fix_path
 }
 

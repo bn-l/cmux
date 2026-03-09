@@ -8017,6 +8017,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // is removed when the last window closes.
         persistWindowGeometry(from: window)
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        let closingWorkspaceTabIds = removed.tabManager.tabs
+            .map(\.id)
+            .sorted(by: { $0.uuidString < $1.uuidString })
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
         commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteRecentRequestAtByWindowId.removeValue(forKey: removed.windowId)
@@ -8024,6 +8027,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSelectionByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSnapshotByWindowId.removeValue(forKey: removed.windowId)
+
+        for tabId in closingWorkspaceTabIds {
+            removed.tabManager.fireWorkspaceCloseHookIfPresent(tabId: tabId)
+        }
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {
@@ -8092,10 +8099,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func closeMainWindowContainingTabId(_ tabId: UUID) {
         guard let context = contextContainingTabId(tabId) else { return }
-        context.tabManager.fireWorkspaceCloseHookIfPresent(tabId: tabId)
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
-        let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
-        window?.performClose(nil)
+        guard let window = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier }) else {
+            return
+        }
+        window.performClose(nil)
     }
 
     @discardableResult

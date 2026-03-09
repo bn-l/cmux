@@ -234,12 +234,25 @@ def main() -> int:
 
         _run_cli(cli, ["clear-history", "--workspace", ws, "--surface", s1])
 
-        _run_cli(cli, ["set-hook", "workspace-created", "echo created"])
+        hook_file = Path(tempfile.gettempdir()) / f"cmux_tmux_hook_{stamp}.log"
+        if hook_file.exists():
+            hook_file.unlink()
+        hook_token = f"TMUX_HOOK_{stamp}"
+        hook_command = f"printf '%s\\n' {hook_token} >> '{hook_file}'"
+
+        _run_cli(cli, ["set-hook", "workspace-close", hook_command])
         hooks = _run_cli(cli, ["set-hook", "--list"])
-        _must("workspace-created" in hooks.stdout, f"set-hook --list missing stored hook: {hooks.stdout!r}")
-        _run_cli(cli, ["set-hook", "--unset", "workspace-created"])
+        _must("workspace-close" in hooks.stdout, f"set-hook --list missing stored hook: {hooks.stdout!r}")
+        _run_cli(cli, ["tmux-hook-runner", "--ensure"])
+        _run_cli(cli, ["tmux-hook-runner", "--ensure"])
+
+        ws_hook = c.new_workspace()
+        _run_cli(cli, ["close-workspace", "--workspace", ws_hook])
+        _wait_for(lambda: hook_file.exists() and hook_token in hook_file.read_text())
+
+        _run_cli(cli, ["set-hook", "--unset", "workspace-close"])
         hooks2 = _run_cli(cli, ["set-hook", "--list"])
-        _must("workspace-created" not in hooks2.stdout, f"set-hook --unset failed: {hooks2.stdout!r}")
+        _must("workspace-close" not in hooks2.stdout, f"set-hook --unset failed: {hooks2.stdout!r}")
 
         for cmd in (["popup"], ["bind-key", "C-b", "split-window"], ["unbind-key", "C-b"], ["copy-mode"]):
             proc = _run_cli(cli, cmd, expect_ok=False)

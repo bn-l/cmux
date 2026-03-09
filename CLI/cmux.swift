@@ -886,6 +886,11 @@ struct CMUXCLI {
             return
         }
 
+        if command == "tmux-hook-runner" {
+            try runTmuxCompatHookRunnerCommand(commandArgs: commandArgs)
+            return
+        }
+
         // If the argument looks like a path (not a known command), open a workspace there.
         if looksLikePath(command) {
             try openPath(command, socketPath: resolvedSocketPath)
@@ -5708,6 +5713,49 @@ struct CMUXCLI {
         var hooks: [String: String] = [:]
     }
 
+    private struct TmuxCompatHookRunnerRequest: Codable {
+        enum Kind: String, Codable {
+            case fire
+            case ping
+            case shutdown
+        }
+
+        var kind: Kind
+        var event: String?
+        var environment: [String: String]
+        var workingDirectory: String?
+    }
+
+    private final class TmuxCompatHookRunnerPipeCapture: @unchecked Sendable {
+        private let fileHandle: FileHandle
+        private let group = DispatchGroup()
+        private let lock = NSLock()
+        private var captured = Data()
+
+        init(pipe: Pipe) {
+            fileHandle = pipe.fileHandleForReading
+        }
+
+        func start() {
+            group.enter()
+            DispatchQueue.global(qos: .utility).async { [self] in
+                defer { group.leave() }
+                let data = fileHandle.readDataToEndOfFile()
+                lock.lock()
+                captured = data
+                lock.unlock()
+                fileHandle.closeFile()
+            }
+        }
+
+        func wait() -> Data {
+            group.wait()
+            lock.lock()
+            defer { lock.unlock() }
+            return captured
+        }
+    }
+
     private func tmuxCompatStoreURL() -> URL {
         let root = NSString(string: "~/.cmuxterm").expandingTildeInPath
         return URL(fileURLWithPath: root).appendingPathComponent("tmux-compat-store.json")
@@ -5728,6 +5776,424 @@ struct CMUXCLI {
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
         let data = try JSONEncoder().encode(store)
         try data.write(to: url, options: .atomic)
+    }
+
+    private func tmuxCompatHookRunnerSocketURL() -> URL {
+        tmuxCompatStoreURL().deletingLastPathComponent().appendingPathComponent("tmux-compat-hook.sock")
+    }
+
+    private func tmuxCompatHookRunnerHasConfiguredHooks(store: TmuxCompatStore? = nil) -> Bool {
+        !(store ?? loadTmuxCompatStore()).hooks.isEmpty
+    }
+
+    private func tmuxCompatHookCommand(
+        for event: String,
+        store: TmuxCompatStore? = nil
+    ) -> String? {
+        let normalized = event.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        let store = store ?? loadTmuxCompatStore()
+        guard let command = store.hooks[normalized]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else {
+            return nil
+        }
+        return command
+    }
+
+    private func tmuxCompatHookRunnerSocketAddress(path: String) -> sockaddr_un? {
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
+        guard path.utf8.count < maxLength else { return nil }
+        path.withCString { ptr in
+            withUnsafeMutablePointer(to: &address.sun_path) { pathPtr in
+                let buffer = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+                strncpy(buffer, ptr, maxLength - 1)
+            }
+        }
+        return address
+    }
+
+    private func setNoSigPipe(on fd: Int32) {
+        var disableSigPipe: Int32 = 1
+        _ = withUnsafePointer(to: &disableSigPipe) {
+            setsockopt(
+                fd,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                $0,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+        }
+    }
+
+    private func tmuxCompatHookRunnerCanConnect(to path: String) -> Bool {
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return false }
+        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { return false }
+        let socketURL = URL(fileURLWithPath: path)
+        do {
+            let response = try sendTmuxCompatHookRunnerRequest(
+                TmuxCompatHookRunnerRequest(
+                    kind: .ping,
+                    event: nil,
+                    environment: [:],
+                    workingDirectory: nil
+                ),
+                socketURL: socketURL
+            )
+            return response == "OK"
+        } catch {
+            return false
+        }
+    }
+
+    private func tmuxCompatHookRunnerPosixError(_ operation: String) -> CLIError {
+        let code = errno
+        return CLIError(message: "\(operation) failed: \(String(cString: strerror(code))) (\(code))")
+    }
+
+    private func writeAll(_ data: Data, to fd: Int32) throws {
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            var offset = 0
+            while offset < rawBuffer.count {
+                let written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+                if written < 0 {
+                    throw tmuxCompatHookRunnerPosixError("write")
+                }
+                offset += written
+            }
+        }
+    }
+
+    private func readLine(from fd: Int32) throws -> String {
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 1024)
+        while true {
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count < 0 {
+                throw tmuxCompatHookRunnerPosixError("read")
+            }
+            if count == 0 {
+                break
+            }
+            data.append(buffer, count: count)
+            if data.contains(0x0A) {
+                break
+            }
+        }
+        return String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func sendTmuxCompatHookRunnerRequest(
+        _ request: TmuxCompatHookRunnerRequest,
+        socketURL: URL
+    ) throws -> String {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw tmuxCompatHookRunnerPosixError("socket")
+        }
+        defer { Darwin.close(fd) }
+
+        setNoSigPipe(on: fd)
+
+        guard var address = tmuxCompatHookRunnerSocketAddress(path: socketURL.path) else {
+            throw CLIError(message: "Invalid tmux hook runner socket path: \(socketURL.path)")
+        }
+
+        let connectResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.connect(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard connectResult == 0 else {
+            throw tmuxCompatHookRunnerPosixError("connect")
+        }
+
+        var payload = try JSONEncoder().encode(request)
+        payload.append(0x0A)
+        try writeAll(payload, to: fd)
+        return try readLine(from: fd)
+    }
+
+    private func ensureTmuxCompatHookRunnerStarted(
+        socketURL: URL? = nil,
+        requireConfiguredHooks: Bool = true
+    ) throws {
+        let socketURL = socketURL ?? tmuxCompatHookRunnerSocketURL()
+        if requireConfiguredHooks, !tmuxCompatHookRunnerHasConfiguredHooks() {
+            return
+        }
+        if tmuxCompatHookRunnerCanConnect(to: socketURL.path) {
+            return
+        }
+
+        let parent = socketURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: parent,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+
+        if FileManager.default.fileExists(atPath: socketURL.path) {
+            try? FileManager.default.removeItem(at: socketURL)
+        }
+
+        guard let executablePath = currentExecutablePath(), !executablePath.isEmpty else {
+            throw CLIError(message: "Unable to resolve cmux CLI path for tmux hook runner")
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = ["tmux-hook-runner", "--socket", socketURL.path]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        process.environment = environment
+
+        if let devNull = FileHandle(forUpdatingAtPath: "/dev/null") {
+            process.standardInput = devNull
+            process.standardOutput = devNull
+            process.standardError = devNull
+        }
+
+        try process.run()
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while Date() < deadline {
+            if tmuxCompatHookRunnerCanConnect(to: socketURL.path) {
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+
+        throw CLIError(message: "Timed out waiting for tmux hook runner to start")
+    }
+
+    private func stopTmuxCompatHookRunnerIfRunning(socketURL: URL? = nil) throws {
+        let socketURL = socketURL ?? tmuxCompatHookRunnerSocketURL()
+        if !FileManager.default.fileExists(atPath: socketURL.path) {
+            return
+        }
+        if !tmuxCompatHookRunnerCanConnect(to: socketURL.path) {
+            try? FileManager.default.removeItem(at: socketURL)
+            return
+        }
+
+        let response = try sendTmuxCompatHookRunnerRequest(
+            TmuxCompatHookRunnerRequest(
+                kind: .shutdown,
+                event: nil,
+                environment: [:],
+                workingDirectory: nil
+            ),
+            socketURL: socketURL
+        )
+        if response != "OK" {
+            throw CLIError(message: response.isEmpty ? "tmux hook runner refused shutdown request" : response)
+        }
+    }
+
+    private func runTmuxCompatHookRunnerCommand(commandArgs: [String]) throws {
+        let (socketPath, remainder) = parseOption(commandArgs, name: "--socket")
+        let socketURL = URL(fileURLWithPath: socketPath ?? tmuxCompatHookRunnerSocketURL().path)
+
+        if remainder.contains("--help") || remainder.contains("-h") {
+            print("""
+            Usage: cmux tmux-hook-runner [--ensure|--stop] [--socket <path>]
+
+            Hidden helper for tmux-compatible hook execution outside the GUI process.
+            """)
+            return
+        }
+
+        if remainder.contains("--ensure") {
+            try ensureTmuxCompatHookRunnerStarted(socketURL: socketURL)
+            return
+        }
+
+        if remainder.contains("--stop") {
+            try stopTmuxCompatHookRunnerIfRunning(socketURL: socketURL)
+            return
+        }
+
+        try serveTmuxCompatHookRunner(socketURL: socketURL)
+    }
+
+    private func serveTmuxCompatHookRunner(socketURL: URL) throws {
+        if tmuxCompatHookRunnerCanConnect(to: socketURL.path) {
+            return
+        }
+
+        let parent = socketURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: parent,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        if FileManager.default.fileExists(atPath: socketURL.path) {
+            try? FileManager.default.removeItem(at: socketURL)
+        }
+
+        let serverFD = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard serverFD >= 0 else {
+            throw tmuxCompatHookRunnerPosixError("socket")
+        }
+
+        defer {
+            Darwin.close(serverFD)
+            try? FileManager.default.removeItem(at: socketURL)
+        }
+
+        guard var address = tmuxCompatHookRunnerSocketAddress(path: socketURL.path) else {
+            throw CLIError(message: "Invalid tmux hook runner socket path: \(socketURL.path)")
+        }
+
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.bind(serverFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            throw tmuxCompatHookRunnerPosixError("bind")
+        }
+
+        chmod(socketURL.path, mode_t(0o600))
+
+        guard listen(serverFD, 8) == 0 else {
+            throw tmuxCompatHookRunnerPosixError("listen")
+        }
+
+        while true {
+            let clientFD = accept(serverFD, nil, nil)
+            if clientFD < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                throw tmuxCompatHookRunnerPosixError("accept")
+            }
+
+            setNoSigPipe(on: clientFD)
+            let shouldContinue = handleTmuxCompatHookRunnerConnection(clientFD)
+            Darwin.close(clientFD)
+            if !shouldContinue {
+                return
+            }
+        }
+    }
+
+    private func handleTmuxCompatHookRunnerConnection(_ fd: Int32) -> Bool {
+        do {
+            let line = try readLine(from: fd)
+            guard !line.isEmpty else {
+                return true
+            }
+
+            guard let data = line.data(using: .utf8),
+                  let request = try? JSONDecoder().decode(TmuxCompatHookRunnerRequest.self, from: data) else {
+                try writeAll(Data("ERROR: Invalid tmux hook runner request\n".utf8), to: fd)
+                return true
+            }
+
+            switch request.kind {
+            case .ping:
+                try writeAll(Data("OK\n".utf8), to: fd)
+                return true
+
+            case .shutdown:
+                try writeAll(Data("OK\n".utf8), to: fd)
+                return false
+
+            case .fire:
+                guard let event = request.event,
+                      let command = tmuxCompatHookCommand(for: event) else {
+                    try writeAll(Data("SKIP\n".utf8), to: fd)
+                    return true
+                }
+                DispatchQueue.global(qos: .utility).async {
+                    self.executeTmuxCompatHookRunnerRequest(request, command: command)
+                }
+                try writeAll(Data("OK\n".utf8), to: fd)
+                return true
+            }
+        } catch {
+            let message = "ERROR: \(error)\n"
+            try? writeAll(Data(message.utf8), to: fd)
+            return true
+        }
+    }
+
+    private func executeTmuxCompatHookRunnerRequest(
+        _ request: TmuxCompatHookRunnerRequest,
+        command: String
+    ) {
+        guard request.kind == .fire,
+              let event = request.event?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !event.isEmpty else {
+            return
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+
+        var environment = ProcessInfo.processInfo.environment
+        for (key, value) in request.environment where !key.isEmpty && !value.isEmpty {
+            environment[key] = value
+        }
+        if environment["PATH"]?.isEmpty ?? true {
+            environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        }
+        process.environment = environment
+
+        if let workingDirectory = request.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workingDirectory.isEmpty,
+           FileManager.default.fileExists(atPath: workingDirectory) {
+            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
+        }
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        let stdoutCapture = TmuxCompatHookRunnerPipeCapture(pipe: stdout)
+        let stderrCapture = TmuxCompatHookRunnerPipeCapture(pipe: stderr)
+        stdoutCapture.start()
+        stderrCapture.start()
+
+        do {
+            try process.run()
+            stdout.fileHandleForWriting.closeFile()
+            stderr.fileHandleForWriting.closeFile()
+            process.waitUntilExit()
+        } catch {
+            stdout.fileHandleForWriting.closeFile()
+            stderr.fileHandleForWriting.closeFile()
+            _ = stdoutCapture.wait()
+            _ = stderrCapture.wait()
+            NSLog("tmux hook runner failed to launch %@: %@", event, String(describing: error))
+            return
+        }
+
+        let stdoutData = stdoutCapture.wait()
+        let stderrData = stderrCapture.wait()
+        guard process.terminationStatus == 0 else {
+            let stderrText = String(data: stderrData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let stdoutText = String(data: stdoutData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let details = stderrText.isEmpty ? stdoutText : stderrText
+            NSLog(
+                "tmux hook runner command %@ failed (%d): %@",
+                event,
+                process.terminationStatus,
+                details
+            )
+            return
+        }
     }
 
     private func runShellCommand(_ command: String, stdinText: String) throws -> (status: Int32, stdout: String, stderr: String) {
@@ -6034,6 +6500,11 @@ struct CMUXCLI {
                 }
                 store.hooks.removeValue(forKey: event)
                 try saveTmuxCompatStore(store)
+                if store.hooks.isEmpty {
+                    try stopTmuxCompatHookRunnerIfRunning()
+                } else {
+                    try ensureTmuxCompatHookRunnerStarted(requireConfiguredHooks: false)
+                }
                 print("OK")
                 return
             }
@@ -6046,6 +6517,7 @@ struct CMUXCLI {
             }
             store.hooks[event] = commandText
             try saveTmuxCompatStore(store)
+            try ensureTmuxCompatHookRunnerStarted(requireConfiguredHooks: false)
             print("OK")
 
         case "popup":
