@@ -7122,7 +7122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         uiTestV2BridgeIsProcessing = true
         defer { uiTestV2BridgeIsProcessing = false }
 
-        let processingURL = requestURL.deletingPathExtension().appendingPathExtension("processing.json")
+        let processingURL = Self.uiTestV2BridgeProcessingURL(for: requestURL)
         let fileManager = FileManager.default
         do {
             try fileManager.moveItem(at: requestURL, to: processingURL)
@@ -7168,12 +7168,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func writeUITestV2BridgeResponse(_ response: [String: Any], for requestURL: URL) {
-        let responseURL = requestURL.deletingLastPathComponent().appendingPathComponent(
-            requestURL.lastPathComponent
-                .replacingOccurrences(of: ".processing.json", with: ".response.json")
-        )
+        let responseURL = Self.uiTestV2BridgeResponseURL(for: requestURL)
         guard let data = try? JSONSerialization.data(withJSONObject: response) else { return }
         try? data.write(to: responseURL, options: .atomic)
+    }
+
+    nonisolated static func uiTestV2BridgeProcessingURL(for requestURL: URL) -> URL {
+        requestURL.deletingLastPathComponent().appendingPathComponent(
+            requestURL.lastPathComponent
+                .replacingOccurrences(of: ".request.json", with: ".processing.json")
+        )
+    }
+
+    nonisolated static func uiTestV2BridgeResponseURL(for processingURL: URL) -> URL {
+        processingURL.deletingLastPathComponent().appendingPathComponent(
+            processingURL.lastPathComponent
+                .replacingOccurrences(of: ".processing.json", with: ".response.json")
+        )
     }
 
     private func writeMultiWindowNotificationTestData(_ updates: [String: String], at path: String) {
