@@ -294,12 +294,33 @@ private struct MixedDocumentSnapshot {
 
 private final class MixedDocumentV2SocketClient {
     private let path: String
+    private static let readinessAttempts = 10
+    private static let readinessDelay: TimeInterval = 0.05
 
     init(path: String) {
         self.path = path
     }
 
     func call(method: String, params: [String: Any] = [:]) -> [String: Any]? {
+        if method != "system.ping" {
+            _ = warmSocket()
+        }
+        return callOnce(method: method, params: params)
+    }
+
+    private func warmSocket() -> Bool {
+        for _ in 0..<Self.readinessAttempts {
+            if let response = callOnce(method: "system.ping"),
+               let result = response["result"] as? [String: Any],
+               result["pong"] as? Bool == true {
+                return true
+            }
+            Thread.sleep(forTimeInterval: Self.readinessDelay)
+        }
+        return false
+    }
+
+    private func callOnce(method: String, params: [String: Any] = [:]) -> [String: Any]? {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return nil }
         defer { close(fd) }
