@@ -218,7 +218,7 @@ function SectionBadge({ heading }: { heading: string }) {
     color = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
     label = "Added";
   } else if (lower === "changed") {
-    color = "bg-blue-500/10 text-blue-600 dark:text-blue-400";
+    color = "";
     label = "Changed";
   } else if (lower === "fixed") {
     color = "bg-amber-500/10 text-amber-600 dark:text-amber-400";
@@ -231,6 +231,14 @@ function SectionBadge({ heading }: { heading: string }) {
   return (
     <span
       className={`inline-block text-[12px] font-medium px-2 py-0.5 rounded-md ${color}`}
+      style={
+        lower === "changed"
+          ? {
+              background: "rgba(var(--accent-rgb), 0.1)",
+              color: "var(--accent)",
+            }
+          : undefined
+      }
     >
       {label}
     </span>

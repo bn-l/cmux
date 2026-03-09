@@ -5,7 +5,6 @@ import { reducer, createInitialState, type DropDirection } from "./lib/reducer"
 import { surfaceRegistry } from "./lib/surface-registry"
 import { getLeaves } from "./lib/split-tree"
 import { SplitTreeView } from "./components/split-tree-view"
-import { Toolbar } from "./components/toolbar"
 import { Sidebar } from "./components/sidebar"
 
 // --- Drag state ---
@@ -87,10 +86,6 @@ export function TerminalPage() {
     }
     dispatch({ type: "CLOSE_PANE", groupId: group.id })
   }, [ws.focusedGroupId, ws.groups])
-
-  const handleEqualize = useCallback(() => {
-    dispatch({ type: "EQUALIZE_SPLITS" })
-  }, [])
 
   const handleResize = useCallback((splitId: string, ratio: number) => {
     dispatch({ type: "RESIZE_SPLIT", splitId, ratio })
@@ -445,12 +440,6 @@ export function TerminalPage() {
             dropZone={paneDropZone}
           />
         </div>
-        <Toolbar
-          onSplitRight={handleSplitRight}
-          onSplitDown={handleSplitDown}
-          onClosePane={handleClosePane}
-          onEqualize={handleEqualize}
-        />
       </div>
       {/* Drag ghost */}
       {dragInfo?.isDragging && (

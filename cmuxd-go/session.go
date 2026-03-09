@@ -90,26 +90,20 @@ type Session struct {
 	oscParser OscParser
 
 	// Coalescing timer for metadata broadcasts (protected by Server.mu)
-	metaTimer    *time.Timer
-	metaPending  bool
+	metaTimer   *time.Timer
+	metaPending bool
 }
 
 // SpawnSession creates a new PTY session.
-func SpawnSession(id uint32, cols, rows uint16) (*Session, error) {
+func SpawnSession(id uint32, cols, rows uint16, cfg *TerminalConfig) (*Session, error) {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/zsh"
 	}
 
 	cmd := exec.Command(shell)
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
-
-	// Set working directory
-	if cwd := os.Getenv("PTY_CWD"); cwd != "" {
-		cmd.Dir = cwd
-	} else if home := os.Getenv("HOME"); home != "" {
-		cmd.Dir = home
-	}
+	processCwd, _ := os.Getwd()
+	cmd.Dir, cmd.Env = buildSessionLaunch(cfg, processCwd, os.Environ())
 
 	winSize := &pty.Winsize{
 		Cols: cols,
@@ -237,12 +231,14 @@ type SessionManager struct {
 	mu       sync.Mutex
 	sessions map[uint32]*Session
 	nextID   uint32
+	config   *TerminalConfig
 }
 
-func NewSessionManager() *SessionManager {
+func NewSessionManager(cfg *TerminalConfig) *SessionManager {
 	return &SessionManager{
 		sessions: make(map[uint32]*Session),
 		nextID:   1,
+		config:   cfg,
 	}
 }
 
@@ -252,7 +248,7 @@ func (m *SessionManager) Create(cols, rows uint16) (*Session, error) {
 	m.nextID++
 	m.mu.Unlock()
 
-	sess, err := SpawnSession(id, cols, rows)
+	sess, err := SpawnSession(id, cols, rows, m.config)
 	if err != nil {
 		return nil, err
 	}

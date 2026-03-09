@@ -4,20 +4,31 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
 
+type colorSchemePreference string
+
+const (
+	colorSchemeLight colorSchemePreference = "light"
+	colorSchemeDark  colorSchemePreference = "dark"
+)
+
 // TerminalConfig holds parsed Ghostty config values.
 type TerminalConfig struct {
-	FontFamily     string   `json:"fontFamily,omitempty"`
-	FontSize       *uint16  `json:"fontSize,omitempty"`
-	CursorStyle    string   `json:"cursorStyle,omitempty"`
-	CursorBlink    *bool    `json:"cursorBlink,omitempty"`
-	Scrollback     *uint32  `json:"scrollback,omitempty"`
-	Renderer       string   `json:"renderer,omitempty"`
-	Theme          *ThemeConfig `json:"theme,omitempty"`
+	FontFamily       string       `json:"fontFamily,omitempty"`
+	FontSize         *uint16      `json:"fontSize,omitempty"`
+	CursorStyle      string       `json:"cursorStyle,omitempty"`
+	CursorBlink      *bool        `json:"cursorBlink,omitempty"`
+	Scrollback       *uint32      `json:"scrollback,omitempty"`
+	Renderer         string       `json:"renderer,omitempty"`
+	WorkingDirectory string       `json:"workingDirectory,omitempty"`
+	ShellIntegration string       `json:"shellIntegration,omitempty"`
+	Theme            *ThemeConfig `json:"theme,omitempty"`
 }
 
 type ThemeConfig struct {
@@ -61,44 +72,76 @@ func (t *ThemeConfig) isEmpty() bool {
 // setPalette sets a palette color by index.
 func (t *ThemeConfig) setPalette(idx int, color string) {
 	switch idx {
-	case 0:  t.Black = color
-	case 1:  t.Red = color
-	case 2:  t.Green = color
-	case 3:  t.Yellow = color
-	case 4:  t.Blue = color
-	case 5:  t.Magenta = color
-	case 6:  t.Cyan = color
-	case 7:  t.White = color
-	case 8:  t.BrightBlack = color
-	case 9:  t.BrightRed = color
-	case 10: t.BrightGreen = color
-	case 11: t.BrightYellow = color
-	case 12: t.BrightBlue = color
-	case 13: t.BrightMagenta = color
-	case 14: t.BrightCyan = color
-	case 15: t.BrightWhite = color
+	case 0:
+		t.Black = color
+	case 1:
+		t.Red = color
+	case 2:
+		t.Green = color
+	case 3:
+		t.Yellow = color
+	case 4:
+		t.Blue = color
+	case 5:
+		t.Magenta = color
+	case 6:
+		t.Cyan = color
+	case 7:
+		t.White = color
+	case 8:
+		t.BrightBlack = color
+	case 9:
+		t.BrightRed = color
+	case 10:
+		t.BrightGreen = color
+	case 11:
+		t.BrightYellow = color
+	case 12:
+		t.BrightBlue = color
+	case 13:
+		t.BrightMagenta = color
+	case 14:
+		t.BrightCyan = color
+	case 15:
+		t.BrightWhite = color
 	}
 }
 
 // getPalette gets a palette color by index.
 func (t *ThemeConfig) getPalette(idx int) string {
 	switch idx {
-	case 0:  return t.Black
-	case 1:  return t.Red
-	case 2:  return t.Green
-	case 3:  return t.Yellow
-	case 4:  return t.Blue
-	case 5:  return t.Magenta
-	case 6:  return t.Cyan
-	case 7:  return t.White
-	case 8:  return t.BrightBlack
-	case 9:  return t.BrightRed
-	case 10: return t.BrightGreen
-	case 11: return t.BrightYellow
-	case 12: return t.BrightBlue
-	case 13: return t.BrightMagenta
-	case 14: return t.BrightCyan
-	case 15: return t.BrightWhite
+	case 0:
+		return t.Black
+	case 1:
+		return t.Red
+	case 2:
+		return t.Green
+	case 3:
+		return t.Yellow
+	case 4:
+		return t.Blue
+	case 5:
+		return t.Magenta
+	case 6:
+		return t.Cyan
+	case 7:
+		return t.White
+	case 8:
+		return t.BrightBlack
+	case 9:
+		return t.BrightRed
+	case 10:
+		return t.BrightGreen
+	case 11:
+		return t.BrightYellow
+	case 12:
+		return t.BrightBlue
+	case 13:
+		return t.BrightMagenta
+	case 14:
+		return t.BrightCyan
+	case 15:
+		return t.BrightWhite
 	}
 	return ""
 }
@@ -116,31 +159,16 @@ func LoadGhosttyConfig() (*TerminalConfig, error) {
 
 	found := false
 
-	// Try macOS path
-	macPath := filepath.Join(home, "Library", "Application Support", "com.mitchellh.ghostty", "config")
-	if err := parseConfigFile(macPath, cfg, theme, &themeName); err == nil {
-		found = true
-	}
-
-	// Try ~/.config/ghostty/config
-	if !found {
-		xdgPath := filepath.Join(home, ".config", "ghostty", "config")
-		if err := parseConfigFile(xdgPath, cfg, theme, &themeName); err == nil {
+	for _, path := range configSearchPaths(home, envSliceToMap(os.Environ())) {
+		if err := parseConfigFile(path, cfg, theme, &themeName); err == nil {
 			found = true
-		}
-	}
-
-	// Try XDG_CONFIG_HOME
-	if !found {
-		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-			xdgPath := filepath.Join(xdg, "ghostty", "config")
-			parseConfigFile(xdgPath, cfg, theme, &themeName)
 		}
 	}
 
 	// Resolve theme if specified
 	if themeName != "" {
-		if err := resolveTheme(home, themeName, theme); err != nil {
+		resolvedThemeName := resolveThemeName(themeName, currentColorSchemePreference())
+		if err := resolveTheme(home, resolvedThemeName, theme); err != nil {
 			fmt.Fprintf(os.Stderr, "cmuxd: failed to resolve theme '%s': %v\n", themeName, err)
 		}
 	}
@@ -148,7 +176,47 @@ func LoadGhosttyConfig() (*TerminalConfig, error) {
 	if !theme.isEmpty() {
 		cfg.Theme = theme
 	}
+	if !found && cfg.Theme == nil {
+		return cfg, nil
+	}
 	return cfg, nil
+}
+
+func configSearchPaths(home string, env map[string]string) []string {
+	var paths []string
+
+	appendUnique := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		path = filepath.Clean(os.ExpandEnv(path))
+		for _, existing := range paths {
+			if existing == path {
+				return
+			}
+		}
+		paths = append(paths, path)
+	}
+
+	appendConfigPair := func(root string) {
+		if root == "" {
+			return
+		}
+		appendUnique(filepath.Join(root, "ghostty", "config"))
+		appendUnique(filepath.Join(root, "ghostty", "config.ghostty"))
+	}
+
+	if xdg := env["XDG_CONFIG_HOME"]; xdg != "" {
+		appendConfigPair(xdg)
+	}
+	appendConfigPair(filepath.Join(home, ".config"))
+
+	macRoot := filepath.Join(home, "Library", "Application Support", "com.mitchellh.ghostty")
+	appendUnique(filepath.Join(macRoot, "config"))
+	appendUnique(filepath.Join(macRoot, "config.ghostty"))
+
+	return paths
 }
 
 func parseConfigFile(path string, cfg *TerminalConfig, theme *ThemeConfig, themeName *string) error {
@@ -196,6 +264,10 @@ func parseConfigContents(contents string, cfg *TerminalConfig, theme *ThemeConfi
 				u := uint32(v)
 				cfg.Scrollback = &u
 			}
+		case "working-directory":
+			cfg.WorkingDirectory = value
+		case "shell-integration":
+			cfg.ShellIntegration = value
 		case "web-renderer":
 			cfg.Renderer = value
 		case "foreground":
@@ -232,29 +304,18 @@ func parseConfigContents(contents string, cfg *TerminalConfig, theme *ThemeConfi
 }
 
 func resolveTheme(home, name string, theme *ThemeConfig) error {
-	// Try user config dir
-	paths := []string{
-		filepath.Join(home, ".config", "ghostty", "themes", name),
-		filepath.Join(home, "Library", "Application Support", "com.mitchellh.ghostty", "themes", name),
-	}
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		paths = append(paths, filepath.Join(xdg, "ghostty", "themes", name))
-	}
+	cwd, _ := os.Getwd()
+	exePath, _ := os.Executable()
+	exeDir := filepath.Dir(exePath)
 
-	// Try bundled themes relative to executable
-	if exePath, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exePath)
-		paths = append(paths, filepath.Join(exeDir, "..", "share", "ghostty", "themes", name))
-	}
+	return resolveThemeFromPaths(
+		name,
+		theme,
+		themeSearchPaths(home, name, cwd, exeDir, envSliceToMap(os.Environ())),
+	)
+}
 
-	// Try ghostty submodule paths relative to cwd
-	if cwd, err := os.Getwd(); err == nil {
-		paths = append(paths,
-			filepath.Join(cwd, "ghostty", "zig-out", "share", "ghostty", "themes", name),
-			filepath.Join(cwd, "..", "ghostty", "zig-out", "share", "ghostty", "themes", name),
-		)
-	}
-
+func resolveThemeFromPaths(name string, theme *ThemeConfig, paths []string) error {
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -265,6 +326,163 @@ func resolveTheme(home, name string, theme *ThemeConfig) error {
 	}
 
 	return fmt.Errorf("theme not found: %s", name)
+}
+
+func resolveThemeName(rawThemeValue string, preferredColorScheme colorSchemePreference) string {
+	var fallbackTheme string
+	var lightTheme string
+	var darkTheme string
+
+	for _, token := range strings.Split(rawThemeValue, ",") {
+		entry := strings.TrimSpace(token)
+		if entry == "" {
+			continue
+		}
+
+		parts := strings.SplitN(entry, ":", 2)
+		if len(parts) != 2 {
+			if fallbackTheme == "" {
+				fallbackTheme = entry
+			}
+			continue
+		}
+
+		key := strings.ToLower(strings.TrimSpace(parts[0]))
+		value := strings.TrimSpace(parts[1])
+		if value == "" {
+			continue
+		}
+
+		switch key {
+		case string(colorSchemeLight):
+			if lightTheme == "" {
+				lightTheme = value
+			}
+		case string(colorSchemeDark):
+			if darkTheme == "" {
+				darkTheme = value
+			}
+		default:
+			if fallbackTheme == "" {
+				fallbackTheme = value
+			}
+		}
+	}
+
+	switch preferredColorScheme {
+	case colorSchemeLight:
+		if lightTheme != "" {
+			return lightTheme
+		}
+	case colorSchemeDark:
+		if darkTheme != "" {
+			return darkTheme
+		}
+	}
+
+	if fallbackTheme != "" {
+		return fallbackTheme
+	}
+	if darkTheme != "" {
+		return darkTheme
+	}
+	if lightTheme != "" {
+		return lightTheme
+	}
+	return strings.TrimSpace(rawThemeValue)
+}
+
+func currentColorSchemePreference() colorSchemePreference {
+	if override := strings.ToLower(strings.TrimSpace(os.Getenv("CMUX_COLOR_SCHEME"))); override == "light" {
+		return colorSchemeLight
+	} else if override == "dark" {
+		return colorSchemeDark
+	}
+
+	if runtime.GOOS == "darwin" {
+		out, err := exec.Command("defaults", "read", "-g", "AppleInterfaceStyle").Output()
+		if err == nil && strings.Contains(strings.ToLower(string(out)), "dark") {
+			return colorSchemeDark
+		}
+	}
+
+	return colorSchemeLight
+}
+
+func themeNameCandidates(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	candidates := []string{raw}
+	lower := strings.ToLower(raw)
+	if strings.HasSuffix(lower, " (builtin)") {
+		stripped := strings.TrimSpace(raw[:len(raw)-len(" (builtin)")])
+		if stripped != "" && stripped != raw {
+			candidates = append(candidates, stripped)
+		}
+	}
+	return candidates
+}
+
+func themeSearchPaths(home, name, cwd, exeDir string, env map[string]string) []string {
+	var paths []string
+
+	appendUniquePath := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		expanded := filepath.Clean(os.ExpandEnv(path))
+		for _, existing := range paths {
+			if existing == expanded {
+				return
+			}
+		}
+		paths = append(paths, expanded)
+	}
+
+	appendThemePath := func(root, candidate string) {
+		if root == "" || candidate == "" {
+			return
+		}
+		appendUniquePath(filepath.Join(root, "themes", candidate))
+	}
+
+	for _, candidate := range themeNameCandidates(name) {
+		appendThemePath(env["GHOSTTY_RESOURCES_DIR"], candidate)
+
+		if xdgDataDirs := env["XDG_DATA_DIRS"]; xdgDataDirs != "" {
+			for _, dataDir := range strings.Split(xdgDataDirs, ":") {
+				dataDir = strings.TrimSpace(dataDir)
+				if dataDir == "" {
+					continue
+				}
+				appendUniquePath(filepath.Join(dataDir, "ghostty", "themes", candidate))
+			}
+		}
+
+		if xdg := env["XDG_CONFIG_HOME"]; xdg != "" {
+			appendUniquePath(filepath.Join(xdg, "ghostty", "themes", candidate))
+		}
+
+		appendUniquePath(filepath.Join(home, ".config", "ghostty", "themes", candidate))
+		appendUniquePath(filepath.Join(home, "Library", "Application Support", "com.mitchellh.ghostty", "themes", candidate))
+		appendUniquePath(filepath.Join(home, "Applications", "Ghostty.app", "Contents", "Resources", "ghostty", "themes", candidate))
+		appendUniquePath(filepath.Join("/Applications", "Ghostty.app", "Contents", "Resources", "ghostty", "themes", candidate))
+
+		if exeDir != "" {
+			appendUniquePath(filepath.Join(exeDir, "..", "share", "ghostty", "themes", candidate))
+			appendUniquePath(filepath.Join(exeDir, "..", "ghostty", "themes", candidate))
+		}
+		if cwd != "" {
+			appendUniquePath(filepath.Join(cwd, "ghostty", "zig-out", "share", "ghostty", "themes", candidate))
+			appendUniquePath(filepath.Join(cwd, "..", "ghostty", "zig-out", "share", "ghostty", "themes", candidate))
+		}
+	}
+
+	return paths
 }
 
 // applyThemeUserWins applies theme values only where not already set by user config.
@@ -288,17 +506,29 @@ func applyThemeUserWins(contents string, theme *ThemeConfig) {
 		// Only set if not already set (user wins)
 		switch key {
 		case "foreground":
-			if theme.Foreground == "" { theme.Foreground = value }
+			if theme.Foreground == "" {
+				theme.Foreground = value
+			}
 		case "background":
-			if theme.Background == "" { theme.Background = value }
+			if theme.Background == "" {
+				theme.Background = value
+			}
 		case "cursor-color":
-			if theme.Cursor == "" { theme.Cursor = value }
+			if theme.Cursor == "" {
+				theme.Cursor = value
+			}
 		case "cursor-text":
-			if theme.CursorAccent == "" { theme.CursorAccent = value }
+			if theme.CursorAccent == "" {
+				theme.CursorAccent = value
+			}
 		case "selection-background":
-			if theme.SelectionBackground == "" { theme.SelectionBackground = value }
+			if theme.SelectionBackground == "" {
+				theme.SelectionBackground = value
+			}
 		case "selection-foreground":
-			if theme.SelectionForeground == "" { theme.SelectionForeground = value }
+			if theme.SelectionForeground == "" {
+				theme.SelectionForeground = value
+			}
 		case "palette":
 			sepIdx := strings.Index(value, "=")
 			if sepIdx < 0 {

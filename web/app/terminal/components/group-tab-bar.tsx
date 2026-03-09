@@ -93,7 +93,7 @@ export function GroupTabBar({
                 fontSize: 10,
                 fontFamily: "var(--font-geist-sans)",
                 background: isActive ? "var(--code-bg)" : "transparent",
-                borderTop: isActive && isFocused ? "2px solid #3b82f6" : "2px solid transparent",
+                borderTop: isActive && isFocused ? "2px solid var(--surface-focused)" : "2px solid transparent",
                 color: isActive ? "var(--foreground)" : "var(--muted)",
                 flexShrink: 0,
                 userSelect: "none",

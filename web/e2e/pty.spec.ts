@@ -164,6 +164,31 @@ test.describe("Console health", () => {
 })
 
 test.describe("PTY server integration", () => {
+  test("plain terminal applies Ghostty theme background", async ({ page }) => {
+    await page.goto("/terminal")
+    await expect(surfaces(page).first()).toBeVisible()
+
+    const expected = await page.evaluate(async () => {
+      const response = await fetch("http://localhost:3778/terminal-config")
+      const config = await response.json()
+      const hex = config.theme?.background as string | undefined
+      if (!hex) return null
+      const value = hex.replace("#", "")
+      const normalized = value.length === 3
+        ? value.split("").map((c) => c + c).join("")
+        : value
+      const r = Number.parseInt(normalized.slice(0, 2), 16)
+      const g = Number.parseInt(normalized.slice(2, 4), 16)
+      const b = Number.parseInt(normalized.slice(4, 6), 16)
+      return `rgb(${r}, ${g}, ${b})`
+    })
+    expect(expected).toBeTruthy()
+
+    await expect.poll(async () => {
+      return page.locator(".xterm-viewport").evaluate((el) => getComputedStyle(el).backgroundColor)
+    }).toBe(expected)
+  })
+
   test("initial terminal connects to PTY server via WebSocket", async ({ page }) => {
     const connections = trackPtyWebSockets(page)
     await page.goto("/terminal")

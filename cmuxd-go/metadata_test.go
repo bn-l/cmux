@@ -17,8 +17,17 @@ import (
 // startTestServer starts cmuxd-go HTTP server and returns its URL.
 func startTestServer(t *testing.T) (*Server, *httptest.Server) {
 	t.Helper()
-	srv := NewServer()
+	srv := NewServer(nil)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/terminal-config" {
+			w.Header().Set("Content-Type", "application/json")
+			if len(srv.terminalConfig) == 0 {
+				_, _ = w.Write([]byte("{}"))
+				return
+			}
+			_, _ = w.Write(srv.terminalConfig)
+			return
+		}
 		if strings.Contains(r.URL.RawQuery, "mode=mux") {
 			HandleMux(srv, w, r)
 		} else {
@@ -807,5 +816,36 @@ func TestDirInWorkspaceUpdateE2E(t *testing.T) {
 	}
 	if !found {
 		t.Error("workspace_update should include dir 'my-project' (basename of CWD)")
+	}
+}
+
+func TestTerminalConfigEndpointReturnsSerializedConfig(t *testing.T) {
+	srv, ts := startTestServer(t)
+	srv.terminalConfig = json.RawMessage(`{"fontFamily":"Menlo","theme":{"background":"#272822"}}`)
+
+	resp, err := http.Get(ts.URL + "/terminal-config")
+	if err != nil {
+		t.Fatalf("http.Get: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Fatalf("Content-Type = %q, want application/json", ct)
+	}
+
+	var got map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+
+	if got["fontFamily"] != "Menlo" {
+		t.Fatalf("fontFamily = %#v, want Menlo", got["fontFamily"])
+	}
+	theme, ok := got["theme"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("theme = %#v, want object", got["theme"])
+	}
+	if theme["background"] != "#272822" {
+		t.Fatalf("theme.background = %#v, want #272822", theme["background"])
 	}
 }

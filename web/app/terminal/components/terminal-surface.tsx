@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useEffect } from "react"
+import { useRef, useEffect, useState } from "react"
 import { surfaceRegistry } from "../lib/surface-registry"
 
 import type { DropDirection } from "../lib/reducer"
@@ -25,6 +25,7 @@ export function TerminalSurface({
   const containerRef = useRef<HTMLDivElement>(null)
   const isFocusedRef = useRef(isFocused)
   const readyRef = useRef(false)
+  const [background, setBackground] = useState("#171717")
 
   // Keep ref in sync so the create callback sees the latest value
   isFocusedRef.current = isFocused
@@ -38,6 +39,7 @@ export function TerminalSurface({
 
     surfaceRegistry.create(tabId).then((entry) => {
       if (cancelled) return
+      setBackground(entry.background)
       container.appendChild(entry.containerEl)
       requestAnimationFrame(() => {
         if (cancelled) return
@@ -76,7 +78,7 @@ export function TerminalSurface({
       data-drop-zone={dropZone ?? undefined}
       className="flex flex-1 cursor-text select-none"
       style={{
-        background: "#171717",
+        background,
         border: "none",
         borderRadius: 0,
         margin: 0,
@@ -93,7 +95,7 @@ export function TerminalSurface({
           style={{
             position: "absolute",
             inset: 0,
-            background: "#171717",
+            background,
             opacity: 0.3,
             pointerEvents: "none",
             zIndex: 1,

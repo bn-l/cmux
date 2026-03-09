@@ -9,6 +9,7 @@ export class XtermAdapter implements TerminalAdapter {
   private fitAddon: FitAddon | null = null
   private resizeObserver: ResizeObserver | null = null
   private _containerEl: HTMLDivElement | null = null
+  private themeBackground = "#171717"
 
   async init(): Promise<void> {
     // No WASM to load — CSS is imported at module level
@@ -43,6 +44,7 @@ export class XtermAdapter implements TerminalAdapter {
       background: "#171717",
       foreground: "#ededed",
     }
+    this.themeBackground = theme.background ?? "#171717"
 
     this.terminal = new Terminal({
       cursorBlink: config.cursorBlink ?? false,
@@ -60,7 +62,21 @@ export class XtermAdapter implements TerminalAdapter {
     if (!this.terminal) throw new Error("XtermAdapter: call create() before open()")
     this._containerEl = container
     this.terminal.open(container)
+    this.applyThemeBackground()
     this.loadAddons()
+  }
+
+  private applyThemeBackground(): void {
+    if (!this._containerEl) return
+
+    this._containerEl.style.backgroundColor = this.themeBackground
+    const selectors = [".xterm", ".xterm-viewport", ".xterm-screen", ".xterm-rows"]
+    for (const selector of selectors) {
+      const el = this._containerEl.querySelector<HTMLElement>(selector)
+      if (el) {
+        el.style.backgroundColor = this.themeBackground
+      }
+    }
   }
 
   private async loadAddons(): Promise<void> {

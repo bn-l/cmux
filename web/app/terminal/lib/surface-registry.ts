@@ -6,6 +6,7 @@ interface TerminalEntry {
   ws: WebSocket | null
   containerEl: HTMLDivElement
   shellAttached: boolean
+  background: string
 }
 
 type TitleChangeHandler = (tabId: string, title: string) => void
@@ -814,6 +815,7 @@ class CmuxdConnection {
 // --- Registry ---
 
 const PTY_WS_URL = "ws://localhost:3778/ws"
+const PTY_CONFIG_URL = "http://localhost:3778/terminal-config"
 
 class SurfaceRegistry {
   private terminals = new Map<string, TerminalEntry>()
@@ -823,6 +825,8 @@ class SurfaceRegistry {
   private pendingMetadataEvents: Array<{ tabId: string; metadata: TabMetadata }> = []
   private pendingNotificationEvents: Array<{ type: "list" | "add" | "read" | "cleared"; data: unknown }> = []
   private muxConnection: CmuxdConnection | null = null
+  private standaloneTerminalConfig: TerminalConfig | null = null
+  private standaloneTerminalConfigPromise: Promise<TerminalConfig | null> | null = null
   private tabSessionMap = new Map<string, number>() // tabId -> sessionId
 
   /** Pre-connect the mux WebSocket to fetch terminalConfig (renderer, theme, etc.)
@@ -860,18 +864,49 @@ class SurfaceRegistry {
     await this.muxConnection.connect(`${PTY_WS_URL}?mode=mux&cols=80&rows=24`)
   }
 
+  private async ensureTerminalConfig(): Promise<TerminalConfig | null> {
+    const params = typeof window !== "undefined" ? window.location.search : ""
+    if (params.includes("mode=mux")) {
+      try {
+        await this.ensureMuxConfig()
+      } catch {
+        return null
+      }
+      return this.muxConnection?.getTerminalConfig() ?? null
+    }
+
+    if (this.standaloneTerminalConfig) {
+      return this.standaloneTerminalConfig
+    }
+
+    if (!this.standaloneTerminalConfigPromise) {
+      this.standaloneTerminalConfigPromise = fetch(PTY_CONFIG_URL)
+        .then(async (response) => {
+          if (!response.ok) return null
+          const data = await response.json() as TerminalConfig
+          this.standaloneTerminalConfig = Object.keys(data).length > 0 ? data : null
+          return this.standaloneTerminalConfig
+        })
+        .catch(() => null)
+        .finally(() => {
+          this.standaloneTerminalConfigPromise = null
+        })
+    }
+
+    return this.standaloneTerminalConfigPromise
+  }
+
   async create(tabId: string): Promise<TerminalEntry> {
     const existing = this.terminals.get(tabId)
     if (existing) return existing
 
-    // Pre-connect mux to get config (renderer type, theme, etc.) before creating adapter
-    try { await this.ensureMuxConfig() } catch { /* non-mux mode or connection failed */ }
-
-    const cfg = this.muxConnection?.getTerminalConfig()
+    const cfg = await this.ensureTerminalConfig()
     const rendererType = getRendererType(cfg?.renderer)
 
     const adapter = await createTerminalAdapter(rendererType)
     await adapter.init()
+
+    const background = cfg?.theme?.background ?? "#171717"
 
     adapter.create({
       cursorBlink: cfg?.cursorBlink ?? false,
@@ -888,6 +923,7 @@ class SurfaceRegistry {
     const containerEl = document.createElement("div")
     containerEl.style.width = "100%"
     containerEl.style.height = "100%"
+    containerEl.style.background = background
 
     adapter.open(containerEl)
 
@@ -895,13 +931,17 @@ class SurfaceRegistry {
       this.titleChangeHandler?.(tabId, title)
     })
 
-    const entry: TerminalEntry = { adapter, ws: null, containerEl, shellAttached: false }
+    const entry: TerminalEntry = { adapter, ws: null, containerEl, shellAttached: false, background }
     this.terminals.set(tabId, entry)
     return entry
   }
 
   get(tabId: string): TerminalEntry | undefined {
     return this.terminals.get(tabId)
+  }
+
+  getBackground(tabId: string): string | undefined {
+    return this.terminals.get(tabId)?.background
   }
 
   /** Attach the fake in-browser shell */

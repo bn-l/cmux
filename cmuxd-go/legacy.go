@@ -27,7 +27,7 @@ func HandleLegacy(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sess, err := SpawnSession(0, cols, rows)
+	sess, err := SpawnSession(0, cols, rows, nil)
 	if err != nil {
 		conn.Close(websocket.StatusInternalError, "failed to spawn PTY")
 		conn.CloseNow()

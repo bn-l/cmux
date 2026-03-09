@@ -242,7 +242,8 @@ function Row({ label, value, onChange, min = 0, max = 128, step = 1, unit = "px"
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-28 accent-blue-500 cursor-pointer"
+        className="w-28 cursor-pointer"
+        style={{ accentColor: "var(--accent)" }}
       />
       <span className="text-right tabular-nums" style={{ width: `${w * 4}px` }}>
         {Number.isInteger(step) ? value : value.toFixed(step < 0.1 ? 2 : 1)}{unit}

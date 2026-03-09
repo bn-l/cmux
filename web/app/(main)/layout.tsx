@@ -1,4 +1,4 @@
-import { SiteFooter } from "../components/nav-links";
+import { SiteFooter } from "../components/site-footer";
 import { DevPanel } from "../components/spacing-control";
 
 export default function MainLayout({

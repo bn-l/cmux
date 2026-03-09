@@ -5,14 +5,22 @@ export function Callout({
   type?: "info" | "warn";
   children: React.ReactNode;
 }) {
-  const styles =
+  const style =
+    type === "warn"
+      ? undefined
+      : {
+          borderLeftColor: "var(--accent)",
+          background: "rgba(var(--accent-rgb), 0.05)",
+        } as const;
+  const className =
     type === "warn"
       ? "border-l-amber-500 bg-amber-500/5"
-      : "border-l-blue-500 bg-blue-500/5";
+      : "";
 
   return (
     <div
-      className={`${styles} border-l-2 px-4 py-3 mb-4 rounded-r-lg text-[14px] text-muted leading-relaxed`}
+      className={`${className} border-l-2 px-4 py-3 mb-4 rounded-r-lg text-[14px] text-muted leading-relaxed`}
+      style={style}
     >
       {children}
     </div>

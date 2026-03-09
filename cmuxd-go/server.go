@@ -50,9 +50,9 @@ type Server struct {
 	notifications  *NotificationStore
 }
 
-func NewServer() *Server {
+func NewServer(cfg *TerminalConfig) *Server {
 	return &Server{
-		sessions:      NewSessionManager(),
+		sessions:      NewSessionManager(cfg),
 		clients:       nil,
 		nextClientID:  1,
 		notifications: NewNotificationStore(),
