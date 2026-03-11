@@ -129,10 +129,9 @@ final class WindowTerminalHostView: NSView {
         clearActiveDividerCursor(restoreArrow: true)
     }
 
+    // PERF: hitTest is called on EVERY event including keyboard. Keep non-pointer
+    // path minimal. Do not add work outside the isPointerEvent guard.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Only perform divider/sidebar/drag routing for pointer-related events.
-        // hitTest is also called during keyboard event dispatch; doing expensive
-        // recursive view-tree walks there adds unnecessary typing latency.
         let currentEvent = NSApp.currentEvent
         let isPointerEvent: Bool
         switch currentEvent?.type {

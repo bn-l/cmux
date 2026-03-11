@@ -9216,10 +9216,14 @@ enum SidebarWorkspaceShortcutHintMetrics {
     #endif
 }
 
+// PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
+// the parent rebuilds with unchanged values. Without this, every TabManager
+// or NotificationStore publish causes ALL tab items to re-evaluate (~18% of
+// main thread during typing). If you add new properties, update == below.
+// Do NOT add @EnvironmentObject or new @Binding without updating ==.
+// Do NOT remove .equatable() from the ForEach call site in VerticalTabsSidebar.
 private struct TabItemView: View, Equatable {
-    // Custom Equatable so SwiftUI skips body re-evaluation when the parent
-    // rebuilds but nothing relevant to this tab actually changed.
-    // Closures, Bindings, and object references are excluded from comparison
+    // Closures, Bindings, and object references are excluded from ==
     // because they're recreated every parent eval but don't affect rendering.
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.tab === rhs.tab &&
