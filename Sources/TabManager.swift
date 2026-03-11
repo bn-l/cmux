@@ -571,6 +571,7 @@ class TabManager: ObservableObject {
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
+    @Published var workspaceEngineKind: WorkspaceEngineKind
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -661,7 +662,11 @@ class TabManager: ObservableObject {
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
-    init(initialWorkingDirectory: String? = nil) {
+    init(
+        initialWorkingDirectory: String? = nil,
+        workspaceEngineKind: WorkspaceEngineKind = .legacy
+    ) {
+        self.workspaceEngineKind = workspaceEngineKind
         addWorkspace(workingDirectory: initialWorkingDirectory)
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,

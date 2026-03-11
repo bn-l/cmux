@@ -2497,6 +2497,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "snapshotDisplay={\(debugSessionDisplayDescription(snapshot.display))}"
         )
 #endif
+        if let workspaceEngineKind = snapshot.workspaceEngineKind {
+            context.tabManager.workspaceEngineKind = workspaceEngineKind
+        }
         context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
         context.sidebarState.isVisible = snapshot.sidebar.isVisible
         context.sidebarState.persistedWidth = CGFloat(
@@ -3327,6 +3330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return SessionWindowSnapshot(
                     frame: window.map { SessionRectSnapshot($0.frame) },
                     display: displaySnapshot(for: window),
+                    workspaceEngineKind: context.tabManager.workspaceEngineKind,
                     tabManager: context.tabManager.sessionSnapshot(includeScrollback: includeScrollback),
                     sidebar: SessionSidebarSnapshot(
                         isVisible: context.sidebarState.isVisible,
@@ -3569,7 +3573,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func moveWorkspaceToNewWindow(workspaceId: UUID, focus: Bool = true) -> UUID? {
-        let windowId = createMainWindow()
+        guard let sourceManager = tabManagerFor(tabId: workspaceId) else { return nil }
+        let windowId = createMainWindow(workspaceEngineKind: sourceManager.workspaceEngineKind)
         guard let destinationManager = tabManagerFor(windowId: windowId) else { return nil }
         let bootstrapWorkspaceId = destinationManager.tabs.first?.id
 
@@ -4899,6 +4904,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = createMainWindow()
     }
 
+    func openNewMainWindow(workspaceEngineKind: WorkspaceEngineKind) {
+        _ = createMainWindow(workspaceEngineKind: workspaceEngineKind)
+    }
+
     @objc func openWindow(
         _ pasteboard: NSPasteboard,
         userData: String?,
@@ -5272,10 +5281,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func createMainWindow(
         initialWorkingDirectory: String? = nil,
-        sessionWindowSnapshot: SessionWindowSnapshot? = nil
+        sessionWindowSnapshot: SessionWindowSnapshot? = nil,
+        workspaceEngineKind: WorkspaceEngineKind? = nil
     ) -> UUID {
         let windowId = UUID()
-        let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
+        let resolvedWorkspaceEngineKind = workspaceEngineKind
+            ?? sessionWindowSnapshot?.workspaceEngineKind
+            ?? WorkspaceEngineSettings.defaultEngineKind()
+        let tabManager = TabManager(
+            initialWorkingDirectory: initialWorkingDirectory,
+            workspaceEngineKind: resolvedWorkspaceEngineKind
+        )
         if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
             tabManager.restoreSessionSnapshot(tabManagerSnapshot)
         }
@@ -5292,7 +5308,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let notificationStore = TerminalNotificationStore.shared
 
-        let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
+        let root = ContentView(
+            updateViewModel: updateViewModel,
+            windowId: windowId,
+            initialTabManager: tabManager
+        )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(sidebarState)
