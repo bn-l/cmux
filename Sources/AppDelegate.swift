@@ -9111,34 +9111,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         #endif
 
-        prepareFocusedBrowserDevToolsForSplit(directionLabel: directionLabel)
-        tabManager?.createSplit(direction: direction)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.prepareFocusedBrowserDevToolsForSplit(directionLabel: directionLabel)
+            self.tabManager?.createSplit(direction: direction)
 #if DEBUG
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            let keyWindow = NSApp.keyWindow
-            let firstResponder = keyWindow?.firstResponder
-            let firstResponderType = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-            let firstResponderPtr = firstResponder.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
-            let firstResponderWindow: Int = {
-                if let v = firstResponder as? NSView {
-                    return v.window?.windowNumber ?? -1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                let keyWindow = NSApp.keyWindow
+                let firstResponder = keyWindow?.firstResponder
+                let firstResponderType = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+                let firstResponderPtr = firstResponder.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+                let firstResponderWindow: Int = {
+                    if let v = firstResponder as? NSView {
+                        return v.window?.windowNumber ?? -1
+                    }
+                    if let w = firstResponder as? NSWindow {
+                        return w.windowNumber
+                    }
+                    return -1
+                }()
+                let splitContext = "keyWin=\(keyWindow?.windowNumber ?? -1) mainWin=\(NSApp.mainWindow?.windowNumber ?? -1) fr=\(firstResponderType)@\(firstResponderPtr) frWin=\(firstResponderWindow)"
+                if let browser = self?.tabManager?.focusedBrowserPanel {
+                    let webWindow = browser.webView.window?.windowNumber ?? -1
+                    let webSuperview = browser.webView.superview.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+                    dlog("split.shortcut dir=\(directionLabel) post panel=\(browser.id.uuidString.prefix(5)) \(browser.debugDeveloperToolsStateSummary()) webWin=\(webWindow) webSuper=\(webSuperview) \(splitContext)")
+                } else {
+                    dlog("split.shortcut dir=\(directionLabel) post panel=nil \(splitContext)")
                 }
-                if let w = firstResponder as? NSWindow {
-                    return w.windowNumber
-                }
-                return -1
-            }()
-            let splitContext = "keyWin=\(keyWindow?.windowNumber ?? -1) mainWin=\(NSApp.mainWindow?.windowNumber ?? -1) fr=\(firstResponderType)@\(firstResponderPtr) frWin=\(firstResponderWindow)"
-            if let browser = self?.tabManager?.focusedBrowserPanel {
-                let webWindow = browser.webView.window?.windowNumber ?? -1
-                let webSuperview = browser.webView.superview.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
-                dlog("split.shortcut dir=\(directionLabel) post panel=\(browser.id.uuidString.prefix(5)) \(browser.debugDeveloperToolsStateSummary()) webWin=\(webWindow) webSuper=\(webSuperview) \(splitContext)")
-            } else {
-                dlog("split.shortcut dir=\(directionLabel) post panel=nil \(splitContext)")
             }
-        }
-        recordGotoSplitSplitIfNeeded(direction: direction)
+            self.recordGotoSplitSplitIfNeeded(direction: direction)
 #endif
+        }
         return true
     }
 
