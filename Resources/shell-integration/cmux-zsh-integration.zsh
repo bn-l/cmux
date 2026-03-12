@@ -57,6 +57,89 @@ typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
+typeset -g _CMUX_GHOSTTY_PROMPT_TAKEOVER=0
+
+_cmux_ghostty_prompt_active() {
+    (( _CMUX_GHOSTTY_PROMPT_TAKEOVER )) || return 1
+    (( ${+_ghostty_fd} )) || return 1
+    return 0
+}
+
+_cmux_strip_ghostty_prompt_marks() {
+    # Ghostty's zsh integration patches PS1/PS2 with OSC 133 markers. In the
+    # embedded cmux terminal that makes prompt redraw paths fragile, because
+    # redraws can replay the prompt string without a matching clear step.
+    PS1=${PS1//$'%{\e]133;A;cl=line\a%}'}
+    PS1=${PS1//$'%{\e]133;A;k=s\a%}'}
+    PS1=${PS1//$'%{\e]133;B\a%}'}
+    PS2=${PS2//$'%{\e]133;A;k=s\a%}'}
+    PS2=${PS2//$'%{\e]133;B\a%}'}
+}
+
+_cmux_take_over_ghostty_prompt_hooks() {
+    local -i cmd_status=$?
+
+    # Let Ghostty finish its deferred init so path/sudo/ssh helpers and zle
+    # widgets stay installed, then take over only the prompt/output markers.
+    (( ${+_ghostty_fd} )) || {
+        add-zsh-hook -d precmd _cmux_take_over_ghostty_prompt_hooks
+        return $cmd_status
+    }
+
+    builtin typeset -ag precmd_functions
+    builtin typeset -ag preexec_functions
+    precmd_functions=("${(@)precmd_functions:#_ghostty_precmd}")
+    preexec_functions=("${(@)preexec_functions:#_ghostty_preexec}")
+
+    _cmux_strip_ghostty_prompt_marks
+    (( ${+_ghostty_state} )) || builtin typeset -gi _ghostty_state=0
+    _CMUX_GHOSTTY_PROMPT_TAKEOVER=1
+
+    add-zsh-hook -d precmd _cmux_take_over_ghostty_prompt_hooks
+    return $cmd_status
+}
+
+_cmux_ghostty_preexec() {
+    local cmd="${1:-}"
+    _cmux_ghostty_prompt_active || return 0
+
+    if ! builtin zle; then
+        builtin print -nu $_ghostty_fd '\e]133;C\a'
+        (( _ghostty_state = 1 ))
+    fi
+
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
+        builtin print -rnu $_ghostty_fd $'\e]2;'"${cmd//[[:cntrl:]]}"$'\a'
+    fi
+
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
+        builtin print -rnu $_ghostty_fd $'\e[0 q'
+    fi
+}
+
+_cmux_ghostty_precmd() {
+    local -i cmd_status="${1:-$?}"
+    _cmux_ghostty_prompt_active || return 0
+
+    # Some prompt frameworks invoke precmd hooks from zle for redraws. Only
+    # emit fresh-prompt markers on real prompt cycles; Ghostty's zle-line-init
+    # fallback will re-mark redraws without touching PS1/PS2.
+    if ! builtin zle; then
+        if (( _ghostty_state == 1 )); then
+            builtin print -nu $_ghostty_fd '\e]133;D;'$cmd_status'\a'
+        fi
+        builtin print -nu $_ghostty_fd '\e]133;A;cl=line\a'
+        (( _ghostty_state = 2 ))
+    fi
+
+    if (( $+functions[_ghostty_report_pwd] )); then
+        _ghostty_report_pwd
+    fi
+
+    if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
+        builtin print -rnu $_ghostty_fd $'\e]2;'"${(%):-%(4~|…/%3~|%~)}"$'\a'
+    fi
+}
 
 _cmux_git_resolve_head_path() {
     # Resolve the HEAD file path without invoking git (fast; works for worktrees).
@@ -353,6 +436,8 @@ _cmux_start_git_head_watch() {
 }
 
 _cmux_preexec() {
+    _cmux_ghostty_preexec "$1"
+
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
         t="$(tty 2>/dev/null || true)"
@@ -378,6 +463,9 @@ _cmux_preexec() {
 }
 
 _cmux_precmd() {
+    local -i cmd_status=$?
+    _cmux_ghostty_precmd "$cmd_status"
+
     _cmux_stop_git_head_watch
 
     # Skip if socket doesn't exist yet
@@ -552,6 +640,7 @@ _cmux_zshexit() {
 }
 
 autoload -Uz add-zsh-hook
+add-zsh-hook precmd _cmux_take_over_ghostty_prompt_hooks
 add-zsh-hook preexec _cmux_preexec
 add-zsh-hook precmd _cmux_precmd
 add-zsh-hook precmd _cmux_fix_path
