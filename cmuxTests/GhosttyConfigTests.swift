@@ -1476,16 +1476,19 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(output.contains("PREEXEC=0"), output)
     }
 
-    func testCmuxKeepsGhosttyPromptHooksAfterDeferredInit() throws {
+    func testGhosttyPromptHooksRemainAfterDeferredInitWithCmuxShellIntegration() throws {
         let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: true,
             cmuxShellIntegration: true,
             command:
-                "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
-                "print -r -- \"PRECMD=${+functions[_ghostty_precmd]} PREEXEC=${+functions[_ghostty_preexec]} " +
+                "_ghostty_fd=1; " +
+                "for fn in \"${precmd_functions[@]}\"; do \"$fn\"; done; " +
+                "print -r -- \"DEFERRED=${+functions[_ghostty_deferred_init]} " +
+                "PRECMD=${+functions[_ghostty_precmd]} PREEXEC=${+functions[_ghostty_preexec]} " +
                 "PRECMDS=${(j:,:)precmd_functions} PREEXECS=${(j:,:)preexec_functions}\""
         )
 
+        XCTAssertTrue(output.contains("DEFERRED=0"), output)
         XCTAssertTrue(output.contains("PRECMD=1"), output)
         XCTAssertTrue(output.contains("PREEXEC=1"), output)
         XCTAssertTrue(output.contains("_ghostty_precmd"), output)
@@ -1551,6 +1554,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             .deletingLastPathComponent()
         let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
         let ghosttyResources = repoRoot.appendingPathComponent("ghostty/src")
+        let socketPath = root.appendingPathComponent("cmux-zsh-shell-integration.sock")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -1572,7 +1576,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             "CMUX_SHELL_INTEGRATION": cmuxShellIntegration ? "1" : "0",
             "CMUX_SHELL_INTEGRATION_DIR": cmuxZdotdir.path,
             "GHOSTTY_RESOURCES_DIR": ghosttyResources.path,
-            "CMUX_SOCKET_PATH": "/tmp/cmux-zsh-shell-integration.sock",
+            "CMUX_SOCKET_PATH": socketPath.path,
             "CMUX_TAB_ID": UUID().uuidString,
             "CMUX_PANEL_ID": UUID().uuidString,
         ]
