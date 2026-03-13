@@ -3442,11 +3442,12 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
                     SettingsCard {
-                        SettingsPickerRow(String(localized: "settings.app.theme", defaultValue: "Theme"), controlWidth: pickerColumnWidth, selection: $appearanceMode) {
-                            ForEach(AppearanceMode.visibleCases) { mode in
-                                Text(mode.displayName).tag(mode.rawValue)
+                        ThemePickerRow(
+                            selectedMode: appearanceMode,
+                            onSelect: { mode in
+                                appearanceMode = mode.rawValue
                             }
-                        }
+                        )
 
                         SettingsCardDivider()
 
@@ -4753,6 +4754,114 @@ private struct SettingsCardNote: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct ThemeWindowThumbnail: View {
+    let isDark: Bool
+    let size: CGFloat
+
+    private var bgColor: Color { isDark ? Color(white: 0.15) : Color(white: 0.95) }
+    private var titleBarColor: Color { isDark ? Color(white: 0.22) : Color(white: 0.88) }
+    private var contentColor: Color { isDark ? Color(white: 0.12) : Color.white }
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: size * 0.1, style: .continuous)
+            .fill(bgColor)
+            .overlay(
+                VStack(spacing: 0) {
+                    // Title bar
+                    HStack(spacing: 3) {
+                        Circle().fill(Color.red.opacity(isDark ? 0.8 : 1)).frame(width: 4, height: 4)
+                        Circle().fill(Color.yellow.opacity(isDark ? 0.8 : 1)).frame(width: 4, height: 4)
+                        Circle().fill(Color.green.opacity(isDark ? 0.8 : 1)).frame(width: 4, height: 4)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 4)
+                    .background(titleBarColor)
+
+                    // Content area
+                    VStack(spacing: 3) {
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(Color.accentColor.opacity(isDark ? 0.6 : 0.4))
+                            .frame(height: 5)
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(isDark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                            .frame(height: 4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.trailing, 8)
+                    }
+                    .padding(5)
+                    .frame(maxHeight: .infinity)
+                    .background(contentColor)
+
+                    Spacer(minLength: 0)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.1, style: .continuous))
+            )
+            .frame(width: size, height: size * 0.72)
+    }
+}
+
+private struct ThemePickerRow: View {
+    let selectedMode: String
+    let onSelect: (AppearanceMode) -> Void
+
+    private let thumbSize: CGFloat = 72
+    private let autoThumbSize: CGFloat = 56
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "settings.app.theme", defaultValue: "Theme"))
+                .font(.system(size: 13, weight: .medium))
+
+            HStack(spacing: 12) {
+                ForEach(AppearanceMode.visibleCases) { mode in
+                    let isSelected = selectedMode == mode.rawValue
+                    Button {
+                        onSelect(mode)
+                    } label: {
+                        VStack(spacing: 6) {
+                            Group {
+                                if mode == .system {
+                                    ZStack {
+                                        ThemeWindowThumbnail(isDark: false, size: autoThumbSize)
+                                            .offset(x: -10)
+                                        ThemeWindowThumbnail(isDark: true, size: autoThumbSize)
+                                            .offset(x: 10)
+                                    }
+                                    .frame(width: thumbSize, height: thumbSize * 0.72)
+                                } else {
+                                    ThemeWindowThumbnail(isDark: mode == .dark, size: thumbSize)
+                                }
+                            }
+
+                            Text(mode.displayName)
+                                .font(.system(size: 11))
+                                .fontWeight(isSelected ? .semibold : .regular)
+                                .foregroundColor(isSelected ? .primary : .secondary)
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(isSelected
+                                    ? Color.accentColor.opacity(0.12)
+                                    : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
