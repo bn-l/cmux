@@ -3515,6 +3515,9 @@ struct SettingsView: View {
                             Toggle("", isOn: $notificationPaneRingEnabled)
                                 .labelsHidden()
                                 .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring")
+                                )
                         }
 
                         SettingsCardDivider()
@@ -3526,6 +3529,9 @@ struct SettingsView: View {
                             Toggle("", isOn: $notificationPaneFlashEnabled)
                                 .labelsHidden()
                                 .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash")
+                                )
                         }
 
                         SettingsCardDivider()
