@@ -6471,6 +6471,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 return
             }
+            if let mainWindow = NSApp.windows.first(where: { window in
+                guard let raw = window.identifier?.rawValue else { return false }
+                return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+            }) {
+                let screenFrame = mainWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+                if let screenFrame {
+                    let targetSize = NSSize(width: min(960, screenFrame.width - 80), height: min(720, screenFrame.height - 80))
+                    let targetOrigin = NSPoint(
+                        x: screenFrame.minX + 40,
+                        y: screenFrame.maxY - 40 - targetSize.height
+                    )
+                    let targetFrame = NSRect(origin: targetOrigin, size: targetSize)
+                    if !mainWindow.frame.equalTo(targetFrame) {
+                        mainWindow.setFrame(targetFrame, display: true)
+                    }
+                }
+            }
             guard let tabManager = self.tabManager,
                   let workspace = tabManager.selectedWorkspace ?? tabManager.tabs.first,
                   let alphaPanelId = workspace.focusedPanelId else {

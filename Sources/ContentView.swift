@@ -7175,10 +7175,16 @@ struct VerticalTabsSidebar: View {
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
     private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
+    @AppStorage("workspaceTitlebarVisible")
+    private var showWorkspaceTitlebar = true
 
     /// Space at top of sidebar for traffic light buttons
     private let trafficLightPadding: CGFloat = 28
     private let tabRowSpacing: CGFloat = 2
+
+    private var effectiveTrafficLightPadding: CGFloat {
+        showWorkspaceTitlebar ? trafficLightPadding : 0
+    }
 
     private var showsSidebarNotificationMessage: Bool {
         SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
@@ -7194,7 +7200,7 @@ struct VerticalTabsSidebar: View {
                     VStack(spacing: 0) {
                         // Space for traffic lights / fullscreen controls
                         Spacer()
-                            .frame(height: trafficLightPadding)
+                            .frame(height: effectiveTrafficLightPadding)
 
                         LazyVStack(spacing: tabRowSpacing) {
                             ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
@@ -7227,7 +7233,8 @@ struct VerticalTabsSidebar: View {
                                 .equatable()
                             }
                         }
-                        .padding(.vertical, 8)
+                        .padding(.top, showWorkspaceTitlebar ? 8 : 0)
+                        .padding(.bottom, 8)
 
                         SidebarEmptyArea(
                             rowSpacing: tabRowSpacing,
@@ -7249,14 +7256,18 @@ struct VerticalTabsSidebar: View {
                     .frame(width: 0, height: 0)
                 )
                 .overlay(alignment: .top) {
-                    SidebarTopScrim(height: trafficLightPadding + 20)
-                        .allowsHitTesting(false)
+                    if showWorkspaceTitlebar {
+                        SidebarTopScrim(height: trafficLightPadding + 20)
+                            .allowsHitTesting(false)
+                    }
                 }
                 .overlay(alignment: .top) {
-                    // Match native titlebar behavior in the sidebar top strip:
-                    // drag-to-move and double-click action (zoom/minimize).
-                    WindowDragHandleView()
-                        .frame(height: trafficLightPadding)
+                    if showWorkspaceTitlebar {
+                        // Match native titlebar behavior in the sidebar top strip:
+                        // drag-to-move and double-click action (zoom/minimize).
+                        WindowDragHandleView()
+                            .frame(height: trafficLightPadding)
+                    }
                 }
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
