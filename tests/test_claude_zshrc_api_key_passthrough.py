@@ -32,10 +32,11 @@ def read_text(path: Path) -> str:
 
 
 def main() -> int:
+    zsh_bin = shutil.which("zsh")
     if not (SHELL_WRAPPER_DIR / ".zshenv").exists():
         print(f"SKIP: missing zsh wrapper at {SHELL_WRAPPER_DIR}")
         return 0
-    if shutil.which("zsh") is None:
+    if zsh_bin is None:
         print("SKIP: zsh is not available on PATH")
         return 0
     if not SOURCE_CLAUDE_WRAPPER.exists():
@@ -112,7 +113,7 @@ exit 0
 
         try:
             result = subprocess.run(
-                ["zsh", "-d", "-i", "-c", "claude hello"],
+                [zsh_bin, "-d", "-i", "-c", "claude hello"],
                 env=env,
                 capture_output=True,
                 text=True,
