@@ -752,10 +752,13 @@ extension Workspace {
                     frame: pair.1.frame.cgRect
                 )
             }
-            let focusedPaneId = canvas.focusedPaneIndex.flatMap { index in
-                guard livePanes.indices.contains(index) else { return nil }
+            let focusedPaneId: PaneID? = {
+                guard let index = canvas.focusedPaneIndex,
+                      livePanes.indices.contains(index) else {
+                    return nil
+                }
                 return livePanes[index]
-            }
+            }()
             let layout = PaperCanvasLayoutSnapshot(
                 panes: paneSnapshots,
                 viewportOrigin: canvas.viewportOrigin?.cgPoint ?? .zero,
