@@ -14725,6 +14725,38 @@ final class LocalWebKitBrowserSurfaceRuntimeTests: XCTestCase {
         )
     }
 
+    func testSurfaceFocusAndResponderOwnershipRoundTripThroughRuntime() {
+        _ = NSApplication.shared
+
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration()
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+        surface.webView.frame = container.bounds
+        surface.webView.autoresizingMask = [.width, .height]
+        container.addSubview(surface.webView)
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        drainMainQueue()
+
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertFalse(surface.ownsResponder(window.firstResponder))
+
+        XCTAssertTrue(surface.focusSurface())
+        XCTAssertTrue(surface.ownsResponder(window.firstResponder))
+
+        XCTAssertTrue(surface.unfocusSurface())
+        XCTAssertFalse(surface.ownsResponder(window.firstResponder))
+    }
+
     func testDeveloperToolsHostStateReflectsAttachedInspectorLayoutAndDetachedWindows() {
         _ = NSApplication.shared
 
@@ -15146,6 +15178,10 @@ final class BrowserPanelRuntimeBoundaryTests: XCTestCase {
         private(set) var concealDeveloperToolsCallCount = 0
         private(set) var showDeveloperToolsConsoleCallCount = 0
         private(set) var dismissDetachedDeveloperToolsWindowsCallCount = 0
+        private(set) var ownsResponderCallCount = 0
+        private(set) var focusSurfaceCallCount = 0
+        private(set) var unfocusSurfaceCallCount = 0
+        private(set) var lastOwnedResponder: NSResponder?
         private(set) var lastRevealDeveloperToolsAttachIfNeeded: Bool?
         var captureAddressBarPageFocusStatus: BrowserAddressBarPageFocusCaptureStatus = .clearedNone
         var restoreAddressBarPageFocusStatuses: [BrowserAddressBarPageFocusRestoreStatus] = [.noState]
@@ -15163,6 +15199,9 @@ final class BrowserPanelRuntimeBoundaryTests: XCTestCase {
             hasAttachedInspectorLayout: false,
             detachedWindowCount: 0
         )
+        var ownsResponderResult = false
+        var focusSurfaceResult = true
+        var unfocusSurfaceResult = true
 
         init() {
             let configuration = WKWebViewConfiguration()
@@ -15350,6 +15389,24 @@ final class BrowserPanelRuntimeBoundaryTests: XCTestCase {
             )
         }
 
+        func ownsResponder(_ responder: NSResponder?) -> Bool {
+            ownsResponderCallCount += 1
+            lastOwnedResponder = responder
+            return ownsResponderResult
+        }
+
+        @discardableResult
+        func focusSurface() -> Bool {
+            focusSurfaceCallCount += 1
+            return focusSurfaceResult
+        }
+
+        @discardableResult
+        func unfocusSurface() -> Bool {
+            unfocusSurfaceCallCount += 1
+            return unfocusSurfaceResult
+        }
+
         func sessionHistorySnapshot() -> (backHistoryURLs: [URL], forwardHistoryURLs: [URL]) {
             ([], [])
         }
@@ -15460,6 +15517,72 @@ final class BrowserPanelRuntimeBoundaryTests: XCTestCase {
         XCTAssertEqual(lastAttemptedNavigationURL, url)
         XCTAssertEqual(loadedRequestURL, url)
         XCTAssertEqual(lastCustomUserAgent, BrowserUserAgentSettings.safariUserAgent)
+    }
+
+    func testBrowserPanelFocusUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.state = makeRuntimeState(currentURL: URL(string: "https://example.com/runtime-focus"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        panel.focus()
+
+        XCTAssertEqual(runtime.focusSurfaceCallCount, 1)
+    }
+
+    func testBrowserPanelUnfocusUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        panel.unfocus()
+
+        XCTAssertEqual(runtime.unfocusSurfaceCallCount, 1)
+    }
+
+    func testBrowserPanelCaptureFocusIntentUsesRuntimeOwnershipBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.ownsResponderResult = true
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let window = NSWindow()
+
+        XCTAssertEqual(panel.captureFocusIntent(in: window), .browser(.webView))
+        XCTAssertEqual(runtime.ownsResponderCallCount, 1)
+        XCTAssertNotNil(runtime.lastOwnedResponder)
+    }
+
+    func testBrowserPanelOwnedFocusIntentUsesRuntimeOwnershipBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.ownsResponderResult = true
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let window = NSWindow()
+        let responder = NSTextView()
+
+        XCTAssertEqual(panel.ownedFocusIntent(for: responder, in: window), .browser(.webView))
+        XCTAssertEqual(runtime.ownsResponderCallCount, 1)
+        XCTAssertTrue(runtime.lastOwnedResponder === responder)
+    }
+
+    func testBrowserPanelYieldWebViewFocusUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let window = NSWindow()
+
+        XCTAssertTrue(panel.yieldFocusIntent(.browser(.webView), in: window))
+        XCTAssertEqual(runtime.unfocusSurfaceCallCount, 1)
     }
 
     func testBrowserPanelFindUsesRuntimeBoundary() async {

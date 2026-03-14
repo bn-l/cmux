@@ -1675,6 +1675,11 @@ protocol BrowserSurfaceRuntime: AnyObject {
     func concealDeveloperTools() -> Bool
     func showDeveloperToolsConsole()
     func dismissDetachedDeveloperToolsWindows()
+    func ownsResponder(_ responder: NSResponder?) -> Bool
+    @discardableResult
+    func focusSurface() -> Bool
+    @discardableResult
+    func unfocusSurface() -> Bool
     func sessionHistorySnapshot() -> (backHistoryURLs: [URL], forwardHistoryURLs: [URL])
 }
 
@@ -2066,6 +2071,26 @@ final class LocalWebKitBrowserSurfaceRuntime: BrowserSurfaceRuntime {
         }
     }
 
+    func ownsResponder(_ responder: NSResponder?) -> Bool {
+        Self.responderChainContains(responder, target: webView)
+    }
+
+    @discardableResult
+    func focusSurface() -> Bool {
+        guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
+        if ownsResponder(window.firstResponder) {
+            return true
+        }
+        return window.makeFirstResponder(webView)
+    }
+
+    @discardableResult
+    func unfocusSurface() -> Bool {
+        guard let window = webView.window else { return false }
+        guard ownsResponder(window.firstResponder) else { return false }
+        return window.makeFirstResponder(nil)
+    }
+
     func sessionHistorySnapshot() -> (backHistoryURLs: [URL], forwardHistoryURLs: [URL]) {
         (
             backHistoryURLs: webView.backForwardList.backList.map(\.url),
@@ -2102,6 +2127,17 @@ final class LocalWebKitBrowserSurfaceRuntime: BrowserSurfaceRuntime {
         webView.underPageBackgroundColor = configuration.underPageBackgroundColor
         webView.customUserAgent = configuration.customUserAgent
         return webView
+    }
+
+    private static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
+        var responder = start
+        var hops = 0
+        while let current = responder, hops < 64 {
+            if current === target { return true }
+            responder = current.nextResponder
+            hops += 1
+        }
+        return false
     }
 
     private func wireInternalDelegates() {
@@ -3088,28 +3124,19 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
-        guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
-
         // If nothing meaningful is loaded yet, prefer letting the omnibar take focus.
         if !runtime.state.isLoading, preferredURLStringForOmnibar() == nil {
             return
         }
 
-        if Self.responderChainContains(window.firstResponder, target: webView) {
-            noteWebViewFocused()
-            return
-        }
-        if window.makeFirstResponder(webView) {
+        if runtime.focusSurface() {
             noteWebViewFocused()
         }
     }
 
     func unfocus() {
         invalidateSearchFocusRequests(reason: "panelUnfocus")
-        guard let window = webView.window else { return }
-        if Self.responderChainContains(window.firstResponder, target: webView) {
-            window.makeFirstResponder(nil)
-        }
+        _ = runtime.unfocusSurface()
     }
 
     func close() {
@@ -4292,7 +4319,7 @@ extension BrowserPanel {
         }
 
         if let window,
-           Self.responderChainContains(window.firstResponder, target: webView) {
+           runtime.ownsResponder(window.firstResponder) {
             return .browser(.webView)
         }
 
@@ -4366,7 +4393,7 @@ extension BrowserPanel {
             return .browser(.findField)
         }
 
-        if Self.responderChainContains(responder, target: webView) {
+        if runtime.ownsResponder(responder) {
             return .browser(.webView)
         }
 
@@ -4397,8 +4424,7 @@ extension BrowserPanel {
 #endif
             return yielded
         case .webView:
-            guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
-            return window.makeFirstResponder(nil)
+            return runtime.unfocusSurface()
         }
     }
 
@@ -4737,17 +4763,6 @@ private extension BrowserPanel {
         }
         runtime.setPageZoom(clamped)
         return true
-    }
-
-    static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
-        var r = start
-        var hops = 0
-        while let cur = r, hops < 64 {
-            if cur === target { return true }
-            r = cur.nextResponder
-            hops += 1
-        }
-        return false
     }
 
     func hasSideDockedDeveloperToolsLayout() -> Bool {
