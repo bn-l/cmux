@@ -13,7 +13,7 @@ final class AuthPersistenceUITests: XCTestCase {
 
         ensureSignedIn(app: app)
         assertNoRestoreFlash(app: app)
-        waitForConversationList(app: app)
+        waitForTerminalHome(app: app)
 
         app.terminate()
 
@@ -23,7 +23,7 @@ final class AuthPersistenceUITests: XCTestCase {
 
         assertNoSignInFlash(app: relaunch)
         assertNoRestoreFlash(app: relaunch)
-        waitForConversationList(app: relaunch)
+        waitForTerminalHome(app: relaunch)
 
         let emailField = relaunch.textFields["Email"]
         XCTAssertFalse(emailField.exists, "Sign-in screen should not be visible after relaunch")
@@ -47,17 +47,17 @@ final class AuthPersistenceUITests: XCTestCase {
     }
 
     private func configureAutoAuth(_ app: XCUIApplication) {
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
         app.launchEnvironment["CMUX_UITEST_STACK_EMAIL"] = "l@l.com"
         app.launchEnvironment["CMUX_UITEST_STACK_PASSWORD"] = "abc123"
     }
 
-    private func waitForConversationList(app: XCUIApplication) {
-        let navBar = app.navigationBars["Tasks"]
-        if navBar.waitForExistence(timeout: 10) {
-            return
-        }
-        let list = app.tables.element(boundBy: 0)
-        _ = list.waitForExistence(timeout: 6)
+    private func waitForTerminalHome(app: XCUIApplication) {
+        let home = app.otherElements["terminal.home"]
+        XCTAssertTrue(home.waitForExistence(timeout: 10), "Expected signed-in launch to reach terminal home")
+
+        let addServer = app.buttons["terminal.server.add"]
+        XCTAssertTrue(addServer.waitForExistence(timeout: 4), "Expected terminal server pins to be visible")
     }
 
     private func assertNoSignInFlash(app: XCUIApplication, duration: TimeInterval = 2.5) {

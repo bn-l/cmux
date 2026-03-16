@@ -2,8 +2,14 @@ import Foundation
 
 enum UITestConfig {
     static var mockDataEnabled: Bool {
+        mockDataEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    static func mockDataEnabled(from env: [String: String]) -> Bool {
         #if DEBUG
-        let env = ProcessInfo.processInfo.environment
+        if env["CMUX_UITEST_MOCK_DATA"] == "0" {
+            return false
+        }
         if env["CMUX_UITEST_MOCK_DATA"] == "1" {
             return true
         }
@@ -32,6 +38,29 @@ enum UITestConfig {
         return env["CMUX_UITEST_RAW_CARET"] == "1"
         #else
         return false
+        #endif
+    }
+
+    static var terminalDirectFixtureEnabled: Bool {
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        return env["CMUX_UITEST_TERMINAL_DIRECT_FIXTURE"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    static var terminalReconnectDelayOverride: Double? {
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        guard let rawValue = env["CMUX_UITEST_TERMINAL_RECONNECT_DELAY"],
+              let seconds = Double(rawValue),
+              seconds >= 0 else {
+            return nil
+        }
+        return seconds
+        #else
+        return nil
         #endif
     }
 }

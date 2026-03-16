@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAuthCore
 
 enum Environment {
     case development
@@ -38,36 +39,23 @@ enum Environment {
 
     // MARK: - Stack Auth
 
-    var stackAuthProjectId: String {
-        if let override = localOverride(
-            devKey: "STACK_PROJECT_ID_DEV",
-            prodKey: "STACK_PROJECT_ID_PROD"
-        ) {
-            return override
-        }
+    var stackAuthConfig: CMUXAuthConfig {
+        CMUXAuthConfig.resolve(
+            environment: currentAuthEnvironment,
+            overrides: localConfigStringOverrides,
+            developmentProjectId: "1467bed0-8522-45ee-a8d8-055de324118c",
+            productionProjectId: "8a877114-b905-47c5-8b64-3a2d90679577",
+            developmentPublishableClientKey: "pck_pt4nwry6sdskews2pxk4g2fbe861ak2zvaf3mqendspa0",
+            productionPublishableClientKey: "pck_8761mjjmyqc84e1e8ga3rn0k1nkggmggwa3pyzzgntv70"
+        )
+    }
 
-        switch self {
-        case .development:
-            return "1467bed0-8522-45ee-a8d8-055de324118c"
-        case .production:
-            return "8a877114-b905-47c5-8b64-3a2d90679577"
-        }
+    var stackAuthProjectId: String {
+        stackAuthConfig.projectId
     }
 
     var stackAuthPublishableKey: String {
-        if let override = localOverride(
-            devKey: "STACK_PUBLISHABLE_CLIENT_KEY_DEV",
-            prodKey: "STACK_PUBLISHABLE_CLIENT_KEY_PROD"
-        ) {
-            return override
-        }
-
-        switch self {
-        case .development:
-            return "pck_pt4nwry6sdskews2pxk4g2fbe861ak2zvaf3mqendspa0"
-        case .production:
-            return "pck_8761mjjmyqc84e1e8ga3rn0k1nkggmggwa3pyzzgntv70"
-        }
+        stackAuthConfig.publishableClientKey
     }
 
     // MARK: - Convex
@@ -115,5 +103,28 @@ enum Environment {
         case .development: return "Development"
         case .production: return "Production"
         }
+    }
+
+    private var currentAuthEnvironment: CMUXAuthEnvironment {
+        switch self {
+        case .development:
+            return .development
+        case .production:
+            return .production
+        }
+    }
+
+    private var localConfigStringOverrides: [String: String] {
+        guard let localConfig = Self.localConfig else {
+            return [:]
+        }
+
+        var overrides: [String: String] = [:]
+        for (key, value) in localConfig {
+            if let stringValue = value as? String, !stringValue.isEmpty {
+                overrides[key] = stringValue
+            }
+        }
+        return overrides
     }
 }

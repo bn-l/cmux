@@ -1,17 +1,10 @@
 import Foundation
+import CMUXAuthCore
 import StackAuth
 
-struct StackAuthUser: Codable, Equatable {
-    let id: String
-    let primaryEmail: String?
-    let displayName: String?
+typealias StackAuthUser = CMUXAuthUser
 
-    init(id: String, primaryEmail: String?, displayName: String?) {
-        self.id = id
-        self.primaryEmail = primaryEmail
-        self.displayName = displayName
-    }
-
+extension CMUXAuthUser {
     init(currentUser: CurrentUser) async {
         let userId = await currentUser.id
         let email = await currentUser.primaryEmail

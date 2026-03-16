@@ -2,9 +2,7 @@ package main
 
 import (
 	"bufio"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,11 +14,6 @@ import (
 	"strings"
 	"time"
 )
-
-type relayAuthState struct {
-	RelayID    string `json:"relay_id"`
-	RelayToken string `json:"relay_token"`
-}
 
 // protocolVersion indicates whether a command uses the v1 text or v2 JSON-RPC protocol.
 type protocolVersion int
@@ -41,10 +34,6 @@ type commandSpec struct {
 	flagKeys []string
 	// noParams means the command takes no parameters at all.
 	noParams bool
-	// paramKeyOverrides remaps specific flags for compatibility aliases.
-	paramKeyOverrides map[string]string
-	// defaultParams are applied before flags/env fallbacks.
-	defaultParams map[string]any
 }
 
 var commands = []commandSpec{
@@ -63,12 +52,12 @@ var commands = []commandSpec{
 	{name: "close-workspace", proto: protoV2, v2Method: "workspace.close", flagKeys: []string{"workspace"}},
 	{name: "select-workspace", proto: protoV2, v2Method: "workspace.select", flagKeys: []string{"workspace"}},
 	{name: "current-workspace", proto: protoV2, v2Method: "workspace.current", noParams: true},
-	{name: "list-panels", proto: protoV2, v2Method: "surface.list", flagKeys: []string{"workspace"}},
-	{name: "focus-panel", proto: protoV2, v2Method: "surface.focus", flagKeys: []string{"panel", "workspace"}, paramKeyOverrides: map[string]string{"panel": "surface_id"}},
+	{name: "list-panels", proto: protoV2, v2Method: "panel.list", flagKeys: []string{"workspace"}},
+	{name: "focus-panel", proto: protoV2, v2Method: "panel.focus", flagKeys: []string{"panel", "workspace"}},
 	{name: "list-panes", proto: protoV2, v2Method: "pane.list", flagKeys: []string{"workspace"}},
 	{name: "list-pane-surfaces", proto: protoV2, v2Method: "pane.surfaces", flagKeys: []string{"pane"}},
-	{name: "new-pane", proto: protoV2, v2Method: "pane.create", flagKeys: []string{"workspace", "direction", "type", "url"}, defaultParams: map[string]any{"direction": "right"}},
-	{name: "new-surface", proto: protoV2, v2Method: "surface.create", flagKeys: []string{"workspace", "pane", "type", "url"}},
+	{name: "new-pane", proto: protoV2, v2Method: "pane.create", flagKeys: []string{"workspace"}},
+	{name: "new-surface", proto: protoV2, v2Method: "surface.create", flagKeys: []string{"workspace", "pane"}},
 	{name: "new-split", proto: protoV2, v2Method: "surface.split", flagKeys: []string{"surface", "direction"}},
 	{name: "close-surface", proto: protoV2, v2Method: "surface.close", flagKeys: []string{"surface"}},
 	{name: "send", proto: protoV2, v2Method: "surface.send_text", flagKeys: []string{"surface", "text"}},
@@ -126,7 +115,7 @@ doneFlags:
 	}
 
 	// refreshAddr is set when the address came from socket_addr file (not env/flag),
-	// allowing one stale-address refresh if another workspace has replaced socket_addr.
+	// allowing retry loops to pick up updated relay ports.
 	var refreshAddr func() string
 	if socketPath == "" {
 		socketPath = readSocketAddrFile()
@@ -169,11 +158,7 @@ func execV1(socketPath string, spec *commandSpec, args []string, refreshAddr fun
 	cmd := spec.v1Cmd
 
 	if !spec.noParams {
-		parsed, err := parseFlags(args, spec.flagKeys)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
-			return 2
-		}
+		parsed := parseFlags(args, spec.flagKeys)
 		for _, key := range spec.flagKeys {
 			if val, ok := parsed.flags[key]; ok {
 				cmd += " " + val
@@ -195,24 +180,14 @@ func execV1(socketPath string, spec *commandSpec, args []string, refreshAddr fun
 
 // execV2 sends a v2 JSON-RPC request over the socket.
 func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool, refreshAddr func() string) int {
-	params := make(map[string]any, len(spec.defaultParams))
-	for key, value := range spec.defaultParams {
-		params[key] = value
-	}
+	params := make(map[string]any)
 
 	if !spec.noParams {
-		parsed, err := parseFlags(args, spec.flagKeys)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
-			return 2
-		}
+		parsed := parseFlags(args, spec.flagKeys)
 		// Map flag keys to JSON param keys (e.g. "workspace" → "workspace_id" where appropriate)
 		for _, key := range spec.flagKeys {
 			if val, ok := parsed.flags[key]; ok {
 				paramKey := flagToParamKey(key)
-				if override, ok := spec.paramKeyOverrides[key]; ok {
-					paramKey = override
-				}
 				params[paramKey] = val
 			}
 		}
@@ -222,8 +197,17 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 			params["initial_command"] = parsed.positional[0]
 		}
 
-		applyWorkspaceEnvFallback(params)
-		applySurfaceEnvFallback(params)
+		// Fall back to env vars for common IDs
+		if _, ok := params["workspace_id"]; !ok {
+			if envWs := os.Getenv("CMUX_WORKSPACE_ID"); envWs != "" {
+				params["workspace_id"] = envWs
+			}
+		}
+		if _, ok := params["surface_id"]; !ok {
+			if envSf := os.Getenv("CMUX_SURFACE_ID"); envSf != "" {
+				params["surface_id"] = envSf
+			}
+		}
 	}
 
 	resp, err := socketRoundTripV2(socketPath, spec.v2Method, params, refreshAddr)
@@ -235,7 +219,7 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 	if jsonOutput {
 		fmt.Println(resp)
 	} else {
-		fmt.Println(defaultRelayOutput(resp))
+		fmt.Println("OK")
 	}
 	return 0
 }
@@ -276,63 +260,37 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 
 	var method string
 	var flagKeys []string
-	var allowPositionalURL bool
-	var useWorkspaceEnv bool
-	var useSurfaceEnv bool
 	switch sub {
 	case "open", "open-split", "new":
-		method = "browser.open_split"
+		method = "browser.open"
 		flagKeys = []string{"url", "workspace", "surface"}
-		allowPositionalURL = true
-		useWorkspaceEnv = true
 	case "navigate":
 		method = "browser.navigate"
 		flagKeys = []string{"url", "surface"}
-		allowPositionalURL = true
-		useSurfaceEnv = true
 	case "back":
 		method = "browser.back"
 		flagKeys = []string{"surface"}
-		useSurfaceEnv = true
 	case "forward":
 		method = "browser.forward"
 		flagKeys = []string{"surface"}
-		useSurfaceEnv = true
 	case "reload":
 		method = "browser.reload"
 		flagKeys = []string{"surface"}
-		useSurfaceEnv = true
 	case "get-url":
-		method = "browser.url.get"
+		method = "browser.get_url"
 		flagKeys = []string{"surface"}
-		useSurfaceEnv = true
 	default:
 		fmt.Fprintf(os.Stderr, "cmux browser: unknown subcommand %q\n", sub)
 		return 2
 	}
 
 	params := make(map[string]any)
-	parsed, err := parseFlags(subArgs, flagKeys)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "cmux browser: %v\n", err)
-		return 2
-	}
+	parsed := parseFlags(subArgs, flagKeys)
 	for _, key := range flagKeys {
 		if val, ok := parsed.flags[key]; ok {
 			paramKey := flagToParamKey(key)
 			params[paramKey] = val
 		}
-	}
-	if allowPositionalURL {
-		if _, ok := params["url"]; !ok && len(parsed.positional) > 0 {
-			params["url"] = strings.Join(parsed.positional, " ")
-		}
-	}
-	if useWorkspaceEnv {
-		applyWorkspaceEnvFallback(params)
-	}
-	if useSurfaceEnv {
-		applySurfaceEnvFallback(params)
 	}
 
 	resp, err := socketRoundTripV2(socketPath, method, params, refreshAddr)
@@ -343,68 +301,9 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 	if jsonOutput {
 		fmt.Println(resp)
 	} else {
-		fmt.Println(defaultRelayOutput(resp))
+		fmt.Println("OK")
 	}
 	return 0
-}
-
-func applyWorkspaceEnvFallback(params map[string]any) {
-	if _, ok := params["workspace_id"]; ok {
-		return
-	}
-	if envWs := os.Getenv("CMUX_WORKSPACE_ID"); envWs != "" {
-		params["workspace_id"] = envWs
-	}
-}
-
-func applySurfaceEnvFallback(params map[string]any) {
-	if _, ok := params["surface_id"]; ok {
-		return
-	}
-	if envSf := os.Getenv("CMUX_SURFACE_ID"); envSf != "" {
-		params["surface_id"] = envSf
-	}
-}
-
-func defaultRelayOutput(resp string) string {
-	var result any
-	if err := json.Unmarshal([]byte(resp), &result); err != nil {
-		trimmed := strings.TrimSpace(resp)
-		if trimmed == "" {
-			return "OK"
-		}
-		return trimmed
-	}
-
-	if relayResultIsEmpty(result) {
-		return "OK"
-	}
-
-	switch typed := result.(type) {
-	case string:
-		return typed
-	default:
-		encoded, err := json.MarshalIndent(typed, "", "  ")
-		if err != nil {
-			return "OK"
-		}
-		return string(encoded)
-	}
-}
-
-func relayResultIsEmpty(result any) bool {
-	switch typed := result.(type) {
-	case nil:
-		return true
-	case map[string]any:
-		return len(typed) == 0
-	case []any:
-		return len(typed) == 0
-	case string:
-		return typed == ""
-	default:
-		return false
-	}
 }
 
 // flagToParamKey maps a CLI flag name to its JSON-RPC param key.
@@ -439,7 +338,7 @@ type parsedFlags struct {
 
 // parseFlags extracts --key value pairs from args for the given allowed keys.
 // Non-flag arguments are collected in positional.
-func parseFlags(args []string, keys []string) (parsedFlags, error) {
+func parseFlags(args []string, keys []string) parsedFlags {
 	allowed := make(map[string]bool, len(keys))
 	for _, k := range keys {
 		allowed[k] = true
@@ -447,24 +346,20 @@ func parseFlags(args []string, keys []string) (parsedFlags, error) {
 
 	result := parsedFlags{flags: make(map[string]string)}
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--" {
-			result.positional = append(result.positional, args[i+1:]...)
-			break
-		}
 		if !strings.HasPrefix(args[i], "--") {
 			result.positional = append(result.positional, args[i])
 			continue
 		}
 		key := strings.TrimPrefix(args[i], "--")
 		if !allowed[key] {
-			return parsedFlags{}, fmt.Errorf("unknown flag --%s", key)
+			continue
 		}
 		if i+1 < len(args) {
 			result.flags[key] = args[i+1]
 			i++
 		}
 	}
-	return result, nil
+	return result
 }
 
 // readSocketAddrFile reads the socket address from ~/.cmux/socket_addr as a fallback
@@ -481,75 +376,50 @@ func readSocketAddrFile() string {
 	return strings.TrimSpace(string(data))
 }
 
-func readRelayAuthFile(socketPath string) *relayAuthState {
-	if strings.Contains(socketPath, ":") && !strings.HasPrefix(socketPath, "/") {
-		_, port, err := net.SplitHostPort(socketPath)
-		if err != nil || port == "" {
-			return nil
-		}
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil
-		}
-		data, err := os.ReadFile(filepath.Join(home, ".cmux", "relay", port+".auth"))
-		if err != nil {
-			return nil
-		}
-		var state relayAuthState
-		if err := json.Unmarshal(data, &state); err != nil {
-			return nil
-		}
-		if state.RelayID == "" || state.RelayToken == "" {
-			return nil
-		}
-		return &state
-	}
-	return nil
-}
-
-func currentRelayAuth(socketPath string) *relayAuthState {
-	relayID := strings.TrimSpace(os.Getenv("CMUX_RELAY_ID"))
-	relayToken := strings.TrimSpace(os.Getenv("CMUX_RELAY_TOKEN"))
-	if relayID != "" && relayToken != "" {
-		return &relayAuthState{RelayID: relayID, RelayToken: relayToken}
-	}
-	return readRelayAuthFile(socketPath)
-}
-
 // dialSocket connects to the cmux socket. If addr contains a colon and doesn't
 // start with '/', it's treated as a TCP address (host:port); otherwise Unix socket.
-// For TCP connections, refreshAddr is used only to recover from a stale socket_addr
-// rewrite, not to poll for relay readiness.
+// For TCP connections, it retries briefly to allow the SSH reverse forward to establish.
+// refreshAddr, if non-nil, is called on each retry to pick up updated socket_addr files.
 func dialSocket(addr string, refreshAddr func() string) (net.Conn, error) {
 	if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "/") {
-		conn, connectedAddr, err := dialTCP(addr)
-		if err != nil && refreshAddr != nil && isConnectionRefused(err) {
-			if refreshedAddr := strings.TrimSpace(refreshAddr()); refreshedAddr != "" && refreshedAddr != addr {
-				addr = refreshedAddr
-				conn, connectedAddr, err = dialTCP(addr)
-			}
-		}
-		if err != nil {
-			return nil, err
-		}
-		if auth := currentRelayAuth(connectedAddr); auth != nil {
-			if err := authenticateRelayConn(conn, auth); err != nil {
-				conn.Close()
-				return nil, err
-			}
-		}
-		return conn, nil
+		return dialTCPRetry(addr, 15*time.Second, refreshAddr)
 	}
 	return net.Dial("unix", addr)
 }
 
-func dialTCP(addr string) (net.Conn, string, error) {
-	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
-	if err != nil {
-		return nil, addr, err
+// dialTCPRetry attempts a TCP connection, retrying on "connection refused" for up to timeout.
+// This handles the case where the SSH reverse relay hasn't finished establishing yet.
+// If refreshAddr is non-nil, it's called on each retry to pick up updated addresses
+// (e.g. when socket_addr is rewritten by a new relay process).
+func dialTCPRetry(addr string, timeout time.Duration, refreshAddr func() string) (net.Conn, error) {
+	deadline := time.Now().Add(timeout)
+	interval := 250 * time.Millisecond
+	printed := false
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		if err == nil {
+			return conn, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, err
+		}
+		// Only retry on connection refused (relay not ready yet)
+		if !isConnectionRefused(err) {
+			return nil, err
+		}
+		if !printed {
+			fmt.Fprintf(os.Stderr, "cmux: waiting for relay on %s...\n", addr)
+			printed = true
+		}
+		time.Sleep(interval)
+		// Re-read socket_addr in case the relay port has changed
+		if refreshAddr != nil {
+			if newAddr := refreshAddr(); newAddr != "" && newAddr != addr {
+				addr = newAddr
+				fmt.Fprintf(os.Stderr, "cmux: relay address updated to %s\n", addr)
+			}
+		}
 	}
-	setTCPNoDelay(conn)
-	return conn, addr, nil
 }
 
 func isConnectionRefused(err error) bool {
@@ -557,66 +427,6 @@ func isConnectionRefused(err error) bool {
 		return strings.Contains(opErr.Err.Error(), "connection refused")
 	}
 	return strings.Contains(err.Error(), "connection refused")
-}
-
-func authenticateRelayConn(conn net.Conn, auth *relayAuthState) error {
-	reader := bufio.NewReader(conn)
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-
-	var challenge struct {
-		Protocol string `json:"protocol"`
-		Version  int    `json:"version"`
-		RelayID  string `json:"relay_id"`
-		Nonce    string `json:"nonce"`
-	}
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return fmt.Errorf("failed to read relay auth challenge: %w", err)
-	}
-	if err := json.Unmarshal([]byte(line), &challenge); err != nil {
-		return fmt.Errorf("invalid relay auth challenge")
-	}
-	if challenge.Protocol != "cmux-relay-auth" || challenge.Version != 1 || challenge.RelayID != auth.RelayID || challenge.Nonce == "" {
-		return fmt.Errorf("relay auth challenge mismatch")
-	}
-
-	tokenBytes, err := hex.DecodeString(auth.RelayToken)
-	if err != nil {
-		return fmt.Errorf("invalid relay auth token")
-	}
-	mac := computeRelayMAC(tokenBytes, auth.RelayID, challenge.Nonce, challenge.Version)
-	payload, err := json.Marshal(map[string]any{
-		"relay_id": auth.RelayID,
-		"mac":      hex.EncodeToString(mac),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to encode relay auth response: %w", err)
-	}
-	if _, err := conn.Write(append(payload, '\n')); err != nil {
-		return fmt.Errorf("failed to send relay auth response: %w", err)
-	}
-
-	line, err = reader.ReadString('\n')
-	if err != nil {
-		return fmt.Errorf("failed to read relay auth result: %w", err)
-	}
-	var result struct {
-		OK bool `json:"ok"`
-	}
-	if err := json.Unmarshal([]byte(line), &result); err != nil {
-		return fmt.Errorf("invalid relay auth result")
-	}
-	if !result.OK {
-		return fmt.Errorf("relay auth rejected")
-	}
-	_ = conn.SetDeadline(time.Time{})
-	return nil
-}
-
-func computeRelayMAC(token []byte, relayID, nonce string, version int) []byte {
-	mac := hmac.New(sha256.New, token)
-	_, _ = io.WriteString(mac, fmt.Sprintf("relay_id=%s\nnonce=%s\nversion=%d", relayID, nonce, version))
-	return mac.Sum(nil)
 }
 
 // socketRoundTrip sends a raw text line and reads a raw text response (v1).

@@ -1,22 +1,1322 @@
+import Combine
 import XCTest
 @testable import cmux_DEV
 
 final class TerminalSidebarStoreTests: XCTestCase {
     @MainActor
-    func testInitialSelectionDefaultsToFirstWorkspace() {
-        let store = TerminalSidebarStore()
-        XCTAssertFalse(store.workspaces.isEmpty)
-        XCTAssertEqual(store.selectedWorkspaceID, store.workspaces.first?.id)
+    func testInitialStateSeedsPinnedHostsAndNoWorkspaces() {
+        let store = makeStore().store
+
+        XCTAssertFalse(store.hosts.isEmpty)
+        XCTAssertTrue(store.workspaces.isEmpty)
+        XCTAssertNil(store.selectedWorkspaceID)
     }
 
     @MainActor
-    func testAddWorkspaceSelectsNewWorkspace() {
-        let store = TerminalSidebarStore()
-        let initialCount = store.workspaces.count
+    func testStartWorkspaceSelectsAndPersistsNewWorkspace() throws {
+        let fixture = makeStore()
+        let store = fixture.store
+        let host = try XCTUnwrap(store.hosts.first)
 
-        store.addWorkspace()
+        let workspaceID = store.startWorkspace(on: host)
 
-        XCTAssertEqual(store.workspaces.count, initialCount + 1)
-        XCTAssertEqual(store.selectedWorkspaceID, store.workspaces.last?.id)
+        let workspace = try XCTUnwrap(store.workspace(with: workspaceID))
+        XCTAssertEqual(store.selectedWorkspaceID, workspaceID)
+        XCTAssertEqual(store.workspaces.first?.id, workspaceID)
+        XCTAssertEqual(workspace.hostID, host.id)
+        XCTAssertTrue(workspace.tmuxSessionName.hasPrefix("cmux-"))
+        XCTAssertEqual(fixture.snapshotStore.load().workspaces.first?.id, workspaceID)
+    }
+
+    @MainActor
+    func testStartWorkspaceReservesAndPersistsBackendIdentityForTeamHost() async throws {
+        let host = TerminalHost(
+            stableID: "cmux-macmini",
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .discovered,
+            transportPreference: .remoteDaemon,
+            teamID: "team_doc_1",
+            serverID: "cmux-macmini"
+        )
+        let identity = TerminalWorkspaceBackendIdentity(
+            teamID: "team_doc_1",
+            taskID: "task_doc_1",
+            taskRunID: "task_run_doc_1",
+            workspaceName: "macmini-101a",
+            descriptor: "Mac Mini #101a"
+        )
+        let fixture = makeStore(
+            snapshot: TerminalStoreSnapshot(hosts: [host], workspaces: [], selectedWorkspaceID: nil),
+            workspaceIdentityService: StubTerminalWorkspaceIdentityService(identity: identity)
+        )
+
+        let workspaceID = fixture.store.startWorkspace(on: host)
+
+        try await waitForCondition {
+            fixture.store.workspace(with: workspaceID)?.backendIdentity == identity
+        }
+
+        XCTAssertEqual(fixture.store.workspace(with: workspaceID)?.backendIdentity, identity)
+        XCTAssertEqual(fixture.snapshotStore.load().workspaces.first?.backendIdentity, identity)
+        XCTAssertEqual(fixture.identityService?.recordedHostIDs, [host.id])
+    }
+
+    @MainActor
+    func testOpenWorkspaceReservesBackendIdentityForLegacyTeamWorkspace() async throws {
+        let host = TerminalHost(
+            stableID: "cmux-macmini",
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .discovered,
+            transportPreference: .remoteDaemon,
+            teamID: "team_doc_1",
+            serverID: "cmux-macmini"
+        )
+        let workspace = TerminalWorkspace(
+            hostID: host.id,
+            title: "Mac Mini",
+            tmuxSessionName: "cmux-macmini"
+        )
+        let identity = TerminalWorkspaceBackendIdentity(
+            teamID: "team_doc_1",
+            taskID: "task_doc_2",
+            taskRunID: "task_run_doc_2",
+            workspaceName: "macmini-101b",
+            descriptor: "Mac Mini #101b"
+        )
+        let fixture = makeStore(
+            snapshot: TerminalStoreSnapshot(
+                hosts: [host],
+                workspaces: [workspace],
+                selectedWorkspaceID: nil
+            ),
+            workspaceIdentityService: StubTerminalWorkspaceIdentityService(identity: identity)
+        )
+
+        _ = fixture.store.openWorkspace(workspace)
+
+        try await waitForCondition {
+            fixture.store.workspace(with: workspace.id)?.backendIdentity == identity
+        }
+
+        XCTAssertEqual(fixture.store.workspace(with: workspace.id)?.backendIdentity, identity)
+        XCTAssertEqual(fixture.identityService?.recordedHostIDs, [host.id])
+    }
+
+    @MainActor
+    func testOpenWorkspaceDoesNotReReserveExistingBackendIdentity() async throws {
+        let host = TerminalHost(
+            stableID: "cmux-macmini",
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .discovered,
+            transportPreference: .remoteDaemon,
+            teamID: "team_doc_1",
+            serverID: "cmux-macmini"
+        )
+        let identity = TerminalWorkspaceBackendIdentity(
+            teamID: "team_doc_1",
+            taskID: "task_doc_3",
+            taskRunID: "task_run_doc_3",
+            workspaceName: "macmini-101c",
+            descriptor: "Mac Mini #101c"
+        )
+        let workspace = TerminalWorkspace(
+            hostID: host.id,
+            title: "Mac Mini",
+            tmuxSessionName: "cmux-macmini",
+            backendIdentity: identity
+        )
+        let fixture = makeStore(
+            snapshot: TerminalStoreSnapshot(
+                hosts: [host],
+                workspaces: [workspace],
+                selectedWorkspaceID: nil
+            ),
+            workspaceIdentityService: StubTerminalWorkspaceIdentityService(
+                identity: TerminalWorkspaceBackendIdentity(
+                    teamID: "team_doc_1",
+                    taskID: "task_doc_4",
+                    taskRunID: "task_run_doc_4",
+                    workspaceName: "unused",
+                    descriptor: "Unused"
+                )
+            )
+        )
+
+        _ = fixture.store.openWorkspace(workspace)
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(fixture.store.workspace(with: workspace.id)?.backendIdentity, identity)
+        XCTAssertTrue(fixture.identityService?.recordedHostIDs.isEmpty ?? false)
+    }
+
+    @MainActor
+    func testOpenWorkspacePersistsBackendMetadataPreviewForLinkedWorkspace() async throws {
+        let host = TerminalHost(
+            stableID: "cmux-macmini",
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .discovered,
+            transportPreference: .remoteDaemon,
+            teamID: "team_doc_1",
+            serverID: "cmux-macmini"
+        )
+        let identity = TerminalWorkspaceBackendIdentity(
+            teamID: "team_doc_1",
+            taskID: "task_doc_5",
+            taskRunID: "task_run_doc_5",
+            workspaceName: "macmini-101d",
+            descriptor: "Mac Mini #101d"
+        )
+        let metadata = TerminalWorkspaceBackendMetadata(preview: "feature/direct-daemon")
+        let workspace = TerminalWorkspace(
+            hostID: host.id,
+            title: "Mac Mini",
+            tmuxSessionName: "cmux-macmini",
+            backendIdentity: identity
+        )
+        let fixture = makeStore(
+            snapshot: TerminalStoreSnapshot(
+                hosts: [host],
+                workspaces: [workspace],
+                selectedWorkspaceID: nil
+            ),
+            workspaceMetadataService: StubTerminalWorkspaceMetadataService()
+        )
+
+        _ = fixture.store.openWorkspace(workspace)
+        fixture.metadataService?.send(metadata, for: identity)
+
+        try await waitForCondition {
+            fixture.store.workspace(with: workspace.id)?.backendMetadata == metadata
+        }
+
+        XCTAssertEqual(fixture.store.workspace(with: workspace.id)?.backendMetadata, metadata)
+        XCTAssertEqual(fixture.snapshotStore.load().workspaces.first?.backendMetadata, metadata)
+    }
+
+    @MainActor
+    func testApplyDiscoveredHostsBackfillsBackendIdentityAndMetadataForExistingWorkspace() async throws {
+        let localHost = TerminalHost(
+            stableID: "cmux-macmini",
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .discovered,
+            transportPreference: .remoteDaemon
+        )
+        let discoveredHost = TerminalHost(
+            stableID: "cmux-macmini",
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .discovered,
+            transportPreference: .remoteDaemon,
+            teamID: "team_doc_6",
+            serverID: "cmux-macmini"
+        )
+        let workspace = TerminalWorkspace(
+            hostID: localHost.id,
+            title: "Mac Mini",
+            tmuxSessionName: "cmux-macmini"
+        )
+        let identity = TerminalWorkspaceBackendIdentity(
+            teamID: "team_doc_6",
+            taskID: "task_doc_6",
+            taskRunID: "task_run_doc_6",
+            workspaceName: "macmini-101e",
+            descriptor: "Mac Mini #101e"
+        )
+        let metadata = TerminalWorkspaceBackendMetadata(preview: "feature/identity-backfill")
+        let fixture = makeStore(
+            snapshot: TerminalStoreSnapshot(
+                hosts: [localHost],
+                workspaces: [workspace],
+                selectedWorkspaceID: nil
+            ),
+            workspaceIdentityService: StubTerminalWorkspaceIdentityService(identity: identity),
+            workspaceMetadataService: StubTerminalWorkspaceMetadataService()
+        )
+
+        fixture.store.applyDiscoveredHosts([discoveredHost])
+
+        try await waitForCondition {
+            fixture.store.workspace(with: workspace.id)?.backendIdentity == identity
+        }
+
+        fixture.metadataService?.send(metadata, for: identity)
+
+        try await waitForCondition {
+            fixture.store.workspace(with: workspace.id)?.backendMetadata == metadata
+        }
+
+        XCTAssertEqual(fixture.store.workspace(with: workspace.id)?.backendIdentity, identity)
+        XCTAssertEqual(fixture.store.workspace(with: workspace.id)?.backendMetadata, metadata)
+        XCTAssertEqual(fixture.snapshotStore.load().workspaces.first?.backendIdentity, identity)
+        XCTAssertEqual(fixture.snapshotStore.load().workspaces.first?.backendMetadata, metadata)
+        XCTAssertEqual(fixture.identityService?.recordedHostIDs, [localHost.id])
+    }
+
+    @MainActor
+    func testApplyDiscoveredHostsReplacesStaleBackendIdentityWhenTeamScopeChanges() async throws {
+        let localHost = TerminalHost(
+            stableID: "cmux-macmini",
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .discovered,
+            transportPreference: .remoteDaemon,
+            teamID: "team_doc_old",
+            serverID: "cmux-macmini"
+        )
+        let discoveredHost = TerminalHost(
+            stableID: "cmux-macmini",
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .discovered,
+            transportPreference: .remoteDaemon,
+            teamID: "team_doc_new",
+            serverID: "cmux-macmini"
+        )
+        let oldIdentity = TerminalWorkspaceBackendIdentity(
+            teamID: "team_doc_old",
+            taskID: "task_doc_old",
+            taskRunID: "task_run_doc_old",
+            workspaceName: "macmini-old",
+            descriptor: "Mac Mini Old"
+        )
+        let newIdentity = TerminalWorkspaceBackendIdentity(
+            teamID: "team_doc_new",
+            taskID: "task_doc_new",
+            taskRunID: "task_run_doc_new",
+            workspaceName: "macmini-new",
+            descriptor: "Mac Mini New"
+        )
+        let workspace = TerminalWorkspace(
+            hostID: localHost.id,
+            title: "Mac Mini",
+            tmuxSessionName: "cmux-macmini",
+            backendIdentity: oldIdentity,
+            backendMetadata: TerminalWorkspaceBackendMetadata(preview: "feature/old")
+        )
+        let fixture = makeStore(
+            snapshot: TerminalStoreSnapshot(
+                hosts: [localHost],
+                workspaces: [workspace],
+                selectedWorkspaceID: nil
+            ),
+            workspaceIdentityService: StubTerminalWorkspaceIdentityService { host in
+                switch host.teamID {
+                case "team_doc_new":
+                    return newIdentity
+                default:
+                    return oldIdentity
+                }
+            },
+            workspaceMetadataService: StubTerminalWorkspaceMetadataService()
+        )
+
+        fixture.store.applyDiscoveredHosts([discoveredHost])
+
+        try await waitForCondition {
+            fixture.store.workspace(with: workspace.id)?.backendIdentity == newIdentity
+        }
+
+        fixture.metadataService?.send(
+            TerminalWorkspaceBackendMetadata(preview: "feature/stale"),
+            for: oldIdentity
+        )
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertNil(fixture.store.workspace(with: workspace.id)?.backendMetadata)
+
+        let newMetadata = TerminalWorkspaceBackendMetadata(preview: "feature/new")
+        fixture.metadataService?.send(newMetadata, for: newIdentity)
+
+        try await waitForCondition {
+            fixture.store.workspace(with: workspace.id)?.backendMetadata == newMetadata
+        }
+
+        XCTAssertEqual(fixture.store.workspace(with: workspace.id)?.backendIdentity, newIdentity)
+        XCTAssertEqual(fixture.store.workspace(with: workspace.id)?.backendMetadata, newMetadata)
+        XCTAssertEqual(fixture.snapshotStore.load().workspaces.first?.backendIdentity, newIdentity)
+        XCTAssertEqual(fixture.snapshotStore.load().workspaces.first?.backendMetadata, newMetadata)
+        XCTAssertEqual(fixture.identityService?.recordedHostIDs, [localHost.id])
+    }
+
+    @MainActor
+    func testOpenWorkspaceMarksUnreadWorkspaceRead() throws {
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint
+        )
+        let unreadWorkspace = TerminalWorkspace(
+            hostID: host.id,
+            title: "Nightly",
+            tmuxSessionName: "cmux-nightly",
+            preview: "tail -f nightly.log",
+            unread: true
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [unreadWorkspace],
+            selectedWorkspaceID: nil
+        )
+        let store = makeStore(snapshot: snapshot).store
+
+        _ = store.openWorkspace(unreadWorkspace)
+
+        let reopenedWorkspace = try XCTUnwrap(store.workspace(with: unreadWorkspace.id))
+        XCTAssertEqual(store.selectedWorkspaceID, unreadWorkspace.id)
+        XCTAssertFalse(reopenedWorkspace.unread)
+    }
+
+    @MainActor
+    func testSaveHostPersistsPasswordAndHostMetadata() throws {
+        let fixture = makeStore()
+        let store = fixture.store
+        let originalHost = try XCTUnwrap(store.hosts.first)
+        var updatedHost = originalHost
+        updatedHost.hostname = "orb"
+        updatedHost.username = "lawrence"
+
+        store.saveHost(
+            updatedHost,
+            credentials: TerminalSSHCredentials(password: "secret", privateKey: nil)
+        )
+
+        let persistedHost = try XCTUnwrap(fixture.snapshotStore.load().hosts.first(where: { $0.id == updatedHost.id }))
+        XCTAssertEqual(persistedHost.hostname, "orb")
+        XCTAssertEqual(fixture.credentialsStore.password(for: updatedHost.id), "secret")
+    }
+
+    @MainActor
+    func testSaveHostNormalizesDirectTLSPins() throws {
+        let fixture = makeStore()
+        let store = fixture.store
+        let originalHost = try XCTUnwrap(store.hosts.first)
+        var updatedHost = originalHost
+        updatedHost.transportPreference = .remoteDaemon
+        updatedHost.allowsSSHFallback = false
+        updatedHost.directTLSPins = [" sha256:pin-a ", "", "sha256:pin-a", "sha256:pin-b "]
+
+        store.saveHost(
+            updatedHost,
+            credentials: TerminalSSHCredentials(password: nil, privateKey: nil)
+        )
+
+        let persistedHost = try XCTUnwrap(
+            fixture.snapshotStore.load().hosts.first(where: { $0.id == updatedHost.id })
+        )
+        XCTAssertEqual(persistedHost.transportPreference, .remoteDaemon)
+        XCTAssertFalse(persistedHost.allowsSSHFallback)
+        XCTAssertEqual(persistedHost.directTLSPins, ["sha256:pin-a", "sha256:pin-b"])
+    }
+
+    @MainActor
+    func testApplyDiscoveredHostsPreservesPersistedWorkspaceHostIDs() throws {
+        let existingHost = TerminalHost(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000010")!,
+            stableID: "cmux-macmini",
+            name: "Old Label",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .discovered,
+            transportPreference: .rawSSH
+        )
+        let existingWorkspace = TerminalWorkspace(
+            hostID: existingHost.id,
+            title: "Mac mini",
+            tmuxSessionName: "cmux-macmini"
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [existingHost],
+            workspaces: [existingWorkspace],
+            selectedWorkspaceID: existingWorkspace.id
+        )
+        let fixture = makeStore(snapshot: snapshot)
+
+        fixture.store.applyDiscoveredHosts([
+            TerminalHost(
+                stableID: "cmux-macmini",
+                name: "Mac Mini",
+                hostname: "cmux-macmini",
+                username: "cmux",
+                symbolName: "desktopcomputer",
+                palette: .mint,
+                source: .discovered,
+                transportPreference: .remoteDaemon
+            )
+        ])
+
+        XCTAssertEqual(fixture.store.workspaces.first?.hostID, existingHost.id)
+        XCTAssertEqual(fixture.store.hosts.first?.id, existingHost.id)
+        XCTAssertEqual(fixture.store.hosts.first?.name, "Mac Mini")
+        XCTAssertEqual(fixture.store.hosts.first?.transportPreference, .remoteDaemon)
+    }
+
+    @MainActor
+    func testIsConfiguredAllowsDirectDaemonHostWithoutPassword() {
+        let host = TerminalHost(
+            stableID: "cmux-macmini",
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .discovered,
+            transportPreference: .remoteDaemon,
+            teamID: "team-1",
+            serverID: "cmux-macmini"
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [],
+            selectedWorkspaceID: nil
+        )
+        let store = makeStore(snapshot: snapshot).store
+
+        XCTAssertTrue(store.isConfigured(host))
+    }
+
+    func testDirectDaemonHostsDoNotRequireSavedSSHPassword() {
+        let host = TerminalHost(
+            stableID: "cmux-macmini",
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .discovered,
+            transportPreference: .remoteDaemon,
+            teamID: "team-1",
+            serverID: "cmux-macmini"
+        )
+        XCTAssertFalse(host.requiresSavedSSHPassword)
+    }
+
+    func testManualDirectDaemonHostsWithoutTeamScopeRequireSSHPassword() {
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .custom,
+            transportPreference: .remoteDaemon,
+            sshAuthenticationMethod: .password
+        )
+
+        XCTAssertTrue(host.requiresSavedSSHPassword)
+    }
+
+    func testRawSSHHostsStillRequireSavedSSHPassword() {
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            transportPreference: .rawSSH,
+            sshAuthenticationMethod: .password
+        )
+        XCTAssertTrue(host.requiresSavedSSHPassword)
+    }
+
+    @MainActor
+    func testIsConfiguredStillRequiresPasswordForRawSSHHost() {
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            transportPreference: .rawSSH,
+            sshAuthenticationMethod: .password
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [],
+            selectedWorkspaceID: nil
+        )
+        let store = makeStore(snapshot: snapshot).store
+
+        XCTAssertFalse(store.isConfigured(host))
+    }
+
+    @MainActor
+    func testIsConfiguredRequiresCredentialForManualDirectDaemonHostWithoutTeamScope() {
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .custom,
+            transportPreference: .remoteDaemon,
+            sshAuthenticationMethod: .password
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [],
+            selectedWorkspaceID: nil
+        )
+        let store = makeStore(snapshot: snapshot).store
+
+        XCTAssertFalse(store.isConfigured(host))
+    }
+
+    @MainActor
+    func testIsConfiguredAllowsPrivateKeyForRawSSHHost() {
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            transportPreference: .rawSSH,
+            sshAuthenticationMethod: .privateKey
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [],
+            selectedWorkspaceID: nil
+        )
+        let fixture = makeStore(snapshot: snapshot)
+
+        XCTAssertFalse(fixture.store.isConfigured(host))
+
+        fixture.store.saveHost(
+            host,
+            credentials: TerminalSSHCredentials(
+                password: nil,
+                privateKey: TerminalSSHPrivateKeyFixtures.opensshEd25519PrivateKey
+            )
+        )
+
+        XCTAssertTrue(fixture.store.isConfigured(host))
+        XCTAssertEqual(
+            fixture.credentialsStore.privateKey(for: host.id),
+            TerminalSSHPrivateKeyFixtures.opensshEd25519PrivateKey
+        )
+    }
+
+    @MainActor
+    func testIsConfiguredAllowsPrivateKeyForManualDirectDaemonHostWithoutTeamScope() {
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .custom,
+            transportPreference: .remoteDaemon,
+            sshAuthenticationMethod: .privateKey
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [],
+            selectedWorkspaceID: nil
+        )
+        let fixture = makeStore(snapshot: snapshot)
+
+        XCTAssertFalse(fixture.store.isConfigured(host))
+
+        fixture.store.saveHost(
+            host,
+            credentials: TerminalSSHCredentials(
+                password: nil,
+                privateKey: TerminalSSHPrivateKeyFixtures.opensshEd25519PrivateKey
+            )
+        )
+
+        XCTAssertTrue(fixture.store.isConfigured(host))
+    }
+
+    @MainActor
+    func testDeleteHostRemovesItsWorkspacesAndSelection() throws {
+        let fixture = makeStore()
+        let store = fixture.store
+        let host = try XCTUnwrap(store.hosts.first)
+
+        store.saveHost(
+            host,
+            credentials: TerminalSSHCredentials(password: "secret", privateKey: nil)
+        )
+        let workspaceID = store.startWorkspace(on: host)
+        let workspace = try XCTUnwrap(store.workspace(with: workspaceID))
+
+        store.deleteHost(host)
+
+        XCTAssertTrue(store.hosts.isEmpty)
+        XCTAssertTrue(store.workspaces.isEmpty)
+        XCTAssertNil(store.selectedWorkspaceID)
+        XCTAssertNil(fixture.credentialsStore.password(for: host.id))
+        XCTAssertNil(fixture.snapshotStore.load().workspaces.first(where: { $0.id == workspace.id }))
+    }
+
+    func testPreviewExtractorStripsControlSequences() throws {
+        let data = Data("\u{001B}[32mready\u{001B}[0m\r\ncmux@host:~$ ".utf8)
+
+        let preview = try XCTUnwrap(TerminalPreviewExtractor.preview(from: data))
+
+        XCTAssertEqual(preview, "cmux@host:~$")
+    }
+
+    func testSnapshotStoreRoundTripsHostsWorkspacesAndSelection() throws {
+        let fixedDate = Date(timeIntervalSince1970: 1_710_000_000)
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint
+        )
+        let workspace = TerminalWorkspace(
+            hostID: host.id,
+            title: "Mac Mini",
+            tmuxSessionName: "cmux-mac-mini",
+            lastActivity: fixedDate,
+            remoteDaemonResumeState: .init(
+                sessionID: "sess-1",
+                attachmentID: "att-1",
+                readOffset: 42
+            )
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [workspace],
+            selectedWorkspaceID: workspace.id
+        )
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("json")
+        let store = TerminalSnapshotStore(fileURL: fileURL)
+        try store.save(snapshot)
+
+        let reloaded = store.load()
+
+        XCTAssertEqual(reloaded, snapshot)
+        try FileManager.default.removeItem(at: fileURL)
+    }
+
+    @MainActor
+    func testControllerCreationPersistsInitialSurfaceFailure() throws {
+        let surfaceError = "Ghostty surface boot failed."
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            transportPreference: .rawSSH
+        )
+        let workspace = TerminalWorkspace(
+            hostID: host.id,
+            title: "Mac Mini",
+            tmuxSessionName: "cmux-mac-mini"
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [workspace],
+            selectedWorkspaceID: workspace.id
+        )
+        let surfaceFactory = FailThenSucceedSurfaceFactory()
+        let fixture = makeStore(
+            snapshot: snapshot,
+            passwords: [host.id: "secret"],
+            controllerFactory: { workspace, host, credentialsStore, _ in
+                TerminalSessionController(
+                    workspace: workspace,
+                    host: host,
+                    credentialsStore: credentialsStore,
+                    transportFactory: StubTerminalTransportFactory(transport: ConnectedStubTerminalTransport()),
+                    surfaceFactory: surfaceFactory.makeSurface(delegate:)
+                )
+            }
+        )
+
+        let controller = fixture.store.controller(for: workspace)
+        let persistedWorkspace = try XCTUnwrap(
+            fixture.snapshotStore.load().workspaces.first(where: { $0.id == workspace.id })
+        )
+
+        XCTAssertEqual(surfaceFactory.attemptCount, 1)
+        XCTAssertEqual(controller.phase, .failed)
+        XCTAssertEqual(controller.errorMessage, surfaceError)
+        XCTAssertEqual(persistedWorkspace.phase, .failed)
+        XCTAssertEqual(persistedWorkspace.lastError, surfaceError)
+    }
+
+    @MainActor
+    func testOpenWorkspacePersistsPendingHostKeyForUnknownSSHHostKey() async throws {
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            transportPreference: .rawSSH
+        )
+        let workspace = TerminalWorkspace(
+            hostID: host.id,
+            title: "Mac Mini",
+            tmuxSessionName: "cmux-mac-mini"
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [workspace],
+            selectedWorkspaceID: nil
+        )
+        let fixture = makeStore(
+            snapshot: snapshot,
+            passwords: [host.id: "secret"],
+            controllerFactory: { workspace, host, credentialsStore, _ in
+                TerminalSessionController(
+                    workspace: workspace,
+                    host: host,
+                    credentialsStore: credentialsStore,
+                    transportFactory: StubTerminalTransportFactory(
+                        transport: ThrowingStubTerminalTransport(
+                            connectError: TerminalSSHError.untrustedHostKey("ssh-ed25519 AAAAPENDING")
+                        )
+                    ),
+                    surfaceFactory: { _ in StubTerminalSurface() }
+                )
+            }
+        )
+
+        _ = fixture.store.openWorkspace(workspace)
+
+        try await waitForCondition {
+            fixture.store.server(for: host.id)?.pendingHostKey == "ssh-ed25519 AAAAPENDING" &&
+                fixture.store.workspace(with: workspace.id)?.phase == .needsConfiguration
+        }
+
+        let persistedHost = try XCTUnwrap(
+            fixture.snapshotStore.load().hosts.first(where: { $0.id == host.id })
+        )
+        let persistedWorkspace = try XCTUnwrap(
+            fixture.snapshotStore.load().workspaces.first(where: { $0.id == workspace.id })
+        )
+
+        XCTAssertEqual(persistedHost.pendingHostKey, "ssh-ed25519 AAAAPENDING")
+        XCTAssertEqual(persistedWorkspace.phase, .needsConfiguration)
+        XCTAssertEqual(
+            persistedWorkspace.lastError,
+            "Review and trust this server host key before connecting."
+        )
+    }
+
+    @MainActor
+    func testOpenWorkspacePersistsPendingHostKeyForChangedSSHHostKey() async throws {
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            trustedHostKey: "ssh-ed25519 AAAAOLD",
+            transportPreference: .rawSSH
+        )
+        let workspace = TerminalWorkspace(
+            hostID: host.id,
+            title: "Mac Mini",
+            tmuxSessionName: "cmux-mac-mini"
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [workspace],
+            selectedWorkspaceID: nil
+        )
+        let fixture = makeStore(
+            snapshot: snapshot,
+            passwords: [host.id: "secret"],
+            controllerFactory: { workspace, host, credentialsStore, _ in
+                TerminalSessionController(
+                    workspace: workspace,
+                    host: host,
+                    credentialsStore: credentialsStore,
+                    transportFactory: StubTerminalTransportFactory(
+                        transport: ThrowingStubTerminalTransport(
+                            connectError: TerminalSSHError.hostKeyChanged("ssh-ed25519 AAAANEW")
+                        )
+                    ),
+                    surfaceFactory: { _ in StubTerminalSurface() }
+                )
+            }
+        )
+
+        _ = fixture.store.openWorkspace(workspace)
+
+        try await waitForCondition {
+            fixture.store.server(for: host.id)?.pendingHostKey == "ssh-ed25519 AAAANEW" &&
+                fixture.store.workspace(with: workspace.id)?.phase == .needsConfiguration
+        }
+
+        let persistedHost = try XCTUnwrap(
+            fixture.snapshotStore.load().hosts.first(where: { $0.id == host.id })
+        )
+        let persistedWorkspace = try XCTUnwrap(
+            fixture.snapshotStore.load().workspaces.first(where: { $0.id == workspace.id })
+        )
+
+        XCTAssertEqual(persistedHost.pendingHostKey, "ssh-ed25519 AAAANEW")
+        XCTAssertEqual(persistedHost.trustedHostKey, "ssh-ed25519 AAAAOLD")
+        XCTAssertEqual(persistedWorkspace.phase, .needsConfiguration)
+        XCTAssertEqual(
+            persistedWorkspace.lastError,
+            "The server host key changed. Review and trust the new key before connecting."
+        )
+    }
+
+    @MainActor
+    func testOpenWorkspaceSuspendsInactiveControllerAndConnectsSelectedWorkspace() async throws {
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            transportPreference: .remoteDaemon,
+            teamID: "team-1",
+            serverID: "cmux-macmini"
+        )
+        let firstWorkspace = TerminalWorkspace(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000011")!,
+            hostID: host.id,
+            title: "First",
+            tmuxSessionName: "cmux-first"
+        )
+        let secondWorkspace = TerminalWorkspace(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000012")!,
+            hostID: host.id,
+            title: "Second",
+            tmuxSessionName: "cmux-second"
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [firstWorkspace, secondWorkspace],
+            selectedWorkspaceID: nil
+        )
+
+        let firstConnectExpectation = expectation(description: "first workspace connected")
+        let firstDisconnectExpectation = expectation(description: "first workspace disconnected")
+        let secondConnectExpectation = expectation(description: "second workspace connected")
+        let firstWorkspaceTransports = [
+            ConnectedStubTerminalTransport(
+                onConnect: {
+                    firstConnectExpectation.fulfill()
+                },
+                onDisconnect: {
+                    firstDisconnectExpectation.fulfill()
+                }
+            ),
+            ConnectedStubTerminalTransport(),
+        ]
+        let secondWorkspaceTransports = [
+            ConnectedStubTerminalTransport(
+                onConnect: {
+                    secondConnectExpectation.fulfill()
+                }
+            ),
+        ]
+        let firstTransportFactory = TrackingSequencedTerminalTransportFactory(
+            transports: firstWorkspaceTransports
+        )
+        let secondTransportFactory = TrackingSequencedTerminalTransportFactory(
+            transports: secondWorkspaceTransports
+        )
+        let firstSurfaceFactory = SequencedStubTerminalSurfaceFactory(
+            surfaces: [
+                StubTerminalSurface(),
+                StubTerminalSurface(
+                    gridSize: TerminalGridSize(columns: 96, rows: 30, pixelWidth: 960, pixelHeight: 600)
+                ),
+            ]
+        )
+        let secondSurfaceFactory = SequencedStubTerminalSurfaceFactory(
+            surfaces: [StubTerminalSurface()]
+        )
+
+        let fixture = makeStore(
+            snapshot: snapshot,
+            passwords: [host.id: "secret"],
+            eagerlyRestoreSessions: false,
+            controllerFactory: { workspace, host, credentialsStore, _ in
+                let surfaceFactory = workspace.id == firstWorkspace.id
+                    ? firstSurfaceFactory.makeSurface(delegate:)
+                    : secondSurfaceFactory.makeSurface(delegate:)
+                let transportFactory: TerminalTransportFactory = workspace.id == firstWorkspace.id
+                    ? firstTransportFactory
+                    : secondTransportFactory
+                return TerminalSessionController(
+                    workspace: workspace,
+                    host: host,
+                    credentialsStore: credentialsStore,
+                    transportFactory: transportFactory,
+                    surfaceFactory: surfaceFactory
+                )
+            }
+        )
+
+        _ = fixture.store.controller(for: firstWorkspace)
+        _ = fixture.store.controller(for: secondWorkspace)
+        _ = fixture.store.openWorkspace(firstWorkspace)
+        await fulfillment(of: [firstConnectExpectation], timeout: 1.0)
+        XCTAssertEqual(firstWorkspaceTransports[0].connectCallCount, 1)
+        XCTAssertEqual(secondWorkspaceTransports[0].connectCallCount, 0)
+
+        _ = fixture.store.openWorkspace(secondWorkspace)
+        await fulfillment(of: [firstDisconnectExpectation, secondConnectExpectation], timeout: 1.0)
+
+        XCTAssertEqual(firstWorkspaceTransports[0].disconnectCallCount, 1)
+        XCTAssertEqual(secondWorkspaceTransports[0].connectCallCount, 1)
+    }
+
+    @MainActor
+    func testNetworkLossSuspendsSelectedWorkspaceAndRestorationResumesIt() async throws {
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            transportPreference: .remoteDaemon,
+            teamID: "team-1",
+            serverID: "cmux-macmini"
+        )
+        let workspace = TerminalWorkspace(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000021")!,
+            hostID: host.id,
+            title: "Main",
+            tmuxSessionName: "cmux-main"
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [workspace],
+            selectedWorkspaceID: nil
+        )
+
+        let firstConnectExpectation = expectation(description: "first transport connected")
+        let firstDisconnectExpectation = expectation(description: "first transport disconnected")
+        let secondConnectExpectation = expectation(description: "second transport connected")
+        let transports = [
+            ConnectedStubTerminalTransport(
+                onConnect: {
+                    firstConnectExpectation.fulfill()
+                },
+                onDisconnect: {
+                    firstDisconnectExpectation.fulfill()
+                }
+            ),
+            ConnectedStubTerminalTransport(
+                onConnect: {
+                    secondConnectExpectation.fulfill()
+                }
+            ),
+        ]
+        let transportFactory = TrackingSequencedTerminalTransportFactory(transports: transports)
+        let networkMonitor = StubTerminalNetworkPathMonitor(
+            currentState: TerminalNetworkPathState(isReachable: true, signature: "wifi")
+        )
+        let fixture = makeStore(
+            snapshot: snapshot,
+            passwords: [host.id: "secret"],
+            transportFactory: transportFactory,
+            networkPathMonitor: networkMonitor
+        )
+
+        _ = fixture.store.openWorkspace(workspace)
+        await fulfillment(of: [firstConnectExpectation], timeout: 1.0)
+
+        networkMonitor.send(TerminalNetworkPathState(isReachable: false, signature: "offline"))
+        await fulfillment(of: [firstDisconnectExpectation], timeout: 1.0)
+
+        networkMonitor.send(TerminalNetworkPathState(isReachable: true, signature: "cellular"))
+        await fulfillment(of: [secondConnectExpectation], timeout: 1.0)
+
+        XCTAssertEqual(transports[0].disconnectCallCount, 1)
+        XCTAssertEqual(transports[1].connectCallCount, 1)
+    }
+
+    @MainActor
+    func testReachablePathChangeReconnectsSelectedConnectedWorkspace() async throws {
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            transportPreference: .remoteDaemon,
+            teamID: "team-1",
+            serverID: "cmux-macmini"
+        )
+        let workspace = TerminalWorkspace(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000022")!,
+            hostID: host.id,
+            title: "Main",
+            tmuxSessionName: "cmux-main"
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [workspace],
+            selectedWorkspaceID: nil
+        )
+
+        let firstConnectExpectation = expectation(description: "first transport connected")
+        let firstDisconnectExpectation = expectation(description: "first transport disconnected")
+        let secondConnectExpectation = expectation(description: "second transport connected after path change")
+        let transports = [
+            ConnectedStubTerminalTransport(
+                onConnect: {
+                    firstConnectExpectation.fulfill()
+                },
+                onDisconnect: {
+                    firstDisconnectExpectation.fulfill()
+                }
+            ),
+            ConnectedStubTerminalTransport(
+                onConnect: {
+                    secondConnectExpectation.fulfill()
+                }
+            ),
+        ]
+        let transportFactory = TrackingSequencedTerminalTransportFactory(transports: transports)
+        let networkMonitor = StubTerminalNetworkPathMonitor(
+            currentState: TerminalNetworkPathState(isReachable: true, signature: "wifi")
+        )
+        let fixture = makeStore(
+            snapshot: snapshot,
+            passwords: [host.id: "secret"],
+            transportFactory: transportFactory,
+            networkPathMonitor: networkMonitor
+        )
+
+        _ = fixture.store.openWorkspace(workspace)
+        await fulfillment(of: [firstConnectExpectation], timeout: 1.0)
+
+        networkMonitor.send(TerminalNetworkPathState(isReachable: true, signature: "cellular"))
+        await fulfillment(of: [firstDisconnectExpectation, secondConnectExpectation], timeout: 1.0)
+
+        XCTAssertEqual(transports[0].disconnectCallCount, 1)
+        XCTAssertEqual(transports[1].connectCallCount, 1)
+    }
+
+    @MainActor
+    func testReachablePathChangeReconnectsSelectedConnectingWorkspace() async throws {
+        let host = TerminalHost(
+            name: "Mac Mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            transportPreference: .remoteDaemon,
+            teamID: "team-1",
+            serverID: "cmux-macmini"
+        )
+        let workspace = TerminalWorkspace(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000023")!,
+            hostID: host.id,
+            title: "Main",
+            tmuxSessionName: "cmux-main"
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [workspace],
+            selectedWorkspaceID: nil
+        )
+
+        let connectGate = AsyncGate()
+        let initialConnectStartedExpectation = expectation(description: "initial connect started")
+        let initialDisconnectExpectation = expectation(description: "initial transport disconnected after path change")
+        let replacementConnectedExpectation = expectation(description: "replacement transport connected after path change")
+        let initialTransport = BlockingConnectStubTerminalTransport(
+            gate: connectGate,
+            onConnectStarted: {
+                initialConnectStartedExpectation.fulfill()
+            },
+            onDisconnect: {
+                initialDisconnectExpectation.fulfill()
+            }
+        )
+        let replacementTransport = ConnectedStubTerminalTransport(
+            onConnect: {
+                replacementConnectedExpectation.fulfill()
+            }
+        )
+        let transportFactory = TrackingSequencedTerminalTransportFactory(
+            transports: [initialTransport, replacementTransport]
+        )
+        let networkMonitor = StubTerminalNetworkPathMonitor(
+            currentState: TerminalNetworkPathState(isReachable: true, signature: "wifi")
+        )
+        let fixture = makeStore(
+            snapshot: snapshot,
+            passwords: [host.id: "secret"],
+            transportFactory: transportFactory,
+            networkPathMonitor: networkMonitor
+        )
+
+        _ = fixture.store.openWorkspace(workspace)
+        await fulfillment(of: [initialConnectStartedExpectation], timeout: 1.0)
+
+        networkMonitor.send(TerminalNetworkPathState(isReachable: true, signature: "cellular"))
+        await fulfillment(of: [initialDisconnectExpectation], timeout: 1.0)
+
+        XCTAssertEqual(initialTransport.disconnectCallCount, 1)
+        XCTAssertEqual(replacementTransport.connectCallCount, 0)
+
+        await connectGate.open()
+        await fulfillment(of: [replacementConnectedExpectation], timeout: 1.0)
+
+        XCTAssertEqual(replacementTransport.connectCallCount, 1)
+    }
+
+    @MainActor
+    private func makeStore(
+        snapshot: TerminalStoreSnapshot = .seed(),
+        passwords: [TerminalHost.ID: String] = [:],
+        transportFactory: TerminalTransportFactory = DefaultTerminalTransportFactory(),
+        workspaceIdentityService: StubTerminalWorkspaceIdentityService? = nil,
+        workspaceMetadataService: StubTerminalWorkspaceMetadataService? = nil,
+        networkPathMonitor: TerminalNetworkPathMonitoring? = nil,
+        eagerlyRestoreSessions: Bool = false,
+        controllerFactory: TerminalSessionControllerFactory? = nil
+    ) -> (
+        store: TerminalSidebarStore,
+        snapshotStore: InMemoryTerminalSnapshotStore,
+        credentialsStore: InMemoryTerminalCredentialsStore,
+        identityService: StubTerminalWorkspaceIdentityService?,
+        metadataService: StubTerminalWorkspaceMetadataService?
+    ) {
+        let snapshotStore = InMemoryTerminalSnapshotStore(snapshot: snapshot)
+        let credentialsStore = InMemoryTerminalCredentialsStore(passwords: passwords)
+        let resolvedControllerFactory = controllerFactory ?? { workspace, host, credentialsStore, transportFactory in
+            TerminalSessionController(
+                workspace: workspace,
+                host: host,
+                credentialsStore: credentialsStore,
+                transportFactory: transportFactory,
+                surfaceFactory: { _ in StubTerminalSurface() }
+            )
+        }
+        let store = TerminalSidebarStore(
+            snapshotStore: snapshotStore,
+            credentialsStore: credentialsStore,
+            transportFactory: transportFactory,
+            workspaceIdentityService: workspaceIdentityService,
+            workspaceMetadataService: workspaceMetadataService,
+            serverDiscovery: nil,
+            networkPathMonitor: networkPathMonitor,
+            eagerlyRestoreSessions: eagerlyRestoreSessions,
+            controllerFactory: resolvedControllerFactory
+        )
+        return (store, snapshotStore, credentialsStore, workspaceIdentityService, workspaceMetadataService)
+    }
+}
+
+@MainActor
+private func waitForCondition(
+    timeout: Duration = .seconds(1),
+    pollInterval: Duration = .milliseconds(10),
+    _ condition: @escaping @MainActor () -> Bool
+) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now + timeout
+    while clock.now < deadline {
+        if condition() {
+            return
+        }
+        try await Task.sleep(for: pollInterval)
+    }
+    XCTFail("Timed out waiting for condition.")
+}
+
+private final class StubTerminalNetworkPathMonitor: TerminalNetworkPathMonitoring {
+    private let subject = PassthroughSubject<TerminalNetworkPathState, Never>()
+    private(set) var currentState: TerminalNetworkPathState?
+
+    init(currentState: TerminalNetworkPathState? = nil) {
+        self.currentState = currentState
+    }
+
+    var statePublisher: AnyPublisher<TerminalNetworkPathState, Never> {
+        subject.eraseToAnyPublisher()
+    }
+
+    func send(_ state: TerminalNetworkPathState) {
+        currentState = state
+        subject.send(state)
+    }
+}
+
+@MainActor
+private final class StubTerminalWorkspaceIdentityService: TerminalWorkspaceIdentityReserving {
+    private let reserveHandler: @MainActor (TerminalHost) -> TerminalWorkspaceBackendIdentity
+    private(set) var recordedHostIDs: [TerminalHost.ID] = []
+
+    init(identity: TerminalWorkspaceBackendIdentity) {
+        self.reserveHandler = { _ in identity }
+    }
+
+    init(reserveHandler: @escaping @MainActor (TerminalHost) -> TerminalWorkspaceBackendIdentity) {
+        self.reserveHandler = reserveHandler
+    }
+
+    func reserveWorkspace(for host: TerminalHost) async throws -> TerminalWorkspaceBackendIdentity {
+        recordedHostIDs.append(host.id)
+        return reserveHandler(host)
+    }
+}
+
+@MainActor
+private final class StubTerminalWorkspaceMetadataService: TerminalWorkspaceMetadataStreaming {
+    private var subjects: [String: PassthroughSubject<TerminalWorkspaceBackendMetadata, Never>] = [:]
+
+    func metadataPublisher(for identity: TerminalWorkspaceBackendIdentity) -> AnyPublisher<TerminalWorkspaceBackendMetadata, Never> {
+        let key = key(for: identity)
+        if let subject = subjects[key] {
+            return subject.eraseToAnyPublisher()
+        }
+        let subject = PassthroughSubject<TerminalWorkspaceBackendMetadata, Never>()
+        subjects[key] = subject
+        return subject.eraseToAnyPublisher()
+    }
+
+    func send(_ metadata: TerminalWorkspaceBackendMetadata, for identity: TerminalWorkspaceBackendIdentity) {
+        subjects[key(for: identity)]?.send(metadata)
+    }
+
+    private func key(for identity: TerminalWorkspaceBackendIdentity) -> String {
+        "\(identity.teamID):\(identity.taskRunID)"
     }
 }

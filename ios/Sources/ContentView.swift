@@ -15,6 +15,7 @@ struct ContentView: View {
     private let uiTestProviderId: String = {
         ProcessInfo.processInfo.environment["CMUX_UITEST_PROVIDER_ID"] ?? "claude"
     }()
+    private let uiTestTerminalDirectFixture = UITestConfig.terminalDirectFixtureEnabled
 
     var body: some View {
         Group {
@@ -27,10 +28,16 @@ struct ContentView: View {
                 #else
                 SignInView()
                 #endif
+            } else if uiTestTerminalDirectFixture {
+                #if DEBUG
+                TerminalSidebarRootView(store: .uiTestDirectFixture())
+                #else
+                SignInView()
+                #endif
             } else if authManager.isRestoringSession {
                 SessionRestoreView()
             } else if authManager.isAuthenticated {
-                MainTabView()
+                TerminalSidebarRootView()
             } else {
                 SignInView()
             }
@@ -47,12 +54,6 @@ struct SessionRestoreView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("auth.restoring")
-    }
-}
-
-struct MainTabView: View {
-    var body: some View {
-        TerminalSidebarRootView()
     }
 }
 

@@ -1,16 +1,93 @@
 #!/bin/bash
 # Build and install to both simulator and connected iPhone (if available)
 set -e
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$PROJECT_DIR/ios"
 
 SIMULATOR_ONLY=0
-for arg in "$@"; do
-    case "$arg" in
+TAG=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
         --simulator-only|--sim-only)
             SIMULATOR_ONLY=1
             ;;
+        --tag)
+            TAG="$2"
+            shift
+            ;;
+        --tag=*)
+            TAG="${1#--tag=}"
+            ;;
     esac
+    shift
 done
+
+DERIVED_DATA_PATH="build"
+if [ -n "$TAG" ]; then
+    DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$TAG"
+fi
+
+ensure_ghosttykit() {
+    local ghostty_dir="$PROJECT_DIR/ghostty"
+    local local_xcframework="$ghostty_dir/macos/GhosttyKit.xcframework"
+    local local_sha_stamp="$local_xcframework/.ghostty_sha"
+    local cache_root="${CMUX_GHOSTTYKIT_CACHE_DIR:-$HOME/.cache/cmux/ghosttykit}"
+    local ghostty_sha
+    ghostty_sha="$(git -C "$ghostty_dir" rev-parse HEAD)"
+    local ghostty_short_sha
+    ghostty_short_sha="$(git -C "$ghostty_dir" rev-parse --short HEAD)"
+    local ghostty_base_version
+    ghostty_base_version="$(awk -F'\"' '/.version = / { print $2; exit }' "$ghostty_dir/build.zig.zon")"
+    local ghostty_version_string="${ghostty_base_version}+${ghostty_short_sha}"
+    local cache_dir="$cache_root/$ghostty_sha"
+    local cache_xcframework="$cache_dir/GhosttyKit.xcframework"
+    local link_path="$PROJECT_DIR/GhosttyKit.xcframework"
+
+    mkdir -p "$cache_root"
+
+    if [ ! -d "$cache_xcframework" ]; then
+        local local_sha=""
+        if [ -f "$local_sha_stamp" ]; then
+            local_sha="$(cat "$local_sha_stamp")"
+        fi
+
+        if [ ! -d "$local_xcframework" ] || [ "$local_sha" != "$ghostty_sha" ]; then
+            echo "🔧 Building GhosttyKit.xcframework for ghostty $ghostty_sha..."
+            (
+                cd "$ghostty_dir"
+                zig build \
+                    -Demit-xcframework=true \
+                    -Doptimize=ReleaseFast \
+                    -Dversion-string="$ghostty_version_string"
+            )
+            echo "$ghostty_sha" > "$local_sha_stamp"
+        else
+            echo "🔧 Reusing local GhosttyKit.xcframework for ghostty $ghostty_sha..."
+        fi
+
+        if [ ! -d "$local_xcframework" ]; then
+            echo "GhosttyKit.xcframework missing at $local_xcframework" >&2
+            exit 1
+        fi
+
+        local tmp_dir
+        tmp_dir="$(mktemp -d "$cache_root/.ghosttykit-tmp.XXXXXX")"
+        mkdir -p "$cache_dir"
+        cp -R "$local_xcframework" "$tmp_dir/GhosttyKit.xcframework"
+        rm -rf "$cache_xcframework"
+        mv "$tmp_dir/GhosttyKit.xcframework" "$cache_xcframework"
+        rmdir "$tmp_dir"
+        echo "🔧 Cached GhosttyKit.xcframework at $cache_xcframework"
+    fi
+
+    if [ "$(readlink "$link_path" 2>/dev/null || true)" != "$cache_xcframework" ]; then
+        echo "🔧 Linking GhosttyKit.xcframework -> $cache_xcframework"
+        ln -sfn "$cache_xcframework" "$link_path"
+    fi
+}
+
+ensure_ghosttykit
 
 xcodegen generate
 
@@ -18,7 +95,7 @@ xcodegen generate
 echo "🖥️  Building for simulator..."
 xcodebuild -scheme cmux -sdk iphonesimulator -configuration Debug \
     -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-    -derivedDataPath build \
+    -derivedDataPath "$DERIVED_DATA_PATH" \
     -quiet
 
 echo "📲 Installing on simulator(s)..."
@@ -28,7 +105,7 @@ if [ -n "$BOOTED_SIMS" ]; then
     for SIM_ID in $BOOTED_SIMS; do
         SIM_NAME=$(xcrun simctl list devices | grep "$SIM_ID" | sed 's/ (.*//')
         echo "  → $SIM_NAME"
-        xcrun simctl install "$SIM_ID" "build/Build/Products/Debug-iphonesimulator/cmux DEV.app" 2>/dev/null || true
+        xcrun simctl install "$SIM_ID" "$DERIVED_DATA_PATH/Build/Products/Debug-iphonesimulator/cmux DEV.app" 2>/dev/null || true
         xcrun simctl launch "$SIM_ID" dev.cmux.app.dev 2>/dev/null || true
     done
 else
@@ -53,13 +130,13 @@ if [ -n "$DEVICE_ID" ]; then
 
     xcodebuild -scheme cmux -configuration Debug \
         -destination "id=$DEVICE_ID" \
-        -derivedDataPath build \
+        -derivedDataPath "$DERIVED_DATA_PATH" \
         -allowProvisioningUpdates \
         -allowProvisioningDeviceRegistration \
         -quiet
 
     echo "📲 Installing on device..."
-    xcrun devicectl device install app --device "$DEVICE_ID" "build/Build/Products/Debug-iphoneos/cmux DEV.app"
+    xcrun devicectl device install app --device "$DEVICE_ID" "$DERIVED_DATA_PATH/Build/Products/Debug-iphoneos/cmux DEV.app"
 
     echo "🚀 Launching on device..."
     if ! xcrun devicectl device process launch --device "$DEVICE_ID" dev.cmux.app.dev; then

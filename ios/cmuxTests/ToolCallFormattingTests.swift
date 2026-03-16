@@ -15,18 +15,18 @@ final class ToolCallFormattingTests: XCTestCase {
 
     func testToolCallMappingPreservesFields() {
         let toolCall = ConversationMessagesListByConversationReturnMessagesItemToolCallsItem(
+            acpSeq: 12,
             result: "{\"ok\":true}",
             id: "tool_123",
             name: "Fetch https://example.com",
             status: .running,
-            arguments: "{\"url\":\"https://example.com\"}",
-            acpSeq: 12
+            arguments: "{\"url\":\"https://example.com\"}"
         )
         let mapped = MessageToolCall(toolCall)
 
         XCTAssertEqual(mapped.id, "tool_123")
         XCTAssertEqual(mapped.name, "Fetch https://example.com")
-        XCTAssertEqual(mapped.status, .running)
+        XCTAssertEqual(mapped.status, MessageToolCallStatus.running)
         XCTAssertEqual(mapped.arguments, "{\"url\":\"https://example.com\"}")
         XCTAssertEqual(mapped.result, "{\"ok\":true}")
         XCTAssertEqual(mapped.acpSeq, 12)

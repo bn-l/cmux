@@ -1,0 +1,1322 @@
+import Combine
+import Foundation
+import Network
+import SwiftUI
+import UIKit
+
+enum TerminalSessionUpdate {
+    case phase(TerminalConnectionPhase, String?)
+    case preview(String, Date)
+    case trustedHostKey(String)
+    case pendingHostKey(String)
+    case remoteDaemonResumeState(TerminalRemoteDaemonResumeState?)
+}
+
+struct TerminalNetworkPathState: Equatable, Sendable {
+    var isReachable: Bool
+    var signature: String
+}
+
+protocol TerminalNetworkPathMonitoring {
+    var currentState: TerminalNetworkPathState? { get }
+    var statePublisher: AnyPublisher<TerminalNetworkPathState, Never> { get }
+}
+
+final class TerminalNetworkPathMonitor: TerminalNetworkPathMonitoring {
+    private let monitor: NWPathMonitor
+    private let queue = DispatchQueue(label: "TerminalNetworkPathMonitor.queue")
+    private let subject = CurrentValueSubject<TerminalNetworkPathState?, Never>(nil)
+
+    init(monitor: NWPathMonitor = NWPathMonitor()) {
+        self.monitor = monitor
+        monitor.pathUpdateHandler = { [weak self] path in
+            self?.subject.send(Self.makeState(from: path))
+        }
+        monitor.start(queue: queue)
+    }
+
+    deinit {
+        monitor.cancel()
+    }
+
+    var currentState: TerminalNetworkPathState? {
+        subject.value
+    }
+
+    var statePublisher: AnyPublisher<TerminalNetworkPathState, Never> {
+        subject
+            .compactMap { $0 }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
+    }
+
+    private static func makeState(from path: NWPath) -> TerminalNetworkPathState {
+        let usedInterfaces = [
+            NWInterface.InterfaceType.wifi,
+            .cellular,
+            .wiredEthernet,
+            .loopback,
+            .other,
+        ]
+        .filter { path.usesInterfaceType($0) }
+        .map(interfaceLabel(_:))
+        .joined(separator: ",")
+
+        let statusLabel: String = switch path.status {
+        case .satisfied:
+            "satisfied"
+        case .requiresConnection:
+            "requires-connection"
+        case .unsatisfied:
+            "unsatisfied"
+        @unknown default:
+            "unknown"
+        }
+
+        let signature = [
+            statusLabel,
+            usedInterfaces,
+            path.isExpensive ? "expensive" : "standard",
+            path.isConstrained ? "constrained" : "unconstrained",
+        ]
+        .joined(separator: "|")
+
+        return TerminalNetworkPathState(
+            isReachable: path.status == .satisfied,
+            signature: signature
+        )
+    }
+
+    private static func interfaceLabel(_ type: NWInterface.InterfaceType) -> String {
+        switch type {
+        case .wifi:
+            return "wifi"
+        case .cellular:
+            return "cellular"
+        case .wiredEthernet:
+            return "wired"
+        case .loopback:
+            return "loopback"
+        case .other:
+            return "other"
+        @unknown default:
+            return "unknown"
+        }
+    }
+}
+
+@MainActor
+private func makeTerminalSurface(delegate: GhosttySurfaceViewDelegate) throws -> any TerminalSurfaceHosting {
+    let runtime = try GhosttyRuntime.shared()
+    return GhosttySurfaceView(runtime: runtime, delegate: delegate)
+}
+
+typealias TerminalSessionControllerFactory = @MainActor (
+    TerminalWorkspace,
+    TerminalHost,
+    TerminalCredentialsStoring,
+    TerminalTransportFactory
+) -> TerminalSessionController
+
+@MainActor
+final class TerminalSidebarStore: ObservableObject {
+    @Published private(set) var hosts: [TerminalHost]
+    @Published private(set) var workspaces: [TerminalWorkspace]
+    @Published var selectedWorkspaceID: TerminalWorkspace.ID?
+
+    private let snapshotStore: TerminalSnapshotPersisting
+    private let credentialsStore: TerminalCredentialsStoring
+    private let transportFactory: TerminalTransportFactory
+    private let workspaceIdentityService: TerminalWorkspaceIdentityReserving?
+    private let workspaceMetadataService: TerminalWorkspaceMetadataStreaming?
+    private let serverDiscovery: TerminalServerDiscovering?
+    private let networkPathMonitor: TerminalNetworkPathMonitoring?
+    private let eagerlyRestoreSessions: Bool
+    private let controllerFactory: TerminalSessionControllerFactory
+
+    private var controllers: [TerminalWorkspace.ID: TerminalSessionController] = [:]
+    private var workspaceIdentityTasks: [TerminalWorkspace.ID: Task<Void, Never>] = [:]
+    private var workspaceMetadataCancellables: [TerminalWorkspace.ID: AnyCancellable] = [:]
+    private var cancellables = Set<AnyCancellable>()
+    private var notificationObservers: [NSObjectProtocol] = []
+    private var lastNetworkPathState: TerminalNetworkPathState?
+
+    init(
+        snapshotStore: TerminalSnapshotPersisting = TerminalSnapshotStore(),
+        credentialsStore: TerminalCredentialsStoring = TerminalKeychainStore(),
+        transportFactory: TerminalTransportFactory = DefaultTerminalTransportFactory(),
+        workspaceIdentityService: TerminalWorkspaceIdentityReserving? = nil,
+        workspaceMetadataService: TerminalWorkspaceMetadataStreaming? = nil,
+        serverDiscovery: TerminalServerDiscovering? = nil,
+        networkPathMonitor: TerminalNetworkPathMonitoring? = TerminalNetworkPathMonitor(),
+        eagerlyRestoreSessions: Bool = true,
+        controllerFactory: TerminalSessionControllerFactory? = nil
+    ) {
+        self.snapshotStore = snapshotStore
+        self.credentialsStore = credentialsStore
+        self.transportFactory = transportFactory
+        self.workspaceIdentityService = workspaceIdentityService ?? TerminalConvexWorkspaceIdentityService()
+        self.workspaceMetadataService = workspaceMetadataService ?? TerminalConvexWorkspaceMetadataService()
+        self.serverDiscovery = serverDiscovery
+        self.networkPathMonitor = networkPathMonitor
+        self.eagerlyRestoreSessions = eagerlyRestoreSessions
+        self.controllerFactory = controllerFactory ?? { workspace, host, credentialsStore, transportFactory in
+            TerminalSessionController(
+                workspace: workspace,
+                host: host,
+                credentialsStore: credentialsStore,
+                transportFactory: transportFactory
+            )
+        }
+
+        let snapshot = snapshotStore.load()
+        self.hosts = snapshot.hosts.sorted(by: { $0.sortIndex < $1.sortIndex })
+        self.workspaces = snapshot.workspaces.sorted(by: { $0.lastActivity > $1.lastActivity })
+        self.selectedWorkspaceID = snapshot.selectedWorkspaceID ?? self.workspaces.first?.id
+
+        observeServerDiscovery()
+        observeNetworkPath()
+        observeWorkspaceMetadata()
+        if eagerlyRestoreSessions {
+            rebuildControllers()
+            syncSelectedControllerLifecycle()
+        }
+        observeLifecycle()
+    }
+
+    deinit {
+        workspaceIdentityTasks.values.forEach { $0.cancel() }
+        workspaceMetadataCancellables.values.forEach { $0.cancel() }
+        notificationObservers.forEach(NotificationCenter.default.removeObserver)
+    }
+
+    func server(for id: TerminalHost.ID) -> TerminalHost? {
+        hosts.first(where: { $0.id == id })
+    }
+
+    func workspace(with id: TerminalWorkspace.ID) -> TerminalWorkspace? {
+        workspaces.first(where: { $0.id == id })
+    }
+
+    func workspaceCount(for host: TerminalHost) -> Int {
+        workspaces.filter { $0.hostID == host.id }.count
+    }
+
+    func isConfigured(_ host: TerminalHost) -> Bool {
+        guard host.isConfigured else { return false }
+        if !host.requiresSavedSSHPassword {
+            if !host.requiresSavedSSHPrivateKey {
+                return true
+            }
+        }
+        return credentialsStore.sshCredentials(for: host.id).hasCredential(for: host.sshAuthenticationMethod)
+    }
+
+    @discardableResult
+    func openWorkspace(_ workspace: TerminalWorkspace) -> TerminalWorkspace.ID {
+        selectedWorkspaceID = workspace.id
+        setUnread(false, for: workspace.id)
+        syncSelectedControllerLifecycle()
+        persist()
+        ensureBackendIdentityIfNeeded(for: workspace.id)
+        startWorkspaceMetadataObservationIfNeeded(for: workspace.id)
+        return workspace.id
+    }
+
+    @discardableResult
+    func startWorkspace(on host: TerminalHost) -> TerminalWorkspace.ID {
+        let nextIndex = workspaceCount(for: host) + 1
+        let title = nextIndex == 1 ? "\(host.name)" : "\(host.name) \(nextIndex)"
+        let workspace = TerminalWorkspace(
+            hostID: host.id,
+            title: title,
+            tmuxSessionName: "cmux-\(host.name.lowercased().replacingOccurrences(of: " ", with: "-"))-\(UUID().terminalShortID)",
+            preview: host.subtitle,
+            lastActivity: .now,
+            unread: false,
+            phase: .idle
+        )
+        workspaces.insert(workspace, at: 0)
+        selectedWorkspaceID = workspace.id
+        syncSelectedControllerLifecycle()
+        persist()
+        ensureBackendIdentityIfNeeded(for: workspace.id)
+        startWorkspaceMetadataObservationIfNeeded(for: workspace.id)
+        return workspace.id
+    }
+
+    func closeWorkspace(_ workspace: TerminalWorkspace) {
+        cancelWorkspaceIdentityReservation(for: workspace.id)
+        cancelWorkspaceMetadataObservation(for: workspace.id)
+        controllers[workspace.id]?.disconnect()
+        controllers.removeValue(forKey: workspace.id)
+        workspaces.removeAll { $0.id == workspace.id }
+        if selectedWorkspaceID == workspace.id {
+            selectedWorkspaceID = workspaces.first?.id
+        }
+        syncSelectedControllerLifecycle()
+        persist()
+    }
+
+    func toggleUnread(for workspaceID: TerminalWorkspace.ID) {
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
+        workspaces[index].unread.toggle()
+        persist()
+    }
+
+    func controller(for workspace: TerminalWorkspace) -> TerminalSessionController {
+        if let existing = controllers[workspace.id] {
+            return existing
+        }
+
+        guard let host = server(for: workspace.hostID) else {
+            let controller = TerminalSessionController.unavailable(workspaceID: workspace.id)
+            controllers[workspace.id] = controller
+            return controller
+        }
+
+        let controller = makeController(for: workspace, host: host)
+        controllers[workspace.id] = controller
+        return controller
+    }
+
+    func saveHost(_ host: TerminalHost, credentials: TerminalSSHCredentials) {
+        var host = host
+        host.trustedHostKey = host.trustedHostKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+        host.pendingHostKey = host.pendingHostKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if host.trustedHostKey?.isEmpty == true {
+            host.trustedHostKey = nil
+        }
+        if host.pendingHostKey?.isEmpty == true || host.pendingHostKey == host.trustedHostKey {
+            host.pendingHostKey = nil
+        }
+        host.directTLSPins = host.directTLSPins.normalizedTerminalPins
+
+        if let index = hosts.firstIndex(where: { $0.id == host.id }) {
+            hosts[index] = host
+        } else {
+            host.sortIndex = hosts.count
+            hosts.append(host)
+        }
+
+        try? credentialsStore.setSSHCredentials(credentials, for: host.id)
+        hosts.sort(by: { $0.sortIndex < $1.sortIndex })
+
+        for workspace in workspaces where workspace.hostID == host.id {
+            controllers[workspace.id]?.refreshHost(host)
+        }
+
+        persist()
+    }
+
+    func deleteHost(_ host: TerminalHost) {
+        hosts.removeAll { $0.id == host.id }
+        try? credentialsStore.setSSHCredentials(TerminalSSHCredentials(password: nil, privateKey: nil), for: host.id)
+
+        let removedWorkspaceIDs = Set(workspaces.filter { $0.hostID == host.id }.map(\.id))
+        removedWorkspaceIDs.forEach { cancelWorkspaceIdentityReservation(for: $0) }
+        removedWorkspaceIDs.forEach { cancelWorkspaceMetadataObservation(for: $0) }
+        removedWorkspaceIDs.forEach { controllers[$0]?.disconnect() }
+        removedWorkspaceIDs.forEach { controllers.removeValue(forKey: $0) }
+        workspaces.removeAll { removedWorkspaceIDs.contains($0.id) }
+
+        if let selectedWorkspaceID, removedWorkspaceIDs.contains(selectedWorkspaceID) {
+            self.selectedWorkspaceID = workspaces.first?.id
+        }
+
+        syncSelectedControllerLifecycle()
+        persist()
+    }
+
+    func password(for host: TerminalHost) -> String {
+        credentialsStore.password(for: host.id) ?? ""
+    }
+
+    func credentials(for host: TerminalHost) -> TerminalSSHCredentials {
+        credentialsStore.sshCredentials(for: host.id)
+    }
+
+    func newHostDraft() -> TerminalHost {
+        TerminalHost(
+            name: TerminalStoreStrings.newServerName,
+            hostname: "",
+            username: "",
+            symbolName: "server.rack",
+            palette: TerminalHostPalette.allCases[hosts.count % TerminalHostPalette.allCases.count],
+            sortIndex: hosts.count
+        )
+    }
+
+    func applyDiscoveredHosts(_ discoveredHosts: [TerminalHost]) {
+        let existingHostsByID = Dictionary(uniqueKeysWithValues: hosts.map { ($0.id, $0) })
+        var mergedHosts = TerminalServerCatalog.merge(discovered: discoveredHosts, local: hosts)
+        let mergedHostIDs = Set(mergedHosts.map(\.id))
+        let workspaceHostIDs = Set(workspaces.map(\.hostID))
+        let missingWorkspaceHostIDs = workspaceHostIDs.subtracting(mergedHostIDs)
+
+        for hostID in missingWorkspaceHostIDs {
+            guard let preservedHost = existingHostsByID[hostID] else { continue }
+            mergedHosts.append(preservedHost)
+        }
+
+        hosts = mergedHosts.sorted(by: { $0.sortIndex < $1.sortIndex })
+
+        for index in workspaces.indices {
+            guard let host = server(for: workspaces[index].hostID) else { continue }
+            invalidateBackendLinkIfNeeded(for: index, host: host)
+            let workspace = workspaces[index]
+            controllers[workspace.id]?.refreshHost(host)
+            ensureBackendIdentityIfNeeded(for: workspace.id)
+            startWorkspaceMetadataObservationIfNeeded(for: workspace.id)
+        }
+
+        persist()
+    }
+
+    private func invalidateBackendLinkIfNeeded(for workspaceIndex: Int, host: TerminalHost) {
+        let workspace = workspaces[workspaceIndex]
+        guard let identity = workspace.backendIdentity else { return }
+
+        let hostTeamID = normalizedTeamID(host.teamID)
+        let identityTeamID = normalizedTeamID(identity.teamID)
+        guard hostTeamID != identityTeamID else { return }
+
+        cancelWorkspaceIdentityReservation(for: workspace.id)
+        cancelWorkspaceMetadataObservation(for: workspace.id)
+        workspaces[workspaceIndex].backendIdentity = nil
+        workspaces[workspaceIndex].backendMetadata = nil
+    }
+
+    private func rebuildControllers() {
+        controllers.removeAll()
+        for workspace in workspaces {
+            guard let host = server(for: workspace.hostID) else { continue }
+            controllers[workspace.id] = makeController(for: workspace, host: host)
+        }
+    }
+
+    private func syncSelectedControllerLifecycle() {
+        for workspace in workspaces {
+            let controller = controller(for: workspace)
+            if workspace.id == selectedWorkspaceID {
+                controller.resumeIfNeeded()
+                ensureBackendIdentityIfNeeded(for: workspace.id)
+            } else {
+                controller.suspendPreservingState()
+            }
+        }
+    }
+
+    private func observeServerDiscovery() {
+        guard let serverDiscovery else { return }
+        serverDiscovery.hostsPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] hosts in
+                self?.applyDiscoveredHosts(hosts)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func observeNetworkPath() {
+        guard let networkPathMonitor else { return }
+        lastNetworkPathState = networkPathMonitor.currentState
+        networkPathMonitor.statePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.handleNetworkPathUpdate(state)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func handleNetworkPathUpdate(_ state: TerminalNetworkPathState) {
+        let previousState = lastNetworkPathState
+        lastNetworkPathState = state
+
+        guard previousState != state else { return }
+
+        if !state.isReachable {
+            for controller in controllers.values {
+                controller.suspendPreservingState()
+            }
+            return
+        }
+
+        if previousState?.isReachable == false {
+            syncSelectedControllerLifecycle()
+            return
+        }
+
+        guard previousState != nil,
+              let selectedWorkspaceID,
+              let workspace = workspace(with: selectedWorkspaceID) else {
+            return
+        }
+
+        let controller = controller(for: workspace)
+        switch controller.phase {
+        case .connected, .connecting, .reconnecting:
+            controller.reconnectNow()
+        case .disconnected, .idle:
+            controller.resumeIfNeeded()
+        default:
+            break
+        }
+    }
+
+    private func makeController(for workspace: TerminalWorkspace, host: TerminalHost) -> TerminalSessionController {
+        let controller = controllerFactory(
+            workspace,
+            host,
+            credentialsStore,
+            transportFactory
+        )
+        controller.onUpdate = { [weak self] update in
+            self?.apply(update: update, to: workspace.id)
+        }
+        if controller.phase != workspace.phase || controller.errorMessage != workspace.lastError {
+            apply(update: .phase(controller.phase, controller.errorMessage), to: workspace.id)
+        }
+        return controller
+    }
+
+    private func apply(update: TerminalSessionUpdate, to workspaceID: TerminalWorkspace.ID) {
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
+        switch update {
+        case .phase(let phase, let error):
+            workspaces[index].phase = phase
+            workspaces[index].lastError = error
+            workspaces[index].lastActivity = .now
+        case .preview(let preview, let date):
+            workspaces[index].preview = preview
+            workspaces[index].lastActivity = date
+            if selectedWorkspaceID != workspaceID {
+                workspaces[index].unread = true
+            }
+            sortWorkspaces()
+        case .trustedHostKey(let hostKey):
+            guard let hostIndex = hosts.firstIndex(where: { $0.id == workspaces[index].hostID }) else { break }
+            hosts[hostIndex].trustedHostKey = hostKey
+            if hosts[hostIndex].pendingHostKey == hostKey {
+                hosts[hostIndex].pendingHostKey = nil
+            }
+            controllers[workspaceID]?.refreshHost(hosts[hostIndex])
+        case .pendingHostKey(let hostKey):
+            guard let hostIndex = hosts.firstIndex(where: { $0.id == workspaces[index].hostID }) else { break }
+            hosts[hostIndex].pendingHostKey = hostKey
+        case .remoteDaemonResumeState(let state):
+            workspaces[index].remoteDaemonResumeState = state
+        }
+        persist()
+    }
+
+    private func setUnread(_ unread: Bool, for workspaceID: TerminalWorkspace.ID) {
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
+        workspaces[index].unread = unread
+    }
+
+    private func sortWorkspaces() {
+        workspaces.sort { $0.lastActivity > $1.lastActivity }
+    }
+
+    private func observeWorkspaceMetadata() {
+        for workspace in workspaces {
+            startWorkspaceMetadataObservationIfNeeded(for: workspace.id)
+        }
+    }
+
+    private func ensureBackendIdentityIfNeeded(for workspaceID: TerminalWorkspace.ID) {
+        guard workspaceIdentityTasks[workspaceID] == nil,
+              let workspaceIdentityService,
+              let workspace = workspace(with: workspaceID),
+              workspace.backendIdentity == nil,
+              let host = server(for: workspace.hostID),
+              let teamID = host.teamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !teamID.isEmpty else {
+            return
+        }
+
+        let task = Task { @MainActor [weak self] in
+            defer {
+                self?.workspaceIdentityTasks.removeValue(forKey: workspaceID)
+            }
+
+            do {
+                let identity = try await workspaceIdentityService.reserveWorkspace(for: host)
+                guard let self,
+                      let index = self.workspaces.firstIndex(where: { $0.id == workspaceID }),
+                      self.workspaces[index].backendIdentity == nil else {
+                    return
+                }
+
+                self.workspaces[index].backendIdentity = identity
+                self.persist()
+                self.startWorkspaceMetadataObservationIfNeeded(for: workspaceID)
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+        }
+
+        workspaceIdentityTasks[workspaceID] = task
+    }
+
+    private func cancelWorkspaceIdentityReservation(for workspaceID: TerminalWorkspace.ID) {
+        workspaceIdentityTasks[workspaceID]?.cancel()
+        workspaceIdentityTasks.removeValue(forKey: workspaceID)
+    }
+
+    private func startWorkspaceMetadataObservationIfNeeded(for workspaceID: TerminalWorkspace.ID) {
+        guard workspaceMetadataCancellables[workspaceID] == nil,
+              let workspaceMetadataService,
+              let workspace = workspace(with: workspaceID),
+              let identity = workspace.backendIdentity else {
+            return
+        }
+
+        workspaceMetadataCancellables[workspaceID] = workspaceMetadataService
+            .metadataPublisher(for: identity)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] metadata in
+                guard let self,
+                      let index = self.workspaces.firstIndex(where: { $0.id == workspaceID }) else {
+                    return
+                }
+
+                guard self.workspaces[index].backendMetadata != metadata else { return }
+                self.workspaces[index].backendMetadata = metadata
+                self.persist()
+            }
+    }
+
+    private func cancelWorkspaceMetadataObservation(for workspaceID: TerminalWorkspace.ID) {
+        workspaceMetadataCancellables[workspaceID]?.cancel()
+        workspaceMetadataCancellables.removeValue(forKey: workspaceID)
+    }
+
+    private func normalizedTeamID(_ teamID: String?) -> String? {
+        guard let trimmed = teamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+
+        return trimmed
+    }
+
+    private func persist() {
+        do {
+            try snapshotStore.save(
+                TerminalStoreSnapshot(
+                    hosts: hosts,
+                    workspaces: workspaces,
+                    selectedWorkspaceID: selectedWorkspaceID
+                )
+            )
+        } catch {
+            #if DEBUG
+            print("Failed to save terminal snapshot: \(error)")
+            #endif
+        }
+    }
+
+    private func observeLifecycle() {
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: UIApplication.didEnterBackgroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    for controller in self.controllers.values {
+                        controller.suspendPreservingState()
+                    }
+                }
+            }
+        )
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: UIApplication.willEnterForegroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.syncSelectedControllerLifecycle()
+                }
+            }
+        )
+    }
+}
+
+@MainActor
+final class TerminalSessionController: ObservableObject {
+    let workspaceID: TerminalWorkspace.ID
+    var onUpdate: ((TerminalSessionUpdate) -> Void)?
+
+    @Published private(set) var phase: TerminalConnectionPhase
+    @Published private(set) var errorMessage: String?
+    @Published private(set) var statusMessage: String?
+    @Published private(set) var surfaceView: GhosttySurfaceView?
+
+    private var host: TerminalHost
+    private let workspace: TerminalWorkspace
+    private let credentialsStore: TerminalCredentialsStoring
+    private let transportFactory: TerminalTransportFactory
+    private let surfaceFactory: @MainActor (GhosttySurfaceViewDelegate) throws -> any TerminalSurfaceHosting
+
+    private var terminalSurface: (any TerminalSurfaceHosting)?
+    private var remoteDaemonResumeState: TerminalRemoteDaemonResumeState?
+    private var transport: TerminalTransport?
+    private var transportConnectTask: Task<Void, Never>?
+    private var transportDisconnectTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
+    private var statusMessageTask: Task<Void, Never>?
+    private var surfaceCloseObserver: NSObjectProtocol?
+    private var shouldReconnect = true
+    private var transportConnectGeneration = 0
+    private var pendingReconnectAfterTransportWork = false
+    private var pendingReconnectUsesReconnectingPhase = false
+
+    static func unavailable(workspaceID: TerminalWorkspace.ID) -> TerminalSessionController {
+        TerminalSessionController(
+            workspace: TerminalWorkspace(
+                id: workspaceID,
+                hostID: UUID(),
+                title: TerminalStoreStrings.unavailableWorkspaceTitle,
+                tmuxSessionName: "unavailable",
+                phase: .failed,
+                lastError: TerminalStoreStrings.missingServerError
+            ),
+            host: TerminalHost(
+                id: UUID(),
+                name: TerminalStoreStrings.missingServerName,
+                hostname: "",
+                username: "",
+                symbolName: "exclamationmark.triangle.fill",
+                palette: .rose
+            ),
+            credentialsStore: InMemoryTerminalCredentialsStore(),
+            transportFactory: DefaultTerminalTransportFactory()
+        )
+    }
+
+    init(
+        workspace: TerminalWorkspace,
+        host: TerminalHost,
+        credentialsStore: TerminalCredentialsStoring,
+        transportFactory: TerminalTransportFactory,
+        surfaceFactory: @escaping @MainActor (GhosttySurfaceViewDelegate) throws -> any TerminalSurfaceHosting = makeTerminalSurface(delegate:)
+    ) {
+        self.workspaceID = workspace.id
+        self.workspace = workspace
+        self.host = host
+        self.credentialsStore = credentialsStore
+        self.transportFactory = transportFactory
+        self.surfaceFactory = surfaceFactory
+        self.remoteDaemonResumeState = workspace.remoteDaemonResumeState
+        self.phase = workspace.phase
+        self.errorMessage = workspace.lastError
+
+        _ = ensureTerminalSurface()
+    }
+
+    deinit {
+        if let surfaceCloseObserver {
+            NotificationCenter.default.removeObserver(surfaceCloseObserver)
+        }
+    }
+
+    func refreshHost(_ host: TerminalHost) {
+        self.host = host
+        if phase == .needsConfiguration || phase == .failed {
+            connectIfNeeded()
+        }
+    }
+
+    func connectIfNeeded(reconnecting: Bool = false) {
+        guard transport == nil else { return }
+        guard transportConnectTask == nil, transportDisconnectTask == nil else {
+            queueReconnectAfterPendingTransportWork(reconnecting: reconnecting)
+            return
+        }
+        guard ensureTerminalSurface(), let terminalSurface else {
+            setPhase(.failed, error: errorMessage ?? TerminalStoreStrings.surfaceUnavailableError)
+            return
+        }
+        guard host.isConfigured else {
+            setPhase(.needsConfiguration, error: TerminalStoreStrings.configureHostError)
+            return
+        }
+
+        let credentials = credentialsStore.sshCredentials(for: host.id)
+        if host.requiresSavedSSHPassword, !credentials.hasPassword {
+            setPhase(.needsConfiguration, error: TerminalStoreStrings.configurePasswordError)
+            return
+        }
+        if host.requiresSavedSSHPrivateKey, !credentials.hasPrivateKey {
+            setPhase(.needsConfiguration, error: TerminalStoreStrings.configurePrivateKeyError)
+            return
+        }
+
+        clearStatusMessage()
+        setPhase(reconnecting ? .reconnecting : .connecting, error: nil)
+        shouldReconnect = true
+        let initialSize = terminalSurface.currentGridSize
+
+        let transport = transportFactory.makeTransport(
+            host: host,
+            credentials: credentials,
+            sessionName: workspace.tmuxSessionName,
+            resumeState: remoteDaemonResumeState
+        )
+        transport.eventHandler = { [weak self] event in
+            Task { @MainActor in
+                self?.handle(event: event)
+            }
+        }
+        self.transport = transport
+
+        transportConnectGeneration += 1
+        let connectGeneration = transportConnectGeneration
+        transportConnectTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await transport.connect(initialSize: initialSize)
+                await MainActor.run {
+                    self.finishTransportConnectTask(generation: connectGeneration)
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.finishTransportConnectTask(generation: connectGeneration)
+                }
+            } catch {
+                await MainActor.run {
+                    let isCurrentTransport = self.isCurrentTransport(transport)
+                    if isCurrentTransport {
+                        transport.eventHandler = nil
+                        self.transport = nil
+                        if let sshError = error as? TerminalSSHError {
+                            switch sshError {
+                            case .untrustedHostKey(let hostKey), .hostKeyChanged(let hostKey):
+                                self.onUpdate?(.pendingHostKey(hostKey))
+                                self.setPhase(.needsConfiguration, error: sshError.localizedDescription)
+                            default:
+                                self.setPhase(.failed, error: error.localizedDescription)
+                            }
+                        } else {
+                            self.setPhase(.failed, error: error.localizedDescription)
+                        }
+                        if self.shouldAutoReconnect(after: error) {
+                            self.scheduleReconnectIfNeeded(after: 2)
+                        }
+                    }
+                    self.finishTransportConnectTask(generation: connectGeneration)
+                }
+            }
+        }
+    }
+
+    func resumeIfNeeded() {
+        guard shouldReconnect else { return }
+        if transport == nil, phase != .needsConfiguration {
+            connectIfNeeded(reconnecting: true)
+        }
+    }
+
+    func reconnectNow() {
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        clearStatusMessage()
+        syncRemoteDaemonResumeStateFromTransport()
+        clearPendingReconnectAfterTransportWork()
+        cancelTransportConnectTask()
+        let transport = releaseTransport()
+        scheduleTransportDisconnect(transport, preserveSession: true)
+        connectIfNeeded(reconnecting: true)
+    }
+
+    func disconnect() {
+        shouldReconnect = false
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        clearStatusMessage()
+        updateRemoteDaemonResumeState(nil)
+        clearPendingReconnectAfterTransportWork()
+        cancelTransportConnectTask()
+        let transport = releaseTransport()
+        clearTerminalSurface()
+        scheduleTransportDisconnect(transport)
+    }
+
+    func suspendPreservingState() {
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        clearStatusMessage()
+        syncRemoteDaemonResumeStateFromTransport()
+        clearPendingReconnectAfterTransportWork()
+        cancelTransportConnectTask()
+        let transport = releaseTransport()
+        clearTerminalSurface()
+
+        if phase != .needsConfiguration && phase != .failed {
+            setPhase(.idle, error: nil)
+        }
+
+        scheduleTransportDisconnect(transport, preserveSession: true)
+    }
+
+    private func handle(event: TerminalTransportEvent) {
+        switch event {
+        case .connected:
+            reconnectTask?.cancel()
+            reconnectTask = nil
+            setPhase(.connected, error: nil)
+            syncRemoteDaemonResumeStateFromTransport()
+            if statusMessage != nil {
+                scheduleStatusMessageClear(after: 2)
+            }
+        case .output(let data):
+            terminalSurface?.processOutput(data)
+            if let preview = TerminalPreviewExtractor.preview(from: data) {
+                onUpdate?(.preview(preview, .now))
+            }
+        case .disconnected(let message):
+            syncRemoteDaemonResumeStateFromTransport()
+            transport = nil
+            clearStatusMessage()
+            if let message {
+                setPhase(.disconnected, error: message)
+            } else {
+                setPhase(.disconnected, error: nil)
+            }
+            scheduleReconnectIfNeeded(after: 2)
+        case .notice(let message):
+            setStatusMessage(message)
+        case .trustedHostKey(let hostKey):
+            onUpdate?(.trustedHostKey(hostKey))
+        }
+    }
+
+    private func setPhase(_ phase: TerminalConnectionPhase, error: String?) {
+        self.phase = phase
+        self.errorMessage = error
+        onUpdate?(.phase(phase, error))
+    }
+
+    private func scheduleReconnectIfNeeded(after seconds: Double) {
+        guard shouldReconnect else { return }
+        guard phase != .needsConfiguration else { return }
+        guard shouldAutoReconnect(for: errorMessage) else { return }
+        let reconnectDelay = UITestConfig.terminalReconnectDelayOverride ?? seconds
+        reconnect(seconds: reconnectDelay)
+    }
+
+    private func shouldAutoReconnect(after error: Error) -> Bool {
+        switch error {
+        case let error as TerminalDirectDaemonClientError:
+            if case .connectionFailed = error {
+                return true
+            }
+            return false
+        case let error as TerminalSSHError:
+            switch error {
+            case .passwordAuthenticationUnavailable,
+                 .publicKeyAuthenticationUnavailable,
+                 .missingPassword,
+                 .missingPrivateKey,
+                 .authenticationTimedOut,
+                 .untrustedHostKey,
+                 .hostKeyChanged:
+                return false
+            case .channelClosedBeforeAuthentication:
+                return true
+            }
+        case let error as TerminalDaemonTicketServiceError:
+            switch error {
+            case .httpError(let statusCode, _):
+                return statusCode >= 500
+            case .invalidResponse:
+                return false
+            }
+        default:
+            return shouldAutoReconnect(for: error.localizedDescription)
+        }
+    }
+
+    private func shouldAutoReconnect(for errorMessage: String?) -> Bool {
+        guard let errorMessage else { return true }
+
+        let lowercased = errorMessage.localizedLowercase
+        if lowercased.contains("host key") ||
+            lowercased.contains("password") ||
+            lowercased.contains("private key") ||
+            lowercased.contains("public key") ||
+            lowercased.contains("authentication timed out") {
+            return false
+        }
+        return true
+    }
+
+    private func reconnect(seconds: Double) {
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.connectIfNeeded(reconnecting: true)
+            }
+        }
+    }
+
+    private func setStatusMessage(_ message: String?) {
+        statusMessageTask?.cancel()
+        statusMessageTask = nil
+        statusMessage = message
+    }
+
+    private func clearStatusMessage() {
+        statusMessageTask?.cancel()
+        statusMessageTask = nil
+        statusMessage = nil
+    }
+
+    private func scheduleStatusMessageClear(after seconds: Double) {
+        statusMessageTask?.cancel()
+        statusMessageTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.statusMessage = nil
+                self?.statusMessageTask = nil
+            }
+        }
+    }
+
+    private func syncRemoteDaemonResumeStateFromTransport() {
+        guard let snapshotting = transport as? TerminalRemoteDaemonResumeStateSnapshotting else { return }
+        updateRemoteDaemonResumeState(snapshotting.remoteDaemonResumeStateSnapshot())
+    }
+
+    private func updateRemoteDaemonResumeState(_ state: TerminalRemoteDaemonResumeState?) {
+        guard remoteDaemonResumeState != state else { return }
+        remoteDaemonResumeState = state
+        onUpdate?(.remoteDaemonResumeState(state))
+    }
+
+    @discardableResult
+    private func ensureTerminalSurface() -> Bool {
+        if terminalSurface != nil {
+            return true
+        }
+
+        do {
+            let surface = try surfaceFactory(self)
+            terminalSurface = surface
+            surfaceView = surface as? GhosttySurfaceView
+            observeSurfaceClose(for: surface)
+            return true
+        } catch {
+            clearTerminalSurface()
+            setPhase(.failed, error: error.localizedDescription)
+            return false
+        }
+    }
+
+    private func releaseTransport() -> TerminalTransport? {
+        let transport = self.transport
+        transport?.eventHandler = nil
+        self.transport = nil
+        return transport
+    }
+
+    private func clearTerminalSurface() {
+        if let surfaceCloseObserver {
+            NotificationCenter.default.removeObserver(surfaceCloseObserver)
+            self.surfaceCloseObserver = nil
+        }
+        surfaceView?.disposeSurface()
+        terminalSurface = nil
+        surfaceView = nil
+    }
+
+    private func observeSurfaceClose(for surface: any TerminalSurfaceHosting) {
+        if let surfaceCloseObserver {
+            NotificationCenter.default.removeObserver(surfaceCloseObserver)
+        }
+        surfaceCloseObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttySurfaceDidRequestClose,
+            object: surface,
+            queue: .main
+        ) { [weak self] notification in
+            let processAlive = notification.userInfo?["process_alive"] as? Bool ?? false
+            Task { @MainActor [weak self] in
+                self?.handleSurfaceCloseRequest(processAlive: processAlive)
+            }
+        }
+    }
+
+    private func handleSurfaceCloseRequest(processAlive _: Bool) {
+        guard terminalSurface != nil else { return }
+
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        clearStatusMessage()
+        syncRemoteDaemonResumeStateFromTransport()
+        clearTerminalSurface()
+
+        let transport = releaseTransport()
+        guard shouldReconnect else {
+            clearPendingReconnectAfterTransportWork()
+            cancelTransportConnectTask()
+            scheduleTransportDisconnect(transport)
+            return
+        }
+
+        setPhase(.reconnecting, error: nil)
+        clearPendingReconnectAfterTransportWork()
+        cancelTransportConnectTask()
+        scheduleTransportDisconnect(transport, preserveSession: true) { controller in
+            guard controller.ensureTerminalSurface() else {
+                controller.scheduleReconnectIfNeeded(after: 2)
+                return
+            }
+            controller.connectIfNeeded(reconnecting: true)
+        }
+    }
+
+    private func queueReconnectAfterPendingTransportWork(reconnecting: Bool) {
+        pendingReconnectAfterTransportWork = true
+        pendingReconnectUsesReconnectingPhase = pendingReconnectUsesReconnectingPhase || reconnecting
+    }
+
+    private func clearPendingReconnectAfterTransportWork() {
+        pendingReconnectAfterTransportWork = false
+        pendingReconnectUsesReconnectingPhase = false
+    }
+
+    private func flushPendingReconnectIfNeeded() {
+        guard pendingReconnectAfterTransportWork else { return }
+        guard transportConnectTask == nil, transportDisconnectTask == nil else { return }
+        let reconnecting = pendingReconnectUsesReconnectingPhase
+        clearPendingReconnectAfterTransportWork()
+        connectIfNeeded(reconnecting: reconnecting)
+    }
+
+    private func cancelTransportConnectTask() {
+        transportConnectTask?.cancel()
+    }
+
+    private func finishTransportConnectTask(generation: Int) {
+        guard transportConnectGeneration == generation else { return }
+        transportConnectTask = nil
+        if transport == nil {
+            flushPendingReconnectIfNeeded()
+        }
+    }
+
+    private func isCurrentTransport(_ candidate: any TerminalTransport) -> Bool {
+        guard let transport else { return false }
+        return transport as AnyObject === candidate as AnyObject
+    }
+
+    private func scheduleTransportDisconnect(
+        _ transport: TerminalTransport?,
+        preserveSession: Bool = false,
+        afterDisconnect: (@MainActor @Sendable (TerminalSessionController) -> Void)? = nil
+    ) {
+        guard let transport else {
+            if let afterDisconnect {
+                afterDisconnect(self)
+            } else {
+                flushPendingReconnectIfNeeded()
+            }
+            return
+        }
+
+        transportDisconnectTask = Task { [weak self] in
+            if preserveSession, let parkingTransport = transport as? TerminalSessionParking {
+                await parkingTransport.suspendPreservingSession()
+            } else {
+                await transport.disconnect()
+            }
+            await MainActor.run {
+                guard let self else { return }
+                self.transportDisconnectTask = nil
+                if let afterDisconnect {
+                    afterDisconnect(self)
+                } else {
+                    self.flushPendingReconnectIfNeeded()
+                }
+            }
+        }
+    }
+}
+
+#if DEBUG
+extension TerminalSidebarStore {
+    static func uiTestDirectFixture() -> TerminalSidebarStore {
+        let host = TerminalHost(
+            stableID: "cmux-macmini",
+            name: "Mac mini",
+            hostname: "cmux-macmini",
+            username: "cmux",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            source: .discovered,
+            transportPreference: .remoteDaemon,
+            teamID: "team-uitest",
+            serverID: "cmux-macmini"
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [host],
+            workspaces: [],
+            selectedWorkspaceID: nil
+        )
+        let snapshotStore = InMemoryTerminalSnapshotStore(snapshot: snapshot)
+        let credentialsStore = InMemoryTerminalCredentialsStore(passwords: [host.id: "fixture"])
+        return TerminalSidebarStore(
+            snapshotStore: snapshotStore,
+            credentialsStore: credentialsStore,
+            transportFactory: TerminalUITestDirectReconnectTransportFactory(),
+            serverDiscovery: nil,
+            networkPathMonitor: nil,
+            eagerlyRestoreSessions: false
+        )
+    }
+}
+
+private struct TerminalUITestDirectReconnectTransportFactory: TerminalTransportFactory {
+    private let scenario = TerminalUITestDirectReconnectScenario()
+
+    func makeTransport(
+        host: TerminalHost,
+        credentials: TerminalSSHCredentials,
+        sessionName: String,
+        resumeState: TerminalRemoteDaemonResumeState?
+    ) -> TerminalTransport {
+        TerminalUITestDirectReconnectTransport(scenario: scenario)
+    }
+}
+
+private actor TerminalUITestDirectReconnectScenario {
+    private var connectCount = 0
+
+    func nextAttempt() -> Int {
+        connectCount += 1
+        return connectCount
+    }
+}
+
+private final class TerminalUITestDirectReconnectTransport: TerminalTransport, @unchecked Sendable {
+    var eventHandler: (@Sendable (TerminalTransportEvent) -> Void)?
+
+    private let scenario: TerminalUITestDirectReconnectScenario
+    private var runTask: Task<Void, Never>?
+
+    init(scenario: TerminalUITestDirectReconnectScenario) {
+        self.scenario = scenario
+    }
+
+    func connect(initialSize: TerminalGridSize) async throws {
+        let attempt = await scenario.nextAttempt()
+        runTask?.cancel()
+        runTask = Task { [weak self] in
+            guard let self else { return }
+            if attempt == 1 {
+                self.eventHandler?(.connected)
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                self.eventHandler?(.disconnected(nil))
+                return
+            }
+
+            self.eventHandler?(.connected)
+            self.eventHandler?(.output(Data("cmux@fixture:~$ ".utf8)))
+        }
+    }
+
+    func send(_ data: Data) async throws {}
+
+    func resize(_ size: TerminalGridSize) async {}
+
+    func disconnect() async {
+        runTask?.cancel()
+        runTask = nil
+    }
+}
+#endif
+
+extension TerminalSessionController: GhosttySurfaceViewDelegate {
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {
+        Task { [weak self] in
+            try? await self?.transport?.send(data)
+        }
+    }
+
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
+        Task { [weak self] in
+            await self?.transport?.resize(size)
+        }
+    }
+}
+
+enum TerminalPreviewExtractor {
+    static func preview(from data: Data) -> String? {
+        guard var string = String(data: data, encoding: .utf8), !string.isEmpty else { return nil }
+        string = string.replacingOccurrences(
+            of: #"\u{001B}\[[0-?]*[ -/]*[@-~]"#,
+            with: "",
+            options: .regularExpression
+        )
+        string = string.replacingOccurrences(
+            of: #"\u{001B}\].*?(?:\u{0007}|\u{001B}\\)"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        let lines = string
+            .components(separatedBy: .newlines)
+            .reversed()
+            .map {
+                $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.controlCharacters))
+            }
+
+        return lines.first(where: { !$0.isEmpty })
+    }
+}
+
+private enum TerminalStoreStrings {
+    static let newServerName = String(
+        localized: "terminal.host.new_server_name",
+        defaultValue: "New Server"
+    )
+    static let unavailableWorkspaceTitle = String(
+        localized: "terminal.workspace.unavailable_title",
+        defaultValue: "Unavailable"
+    )
+    static let missingServerError = String(
+        localized: "terminal.workspace.missing_server_error",
+        defaultValue: "Server missing"
+    )
+    static let missingServerName = String(
+        localized: "terminal.host.missing_server_name",
+        defaultValue: "Missing Server"
+    )
+    static let surfaceUnavailableError = String(
+        localized: "terminal.workspace.surface_unavailable",
+        defaultValue: "Terminal surface unavailable"
+    )
+    static let configureHostError = String(
+        localized: "terminal.workspace.configure_host",
+        defaultValue: "Add SSH host details to connect."
+    )
+    static let configurePasswordError = String(
+        localized: "terminal.workspace.configure_password",
+        defaultValue: "Add a password for this server."
+    )
+    static let configurePrivateKeyError = String(
+        localized: "terminal.workspace.configure_private_key",
+        defaultValue: "Add a private key for this server."
+    )
+}

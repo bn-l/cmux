@@ -1,3 +1,4 @@
+import CMUXAuthCore
 import Foundation
 import StackAuth
 import SwiftUI
@@ -12,6 +13,8 @@ class AuthManager: ObservableObject {
     @Published var isRestoringSession = false
 
     private let stack = StackAuthApp.shared
+    private let authUserCache = AuthUserCache.shared
+    private let authSessionCache = AuthSessionCache.shared
 
     private init() {
         primeSessionState()
@@ -40,39 +43,49 @@ class AuthManager: ObservableObject {
             Task {
                 await clearTokensForUITest()
             }
-            isRestoringSession = false
             return
         }
 
         #if DEBUG
         if UITestConfig.mockDataEnabled {
-            currentUser = StackAuthUser(
-                id: "uitest_user",
-                primaryEmail: "uitest@cmux.local",
-                displayName: "UI Test"
+            applyAuthState(
+                CMUXAuthState.primed(
+                    clearAuthRequested: false,
+                    mockDataEnabled: true,
+                    autoLoginCredentials: nil,
+                    cachedUser: nil,
+                    hasTokens: false,
+                    mockUser: uiTestMockUser
+                )
             )
-            isAuthenticated = true
-            isRestoringSession = false
             return
         }
 
         if autoLoginCredentials != nil {
-            if let cachedUser = AuthUserCache.shared.load() {
-                currentUser = cachedUser
-            }
-            isAuthenticated = true
-            isRestoringSession = false
+            applyAuthState(
+                CMUXAuthState.primed(
+                    clearAuthRequested: false,
+                    mockDataEnabled: false,
+                    autoLoginCredentials: autoLoginCredentials,
+                    cachedUser: authUserCache.load(),
+                    hasTokens: authSessionCache.hasTokens,
+                    mockUser: uiTestMockUser
+                )
+            )
             return
         }
         #endif
 
-        if let cachedUser = AuthUserCache.shared.load() {
-            currentUser = cachedUser
-        }
-
-        let hasTokens = AuthSessionCache.shared.hasTokens
-        isAuthenticated = hasTokens || currentUser != nil
-        isRestoringSession = false
+        applyAuthState(
+            CMUXAuthState.primed(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                autoLoginCredentials: nil,
+                cachedUser: authUserCache.load(),
+                hasTokens: authSessionCache.hasTokens,
+                mockUser: uiTestMockUser
+            )
+        )
     }
 
     private func checkExistingSession() async {
@@ -85,18 +98,18 @@ class AuthManager: ObservableObject {
             return
         }
 
-        if let credentials = autoLoginCredentials, !AuthSessionCache.shared.hasTokens {
+        if let credentials = autoLoginCredentials, !authSessionCache.hasTokens {
             await performAutoLogin(credentials)
             return
         }
         #endif
 
-        let cachedUser = AuthUserCache.shared.load()
-        let hasCachedSession = AuthSessionCache.shared.hasTokens || cachedUser != nil
+        let cachedUser = authUserCache.load()
+        let hasCachedSession = authSessionCache.hasTokens || cachedUser != nil
         let hasRefreshToken = await stack.getRefreshToken() != nil
 
         if hasCachedSession || hasRefreshToken {
-            AuthSessionCache.shared.setHasTokens(true)
+            authSessionCache.setHasTokens(true)
             if currentUser == nil, let cachedUser {
                 currentUser = cachedUser
             }
@@ -105,7 +118,7 @@ class AuthManager: ObservableObject {
         }
 
         if await stack.getAccessToken() != nil {
-            AuthSessionCache.shared.setHasTokens(true)
+            authSessionCache.setHasTokens(true)
             await validateCachedSession(hasRefreshToken: false)
             return
         }
@@ -132,8 +145,8 @@ class AuthManager: ObservableObject {
             print("🔐 Session validation failed: \(error)")
         }
 
-        if hasRefreshToken || AuthSessionCache.shared.hasTokens || currentUser != nil {
-            AuthSessionCache.shared.setHasTokens(true)
+        if hasRefreshToken || authSessionCache.hasTokens || currentUser != nil {
+            authSessionCache.setHasTokens(true)
             isAuthenticated = true
             return
         }
@@ -146,17 +159,16 @@ class AuthManager: ObservableObject {
         let mappedUser = await StackAuthUser(currentUser: user)
         currentUser = mappedUser
         isAuthenticated = true
-        AuthUserCache.shared.save(mappedUser)
-        AuthSessionCache.shared.setHasTokens(true)
+        authUserCache.save(mappedUser)
+        authSessionCache.setHasTokens(true)
         await ConvexClientManager.shared.syncAuth()
         await NotificationManager.shared.syncTokenIfPossible()
     }
 
     private func clearAuthState() {
-        AuthUserCache.shared.clear()
-        AuthSessionCache.shared.clear()
-        currentUser = nil
-        isAuthenticated = false
+        authUserCache.clear()
+        authSessionCache.clear()
+        applyAuthState(.cleared())
     }
 
     private func clearTokensForUITest() async {
@@ -235,6 +247,19 @@ class AuthManager: ObservableObject {
         try await completeSignIn()
     }
 
+    // MARK: - Google Sign In
+
+    func signInWithGoogle() async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        try await stack.signInWithOAuth(
+            provider: "google",
+            presentationContextProvider: AuthPresentationContextProvider.shared
+        )
+        try await completeSignIn()
+    }
+
     private func completeSignIn() async throws {
         guard let user = try await stack.getUser(or: .throw) else {
             throw AuthError.unauthorized
@@ -264,10 +289,23 @@ class AuthManager: ObservableObject {
     }
 }
 
-struct AuthAutoLoginCredentials: Equatable {
-    let email: String
-    let password: String
+private extension AuthManager {
+    var uiTestMockUser: StackAuthUser {
+        StackAuthUser(
+            id: "uitest_user",
+            primaryEmail: "uitest@cmux.local",
+            displayName: "UI Test"
+        )
+    }
+
+    func applyAuthState(_ state: CMUXAuthState) {
+        currentUser = state.currentUser
+        isAuthenticated = state.isAuthenticated
+        isRestoringSession = state.isRestoringSession
+    }
 }
+
+typealias AuthAutoLoginCredentials = CMUXAuthAutoLoginCredentials
 
 enum AuthLaunchConfig {
     static func autoLoginCredentials(
@@ -275,66 +313,62 @@ enum AuthLaunchConfig {
         clearAuth: Bool,
         mockDataEnabled: Bool
     ) -> AuthAutoLoginCredentials? {
-        if clearAuth || mockDataEnabled {
-            return nil
-        }
-        guard let email = environment["CMUX_UITEST_STACK_EMAIL"], !email.isEmpty else {
-            return nil
-        }
-        guard let password = environment["CMUX_UITEST_STACK_PASSWORD"], !password.isEmpty else {
-            return nil
-        }
-        return AuthAutoLoginCredentials(email: email, password: password)
+        CMUXAuthLaunchConfig.autoLoginCredentials(
+            from: environment,
+            clearAuth: clearAuth,
+            mockDataEnabled: mockDataEnabled
+        )
     }
 }
 
 enum AuthMagicLinkCode {
     static func compose(code: String, nonce: String) -> String {
-        code + nonce
+        CMUXAuthMagicLinkCode.compose(code: code, nonce: nonce)
     }
 }
 
 final class AuthSessionCache {
     static let shared = AuthSessionCache()
-
-    private let key = "auth_has_tokens"
+    private let cache = CMUXAuthSessionCache(
+        keyValueStore: UserDefaults.standard,
+        key: "auth_has_tokens"
+    )
 
     private init() {}
 
     var hasTokens: Bool {
-        UserDefaults.standard.bool(forKey: key)
+        cache.hasTokens
     }
 
     func setHasTokens(_ value: Bool) {
-        UserDefaults.standard.set(value, forKey: key)
+        cache.setHasTokens(value)
     }
 
     func clear() {
-        UserDefaults.standard.removeObject(forKey: key)
+        cache.clear()
     }
 }
 
 final class AuthUserCache {
     static let shared = AuthUserCache()
-    private let userKey = "auth_cached_user"
+    private let store = CMUXAuthIdentityStore(
+        keyValueStore: UserDefaults.standard,
+        key: "auth_cached_user"
+    )
 
     private init() {}
 
     func save(_ user: StackAuthUser) {
         do {
-            let data = try JSONEncoder().encode(user)
-            UserDefaults.standard.set(data, forKey: userKey)
+            try store.save(user)
         } catch {
             print("🔐 Failed to cache user: \(error)")
         }
     }
 
     func load() -> StackAuthUser? {
-        guard let data = UserDefaults.standard.data(forKey: userKey) else {
-            return nil
-        }
         do {
-            return try JSONDecoder().decode(StackAuthUser.self, from: data)
+            return try store.load()
         } catch {
             print("🔐 Failed to load cached user: \(error)")
             return nil
@@ -342,6 +376,6 @@ final class AuthUserCache {
     }
 
     func clear() {
-        UserDefaults.standard.removeObject(forKey: userKey)
+        store.clear()
     }
 }

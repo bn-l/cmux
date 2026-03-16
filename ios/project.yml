@@ -21,6 +21,8 @@ configs:
   Release: release
 
 packages:
+  CMUXAuthCore:
+    path: ../Packages/CMUXAuthCore
   ConvexMobile:
     url: https://github.com/get-convex/convex-swift
     from: "0.1.0"
@@ -29,18 +31,36 @@ packages:
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa
     from: "8.0.0"
+  SwiftNIO:
+    url: https://github.com/apple/swift-nio.git
+    from: "2.96.0"
+  SwiftNIOSSH:
+    url: https://github.com/apple/swift-nio-ssh.git
+    from: "0.12.0"
+  SwiftNIOTransportServices:
+    url: https://github.com/apple/swift-nio-transport-services.git
+    from: "1.26.0"
 
 targets:
   cmux:
     type: application
     platform: iOS
     sources:
+      - ../Sources/Shared
       - Sources
+      - Resources
       - Assets.xcassets
     dependencies:
+      - package: CMUXAuthCore
       - package: ConvexMobile
       - package: StackAuth
       - package: Sentry
+      - package: SwiftNIO
+        product: NIOCore
+      - package: SwiftNIOSSH
+        product: NIOSSH
+      - package: SwiftNIOTransportServices
+        product: NIOTransportServices
     settings:
       base:
         MARKETING_VERSION: "1.0"
@@ -48,7 +68,7 @@ targets:
         GENERATE_INFOPLIST_FILE: "YES"
         SWIFT_EMIT_LOC_STRINGS: "YES"
         DEVELOPMENT_TEAM: 7WLXT3NR37
-        SWIFT_OBJC_BRIDGING_HEADER: Sources/Terminal/GhosttyToy-Bridging-Header.h
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/Terminal/Ghostty-Bridging-Header.h
         HEADER_SEARCH_PATHS[sdk=iphoneos*]:
           - "$(inherited)"
           - "$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/Headers"
@@ -103,6 +123,7 @@ targets:
       - cmuxTests
     dependencies:
       - target: cmux
+      - package: CMUXAuthCore
     settings:
       base:
         GENERATE_INFOPLIST_FILE: "YES"

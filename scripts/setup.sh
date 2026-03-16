@@ -17,6 +17,9 @@ if ! command -v zig &> /dev/null; then
 fi
 
 GHOSTTY_SHA="$(git -C ghostty rev-parse HEAD)"
+GHOSTTY_SHORT_SHA="$(git -C ghostty rev-parse --short HEAD)"
+GHOSTTY_BASE_VERSION="$(awk -F'\"' '/.version = / { print $2; exit }' ghostty/build.zig.zon)"
+GHOSTTY_VERSION_STRING="${GHOSTTY_BASE_VERSION}+${GHOSTTY_SHORT_SHA}"
 CACHE_ROOT="${CMUX_GHOSTTYKIT_CACHE_DIR:-$HOME/.cache/cmux/ghosttykit}"
 CACHE_DIR="$CACHE_ROOT/$GHOSTTY_SHA"
 CACHE_XCFRAMEWORK="$CACHE_DIR/GhosttyKit.xcframework"
@@ -58,7 +61,10 @@ else
         echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
         (
             cd ghostty
-            zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+            zig build \
+                -Demit-xcframework=true \
+                -Doptimize=ReleaseFast \
+                -Dversion-string="$GHOSTTY_VERSION_STRING"
         )
         # Stamp the build output with the SHA it was built from
         echo "$GHOSTTY_SHA" > "$LOCAL_SHA_STAMP"

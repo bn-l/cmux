@@ -66,6 +66,23 @@ final class StackAuthSessionTests: XCTestCase {
         XCTAssertNil(noPassword)
     }
 
+    func testUITestConfigAllowsExplicitMockDataOptOut() {
+        XCTAssertFalse(
+            UITestConfig.mockDataEnabled(
+                from: [
+                    "XCTestConfigurationFilePath": "/tmp/test.xctestconfiguration",
+                    "CMUX_UITEST_MOCK_DATA": "0"
+                ]
+            )
+        )
+
+        XCTAssertTrue(
+            UITestConfig.mockDataEnabled(
+                from: ["XCTestConfigurationFilePath": "/tmp/test.xctestconfiguration"]
+            )
+        )
+    }
+
     func testAuthMagicLinkCodeComposition() {
         let combined = AuthMagicLinkCode.compose(code: "123456", nonce: "nonce")
         XCTAssertEqual(combined, "123456nonce")

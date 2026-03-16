@@ -1,0 +1,166 @@
+import Foundation
+
+struct TerminalDaemonTicketRequest: Encodable, Hashable, Sendable {
+    var serverID: String
+    var teamID: String?
+    var sessionID: String?
+    var attachmentID: String?
+    var capabilities: [String]
+
+    init(
+        serverID: String,
+        teamID: String? = nil,
+        sessionID: String? = nil,
+        attachmentID: String? = nil,
+        capabilities: [String] = ["session.attach"]
+    ) {
+        self.serverID = serverID
+        self.teamID = teamID
+        self.sessionID = sessionID
+        self.attachmentID = attachmentID
+        self.capabilities = capabilities.sorted()
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case serverID = "server_id"
+        case teamID = "team_id"
+        case sessionID = "session_id"
+        case attachmentID = "attachment_id"
+        case capabilities
+    }
+}
+
+struct TerminalDaemonTicket: Decodable, Equatable, Sendable {
+    var ticket: String
+    var directURL: URL
+    var sessionID: String
+    var attachmentID: String
+    var expiresAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case ticket
+        case directURL = "direct_url"
+        case sessionID = "session_id"
+        case attachmentID = "attachment_id"
+        case expiresAt = "expires_at"
+    }
+}
+
+enum TerminalDaemonTicketServiceError: Error {
+    case invalidResponse
+    case httpError(Int, String?)
+}
+
+protocol TerminalDaemonTicketProviding: Sendable {
+    func fetchTicket(request payload: TerminalDaemonTicketRequest) async throws -> TerminalDaemonTicket
+    func invalidateTicket(request payload: TerminalDaemonTicketRequest)
+}
+
+extension TerminalDaemonTicketProviding {
+    func invalidateTicket(request payload: TerminalDaemonTicketRequest) {}
+}
+
+final class TerminalDaemonTicketService: @unchecked Sendable {
+    private let endpoint: URL
+    private let session: URLSession
+    private let tokenProvider: @Sendable () async throws -> String
+    private let nowProvider: @Sendable () -> Date
+    private let refreshLeeway: TimeInterval
+    private let cacheLock = NSLock()
+    private let encoder = JSONEncoder()
+    private let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
+    private var cachedTickets: [TerminalDaemonTicketRequest: TerminalDaemonTicket] = [:]
+
+    init(
+        endpoint: URL = URL(string: Environment.current.apiBaseURL + "/api/daemon-ticket")!,
+        session: URLSession = .shared,
+        tokenProvider: @escaping @Sendable () async throws -> String = { try await TerminalDaemonTicketService.liveAccessToken() },
+        nowProvider: @escaping @Sendable () -> Date = { Date() },
+        refreshLeeway: TimeInterval = 30
+    ) {
+        self.endpoint = endpoint
+        self.session = session
+        self.tokenProvider = tokenProvider
+        self.nowProvider = nowProvider
+        self.refreshLeeway = refreshLeeway
+    }
+
+    func fetchTicket(request payload: TerminalDaemonTicketRequest) async throws -> TerminalDaemonTicket {
+        if let cachedTicket = cachedTicket(for: payload) {
+            return cachedTicket
+        }
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.httpBody = try encoder.encode(payload)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(try await tokenProvider())", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw TerminalDaemonTicketServiceError.invalidResponse
+        }
+        guard (200 ..< 300).contains(httpResponse.statusCode) else {
+            throw TerminalDaemonTicketServiceError.httpError(httpResponse.statusCode, parseErrorMessage(from: data))
+        }
+
+        let ticket = try decoder.decode(TerminalDaemonTicket.self, from: data)
+        cache(ticket, for: payload)
+        return ticket
+    }
+
+    @MainActor
+    private static func liveAccessToken() async throws -> String {
+        try await AuthManager.shared.getAccessToken()
+    }
+
+    private func parseErrorMessage(from data: Data) -> String? {
+        guard !data.isEmpty else { return nil }
+        if let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let error = payload["error"] as? String, !error.isEmpty {
+                return error
+            }
+            if let message = payload["message"] as? String, !message.isEmpty {
+                return message
+            }
+        }
+        if let text = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !text.isEmpty {
+            return text
+        }
+        return nil
+    }
+
+    private func cachedTicket(for request: TerminalDaemonTicketRequest) -> TerminalDaemonTicket? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+
+        guard let ticket = cachedTickets[request] else { return nil }
+        guard ticket.expiresAt.timeIntervalSince(nowProvider()) > refreshLeeway else {
+            cachedTickets.removeValue(forKey: request)
+            return nil
+        }
+        return ticket
+    }
+
+    private func cache(_ ticket: TerminalDaemonTicket, for request: TerminalDaemonTicketRequest) {
+        cacheLock.lock()
+        cachedTickets[request] = ticket
+        cacheLock.unlock()
+    }
+}
+
+extension TerminalDaemonTicketService: TerminalDaemonTicketProviding {}
+
+extension TerminalDaemonTicketService {
+    func invalidateTicket(request payload: TerminalDaemonTicketRequest) {
+        cacheLock.lock()
+        cachedTickets.removeValue(forKey: payload)
+        cacheLock.unlock()
+    }
+}

@@ -1,112 +1,43 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"math"
 	"net"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/manaflow-ai/cmux/daemon/remote/internal/direct"
+	"github.com/manaflow-ai/cmux/daemon/remote/internal/rpc"
+	"github.com/manaflow-ai/cmux/daemon/remote/internal/session"
+	"github.com/manaflow-ai/cmux/daemon/remote/internal/terminal"
 )
 
 var version = "dev"
 
-type rpcRequest struct {
-	ID     any            `json:"id"`
-	Method string         `json:"method"`
-	Params map[string]any `json:"params"`
+type daemonServer struct {
+	mu           sync.Mutex
+	nextStreamID uint64
+	streams      map[string]net.Conn
+	sessions     *session.Manager
+	terminals    *terminal.Manager
 }
-
-type rpcError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-type rpcResponse struct {
-	ID     any       `json:"id,omitempty"`
-	OK     bool      `json:"ok"`
-	Result any       `json:"result,omitempty"`
-	Error  *rpcError `json:"error,omitempty"`
-}
-
-type rpcEvent struct {
-	Event      string `json:"event"`
-	StreamID   string `json:"stream_id,omitempty"`
-	DataBase64 string `json:"data_base64,omitempty"`
-	Error      string `json:"error,omitempty"`
-}
-
-type streamState struct {
-	conn          net.Conn
-	readerStarted bool
-}
-
-type stdioFrameWriter struct {
-	mu     sync.Mutex
-	writer *bufio.Writer
-}
-
-type rpcServer struct {
-	mu            sync.Mutex
-	nextStreamID  uint64
-	nextSessionID uint64
-	streams       map[string]*streamState
-	sessions      map[string]*sessionState
-	frameWriter   *stdioFrameWriter
-}
-
-type sessionAttachment struct {
-	Cols      int
-	Rows      int
-	UpdatedAt time.Time
-}
-
-type sessionState struct {
-	attachments   map[string]sessionAttachment
-	effectiveCols int
-	effectiveRows int
-	lastKnownCols int
-	lastKnownRows int
-}
-
-const maxRPCFrameBytes = 4 * 1024 * 1024
 
 func main() {
-	if shouldRunCLIForInvocation(os.Args[0], os.Args[1:]) {
+	// Busybox-style: if invoked as "cmux" (via symlink), act as CLI relay.
+	base := filepath.Base(os.Args[0])
+	if base == "cmux" {
 		os.Exit(runCLI(os.Args[1:]))
 	}
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
-}
-
-func shouldRunCLIForInvocation(argv0 string, args []string) bool {
-	base := filepath.Base(argv0)
-	if base == "cmux" {
-		return true
-	}
-	if !strings.HasPrefix(base, "cmuxd-remote") || len(args) == 0 {
-		return false
-	}
-	return !isDaemonEntryCommand(args[0])
-}
-
-func isDaemonEntryCommand(arg string) bool {
-	switch arg {
-	case "version", "serve", "cli":
-		return true
-	default:
-		return false
-	}
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -123,14 +54,33 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		stdio := fs.Bool("stdio", false, "serve over stdin/stdout")
+		tlsMode := fs.Bool("tls", false, "serve over TLS")
+		listenAddr := fs.String("listen", "", "TLS listen address")
+		serverID := fs.String("server-id", "", "server identifier for ticket verification")
+		ticketSecret := fs.String("ticket-secret", "", "shared secret used to verify daemon tickets")
+		certFile := fs.String("cert-file", "", "TLS certificate path")
+		keyFile := fs.String("key-file", "", "TLS private key path")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
-		if !*stdio {
-			_, _ = fmt.Fprintln(stderr, "serve requires --stdio")
+		if *stdio == *tlsMode {
+			_, _ = fmt.Fprintln(stderr, "serve requires exactly one of --stdio or --tls")
 			return 2
 		}
-		if err := runStdioServer(stdin, stdout); err != nil {
+		if *stdio {
+			if err := runStdioServer(stdin, stdout); err != nil {
+				_, _ = fmt.Fprintf(stderr, "serve failed: %v\n", err)
+				return 1
+			}
+			return 0
+		}
+		if err := runTLSServer(direct.Config{
+			ServerID:     *serverID,
+			TicketSecret: []byte(*ticketSecret),
+			CertFile:     *certFile,
+			KeyFile:      *keyFile,
+			ListenAddr:   *listenAddr,
+		}); err != nil {
 			_, _ = fmt.Fprintf(stderr, "serve failed: %v\n", err)
 			return 1
 		}
@@ -147,155 +97,38 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote version")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --tls --listen <addr> --server-id <id> --ticket-secret <secret> --cert-file <path> --key-file <path>")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote cli <command> [args...]")
 }
 
 func runStdioServer(stdin io.Reader, stdout io.Writer) error {
-	writer := &stdioFrameWriter{
-		writer: bufio.NewWriter(stdout),
-	}
-	server := &rpcServer{
-		nextStreamID:  1,
-		nextSessionID: 1,
-		streams:       map[string]*streamState{},
-		sessions:      map[string]*sessionState{},
-		frameWriter:   writer,
-	}
+	server := newDaemonServer()
 	defer server.closeAll()
+	return rpc.NewServer(server.handleRequest).Serve(stdin, stdout)
+}
 
-	reader := bufio.NewReaderSize(stdin, 64*1024)
-	defer writer.writer.Flush()
+func runTLSServer(cfg direct.Config) error {
+	server := newDaemonServer()
+	defer server.closeAll()
+	cfg.Handler = server.handleRequest
+	return direct.NewTLSServer(cfg).Serve(context.Background())
+}
 
-	for {
-		line, oversized, readErr := readRPCFrame(reader, maxRPCFrameBytes)
-		if readErr != nil {
-			if errors.Is(readErr, io.EOF) {
-				return nil
-			}
-			return readErr
-		}
-		if oversized {
-			if err := writer.writeResponse(rpcResponse{
-				OK: false,
-				Error: &rpcError{
-					Code:    "invalid_request",
-					Message: "request frame exceeds maximum size",
-				},
-			}); err != nil {
-				return err
-			}
-			continue
-		}
-		line = bytes.TrimSuffix(line, []byte{'\n'})
-		line = bytes.TrimSuffix(line, []byte{'\r'})
-		if len(line) == 0 {
-			continue
-		}
-
-		var req rpcRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			if err := writer.writeResponse(rpcResponse{
-				OK: false,
-				Error: &rpcError{
-					Code:    "invalid_request",
-					Message: "invalid JSON request",
-				},
-			}); err != nil {
-				return err
-			}
-			continue
-		}
-
-		resp := server.handleRequest(req)
-		if err := writer.writeResponse(resp); err != nil {
-			return err
-		}
+func newDaemonServer() *daemonServer {
+	return &daemonServer{
+		nextStreamID: 1,
+		streams:      map[string]net.Conn{},
+		sessions:     session.NewManager(),
+		terminals:    terminal.NewManager(),
 	}
 }
 
-func setTCPNoDelay(conn net.Conn) {
-	tcpConn, ok := conn.(*net.TCPConn)
-	if !ok {
-		return
-	}
-	_ = tcpConn.SetNoDelay(true)
-}
-
-func readRPCFrame(reader *bufio.Reader, maxBytes int) ([]byte, bool, error) {
-	frame := make([]byte, 0, 1024)
-	for {
-		chunk, err := reader.ReadSlice('\n')
-		if len(chunk) > 0 {
-			if len(frame)+len(chunk) > maxBytes {
-				if errors.Is(err, bufio.ErrBufferFull) {
-					if drainErr := discardUntilNewline(reader); drainErr != nil && !errors.Is(drainErr, io.EOF) {
-						return nil, false, drainErr
-					}
-				}
-				return nil, true, nil
-			}
-			frame = append(frame, chunk...)
-		}
-
-		if err == nil {
-			return frame, false, nil
-		}
-		if errors.Is(err, bufio.ErrBufferFull) {
-			continue
-		}
-		if errors.Is(err, io.EOF) {
-			if len(frame) == 0 {
-				return nil, false, io.EOF
-			}
-			return frame, false, nil
-		}
-		return nil, false, err
-	}
-}
-
-func discardUntilNewline(reader *bufio.Reader) error {
-	for {
-		_, err := reader.ReadSlice('\n')
-		if err == nil || errors.Is(err, io.EOF) {
-			return err
-		}
-		if errors.Is(err, bufio.ErrBufferFull) {
-			continue
-		}
-		return err
-	}
-}
-
-func (w *stdioFrameWriter) writeResponse(resp rpcResponse) error {
-	return w.writeJSONFrame(resp)
-}
-
-func (w *stdioFrameWriter) writeEvent(event rpcEvent) error {
-	return w.writeJSONFrame(event)
-}
-
-func (w *stdioFrameWriter) writeJSONFrame(payload any) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if _, err := w.writer.Write(data); err != nil {
-		return err
-	}
-	if err := w.writer.WriteByte('\n'); err != nil {
-		return err
-	}
-	return w.writer.Flush()
-}
-
-func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
+func (s *daemonServer) handleRequest(req rpc.Request) rpc.Response {
 	if req.Method == "" {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_request",
 				Message: "method is required",
 			},
@@ -304,7 +137,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 
 	switch req.Method {
 	case "hello":
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: true,
 			Result: map[string]any{
@@ -313,15 +146,15 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 				"capabilities": []string{
 					"session.basic",
 					"session.resize.min",
+					"terminal.stream",
 					"proxy.http_connect",
 					"proxy.socks5",
 					"proxy.stream",
-					"proxy.stream.push",
 				},
 			},
 		}
 	case "ping":
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: true,
 			Result: map[string]any{
@@ -334,8 +167,8 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 		return s.handleProxyClose(req)
 	case "proxy.write":
 		return s.handleProxyWrite(req)
-	case "proxy.stream.subscribe":
-		return s.handleProxyStreamSubscribe(req)
+	case "proxy.read":
+		return s.handleProxyRead(req)
 	case "session.open":
 		return s.handleSessionOpen(req)
 	case "session.close":
@@ -348,11 +181,17 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 		return s.handleSessionDetach(req)
 	case "session.status":
 		return s.handleSessionStatus(req)
+	case "terminal.open":
+		return s.handleTerminalOpen(req)
+	case "terminal.read":
+		return s.handleTerminalRead(req)
+	case "terminal.write":
+		return s.handleTerminalWrite(req)
 	default:
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "method_not_found",
 				Message: fmt.Sprintf("unknown method %q", req.Method),
 			},
@@ -360,13 +199,13 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 	}
 }
 
-func (s *rpcServer) handleProxyOpen(req rpcRequest) rpcResponse {
+func (s *daemonServer) handleProxyOpen(req rpc.Request) rpc.Response {
 	host, ok := getStringParam(req.Params, "host")
 	if !ok || host == "" {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: "proxy.open requires host",
 			},
@@ -374,10 +213,10 @@ func (s *rpcServer) handleProxyOpen(req rpcRequest) rpcResponse {
 	}
 	port, ok := getIntParam(req.Params, "port")
 	if !ok || port <= 0 || port > 65535 {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: "proxy.open requires port in range 1-65535",
 			},
@@ -395,24 +234,23 @@ func (s *rpcServer) handleProxyOpen(req rpcRequest) rpcResponse {
 		time.Duration(timeoutMs)*time.Millisecond,
 	)
 	if err != nil {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "open_failed",
 				Message: err.Error(),
 			},
 		}
 	}
-	setTCPNoDelay(conn)
 
 	s.mu.Lock()
 	streamID := fmt.Sprintf("s-%d", s.nextStreamID)
 	s.nextStreamID++
-	s.streams[streamID] = &streamState{conn: conn}
+	s.streams[streamID] = conn
 	s.mu.Unlock()
 
-	return rpcResponse{
+	return rpc.Response{
 		ID: req.ID,
 		OK: true,
 		Result: map[string]any{
@@ -421,13 +259,13 @@ func (s *rpcServer) handleProxyOpen(req rpcRequest) rpcResponse {
 	}
 }
 
-func (s *rpcServer) handleProxyClose(req rpcRequest) rpcResponse {
+func (s *daemonServer) handleProxyClose(req rpc.Request) rpc.Response {
 	streamID, ok := getStringParam(req.Params, "stream_id")
 	if !ok || streamID == "" {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: "proxy.close requires stream_id",
 			},
@@ -435,24 +273,25 @@ func (s *rpcServer) handleProxyClose(req rpcRequest) rpcResponse {
 	}
 
 	s.mu.Lock()
-	state, exists := s.streams[streamID]
+	conn, exists := s.streams[streamID]
 	if exists {
 		delete(s.streams, streamID)
 	}
 	s.mu.Unlock()
 
 	if !exists {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
-			OK: true,
-			Result: map[string]any{
-				"closed": true,
+			OK: false,
+			Error: &rpc.Error{
+				Code:    "not_found",
+				Message: "stream not found",
 			},
 		}
 	}
 
-	_ = state.conn.Close()
-	return rpcResponse{
+	_ = conn.Close()
+	return rpc.Response{
 		ID: req.ID,
 		OK: true,
 		Result: map[string]any{
@@ -461,13 +300,13 @@ func (s *rpcServer) handleProxyClose(req rpcRequest) rpcResponse {
 	}
 }
 
-func (s *rpcServer) handleProxyWrite(req rpcRequest) rpcResponse {
+func (s *daemonServer) handleProxyWrite(req rpc.Request) rpc.Response {
 	streamID, ok := getStringParam(req.Params, "stream_id")
 	if !ok || streamID == "" {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: "proxy.write requires stream_id",
 			},
@@ -475,10 +314,10 @@ func (s *rpcServer) handleProxyWrite(req rpcRequest) rpcResponse {
 	}
 	dataBase64, ok := getStringParam(req.Params, "data_base64")
 	if !ok {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: "proxy.write requires data_base64",
 			},
@@ -486,28 +325,27 @@ func (s *rpcServer) handleProxyWrite(req rpcRequest) rpcResponse {
 	}
 	payload, err := base64.StdEncoding.DecodeString(dataBase64)
 	if err != nil {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: "data_base64 must be valid base64",
 			},
 		}
 	}
 
-	state, found := s.getStream(streamID)
+	conn, found := s.getStream(streamID)
 	if !found {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "not_found",
 				Message: "stream not found",
 			},
 		}
 	}
-	conn := state.conn
 
 	timeoutMs := 8000
 	if parsed, hasTimeout := getIntParam(req.Params, "timeout_ms"); hasTimeout {
@@ -515,10 +353,10 @@ func (s *rpcServer) handleProxyWrite(req rpcRequest) rpcResponse {
 	}
 	if timeoutMs > 0 {
 		if err := conn.SetWriteDeadline(time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)); err != nil {
-			return rpcResponse{
+			return rpc.Response{
 				ID: req.ID,
 				OK: false,
-				Error: &rpcError{
+				Error: &rpc.Error{
 					Code:    "stream_error",
 					Message: err.Error(),
 				},
@@ -531,10 +369,10 @@ func (s *rpcServer) handleProxyWrite(req rpcRequest) rpcResponse {
 	for total < len(payload) {
 		written, writeErr := conn.Write(payload[total:])
 		if written == 0 && writeErr == nil {
-			return rpcResponse{
+			return rpc.Response{
 				ID: req.ID,
 				OK: false,
-				Error: &rpcError{
+				Error: &rpc.Error{
 					Code:    "stream_error",
 					Message: "write made no progress",
 				},
@@ -542,10 +380,10 @@ func (s *rpcServer) handleProxyWrite(req rpcRequest) rpcResponse {
 		}
 		total += written
 		if writeErr != nil {
-			return rpcResponse{
+			return rpc.Response{
 				ID: req.ID,
 				OK: false,
-				Error: &rpcError{
+				Error: &rpc.Error{
 					Code:    "stream_error",
 					Message: writeErr.Error(),
 				},
@@ -553,7 +391,7 @@ func (s *rpcServer) handleProxyWrite(req rpcRequest) rpcResponse {
 		}
 	}
 
-	return rpcResponse{
+	return rpc.Response{
 		ID: req.ID,
 		OK: true,
 		Result: map[string]any{
@@ -562,111 +400,138 @@ func (s *rpcServer) handleProxyWrite(req rpcRequest) rpcResponse {
 	}
 }
 
-func (s *rpcServer) handleProxyStreamSubscribe(req rpcRequest) rpcResponse {
+func (s *daemonServer) handleProxyRead(req rpc.Request) rpc.Response {
 	streamID, ok := getStringParam(req.Params, "stream_id")
 	if !ok || streamID == "" {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
-				Message: "proxy.stream.subscribe requires stream_id",
+				Message: "proxy.read requires stream_id",
 			},
 		}
 	}
 
-	s.mu.Lock()
-	state, found := s.streams[streamID]
-	if !found {
-		s.mu.Unlock()
-		return rpcResponse{
+	maxBytes := 32768
+	if parsed, hasMax := getIntParam(req.Params, "max_bytes"); hasMax {
+		maxBytes = parsed
+	}
+	if maxBytes <= 0 || maxBytes > 262144 {
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
+				Code:    "invalid_params",
+				Message: "max_bytes must be in range 1-262144",
+			},
+		}
+	}
+
+	timeoutMs := 50
+	if parsed, hasTimeout := getIntParam(req.Params, "timeout_ms"); hasTimeout && parsed >= 0 {
+		timeoutMs = parsed
+	}
+
+	conn, found := s.getStream(streamID)
+	if !found {
+		return rpc.Response{
+			ID: req.ID,
+			OK: false,
+			Error: &rpc.Error{
 				Code:    "not_found",
 				Message: "stream not found",
 			},
 		}
 	}
-	alreadySubscribed := state.readerStarted
-	if !alreadySubscribed {
-		state.readerStarted = true
-	}
-	conn := state.conn
-	s.mu.Unlock()
 
-	if !alreadySubscribed {
-		go s.streamPump(streamID, conn)
+	_ = conn.SetReadDeadline(time.Now().Add(time.Duration(timeoutMs) * time.Millisecond))
+	buffer := make([]byte, maxBytes)
+	n, readErr := conn.Read(buffer)
+	data := buffer[:max(0, n)]
+
+	if readErr != nil {
+		if netErr, ok := readErr.(net.Error); ok && netErr.Timeout() {
+			return rpc.Response{
+				ID: req.ID,
+				OK: true,
+				Result: map[string]any{
+					"data_base64": "",
+					"eof":         false,
+				},
+			}
+		}
+		if readErr == io.EOF {
+			s.dropStream(streamID)
+			return rpc.Response{
+				ID: req.ID,
+				OK: true,
+				Result: map[string]any{
+					"data_base64": base64.StdEncoding.EncodeToString(data),
+					"eof":         true,
+				},
+			}
+		}
+		return rpc.Response{
+			ID: req.ID,
+			OK: false,
+			Error: &rpc.Error{
+				Code:    "stream_error",
+				Message: readErr.Error(),
+			},
+		}
 	}
 
-	return rpcResponse{
+	return rpc.Response{
 		ID: req.ID,
 		OK: true,
 		Result: map[string]any{
-			"subscribed":         true,
-			"already_subscribed": alreadySubscribed,
+			"data_base64": base64.StdEncoding.EncodeToString(data),
+			"eof":         false,
 		},
 	}
 }
 
-func (s *rpcServer) handleSessionOpen(req rpcRequest) rpcResponse {
+func (s *daemonServer) handleSessionOpen(req rpc.Request) rpc.Response {
 	sessionID, _ := getStringParam(req.Params, "session_id")
+	status := s.sessions.Ensure(sessionID)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if sessionID == "" {
-		sessionID = fmt.Sprintf("sess-%d", s.nextSessionID)
-		s.nextSessionID++
-	}
-
-	session, exists := s.sessions[sessionID]
-	if !exists {
-		session = &sessionState{
-			attachments: map[string]sessionAttachment{},
-		}
-		s.sessions[sessionID] = session
-	}
-
-	return rpcResponse{
+	return rpc.Response{
 		ID:     req.ID,
 		OK:     true,
-		Result: sessionSnapshot(sessionID, session),
+		Result: sessionStatusResult(status),
 	}
 }
 
-func (s *rpcServer) handleSessionClose(req rpcRequest) rpcResponse {
+func (s *daemonServer) handleSessionClose(req rpc.Request) rpc.Response {
 	sessionID, ok := getStringParam(req.Params, "session_id")
 	if !ok || sessionID == "" {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: "session.close requires session_id",
 			},
 		}
 	}
 
-	s.mu.Lock()
-	_, exists := s.sessions[sessionID]
-	if exists {
-		delete(s.sessions, sessionID)
+	if err := s.sessions.Close(sessionID); err != nil {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: sessionError(err),
+		}
 	}
-	s.mu.Unlock()
-
-	if !exists {
-		return rpcResponse{
-			ID: req.ID,
-			OK: false,
-			Error: &rpcError{
-				Code:    "not_found",
-				Message: "session not found",
-			},
+	if err := s.terminals.Close(sessionID); err != nil && !errors.Is(err, terminal.ErrSessionNotFound) {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: terminalError(err),
 		}
 	}
 
-	return rpcResponse{
+	return rpc.Response{
 		ID: req.ID,
 		OK: true,
 		Result: map[string]any{
@@ -676,93 +541,87 @@ func (s *rpcServer) handleSessionClose(req rpcRequest) rpcResponse {
 	}
 }
 
-func (s *rpcServer) handleSessionAttach(req rpcRequest) rpcResponse {
+func (s *daemonServer) handleSessionAttach(req rpc.Request) rpc.Response {
 	sessionID, attachmentID, cols, rows, badResp := parseSessionAttachmentParams(req, "session.attach")
 	if badResp != nil {
 		return *badResp
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	session, exists := s.sessions[sessionID]
-	if !exists {
-		return rpcResponse{
-			ID: req.ID,
-			OK: false,
-			Error: &rpcError{
-				Code:    "not_found",
-				Message: "session not found",
-			},
+	if err := s.sessions.Attach(sessionID, attachmentID, cols, rows); err != nil {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: sessionError(err),
+		}
+	}
+	status, err := s.sessions.Status(sessionID)
+	if err != nil {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: sessionError(err),
+		}
+	}
+	if resizeErr := s.terminals.Resize(sessionID, status.EffectiveCols, status.EffectiveRows); resizeErr != nil &&
+		!errors.Is(resizeErr, terminal.ErrSessionNotFound) {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: terminalError(resizeErr),
 		}
 	}
 
-	session.attachments[attachmentID] = sessionAttachment{
-		Cols:      cols,
-		Rows:      rows,
-		UpdatedAt: time.Now().UTC(),
-	}
-	recomputeSessionSize(session)
-
-	return rpcResponse{
+	return rpc.Response{
 		ID:     req.ID,
 		OK:     true,
-		Result: sessionSnapshot(sessionID, session),
+		Result: sessionStatusResult(status),
 	}
 }
 
-func (s *rpcServer) handleSessionResize(req rpcRequest) rpcResponse {
+func (s *daemonServer) handleSessionResize(req rpc.Request) rpc.Response {
 	sessionID, attachmentID, cols, rows, badResp := parseSessionAttachmentParams(req, "session.resize")
 	if badResp != nil {
 		return *badResp
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	session, exists := s.sessions[sessionID]
-	if !exists {
-		return rpcResponse{
-			ID: req.ID,
-			OK: false,
-			Error: &rpcError{
-				Code:    "not_found",
-				Message: "session not found",
-			},
+	if err := s.sessions.Resize(sessionID, attachmentID, cols, rows); err != nil {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: sessionError(err),
 		}
 	}
-	if _, exists := session.attachments[attachmentID]; !exists {
-		return rpcResponse{
-			ID: req.ID,
-			OK: false,
-			Error: &rpcError{
-				Code:    "not_found",
-				Message: "attachment not found",
-			},
+	status, err := s.sessions.Status(sessionID)
+	if err != nil {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: sessionError(err),
+		}
+	}
+	if resizeErr := s.terminals.Resize(sessionID, status.EffectiveCols, status.EffectiveRows); resizeErr != nil &&
+		!errors.Is(resizeErr, terminal.ErrSessionNotFound) {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: terminalError(resizeErr),
 		}
 	}
 
-	session.attachments[attachmentID] = sessionAttachment{
-		Cols:      cols,
-		Rows:      rows,
-		UpdatedAt: time.Now().UTC(),
-	}
-	recomputeSessionSize(session)
-
-	return rpcResponse{
+	return rpc.Response{
 		ID:     req.ID,
 		OK:     true,
-		Result: sessionSnapshot(sessionID, session),
+		Result: sessionStatusResult(status),
 	}
 }
 
-func (s *rpcServer) handleSessionDetach(req rpcRequest) rpcResponse {
+func (s *daemonServer) handleSessionDetach(req rpc.Request) rpc.Response {
 	sessionID, ok := getStringParam(req.Params, "session_id")
 	if !ok || sessionID == "" {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: "session.detach requires session_id",
 			},
@@ -770,93 +629,241 @@ func (s *rpcServer) handleSessionDetach(req rpcRequest) rpcResponse {
 	}
 	attachmentID, ok := getStringParam(req.Params, "attachment_id")
 	if !ok || attachmentID == "" {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: "session.detach requires attachment_id",
 			},
 		}
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	session, exists := s.sessions[sessionID]
-	if !exists {
-		return rpcResponse{
-			ID: req.ID,
-			OK: false,
-			Error: &rpcError{
-				Code:    "not_found",
-				Message: "session not found",
-			},
+	if err := s.sessions.Detach(sessionID, attachmentID); err != nil {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: sessionError(err),
 		}
 	}
-	if _, exists := session.attachments[attachmentID]; !exists {
-		return rpcResponse{
-			ID: req.ID,
-			OK: false,
-			Error: &rpcError{
-				Code:    "not_found",
-				Message: "attachment not found",
-			},
+	status, err := s.sessions.Status(sessionID)
+	if err != nil {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: sessionError(err),
+		}
+	}
+	if resizeErr := s.terminals.Resize(sessionID, status.EffectiveCols, status.EffectiveRows); resizeErr != nil &&
+		!errors.Is(resizeErr, terminal.ErrSessionNotFound) {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: terminalError(resizeErr),
 		}
 	}
 
-	delete(session.attachments, attachmentID)
-	recomputeSessionSize(session)
-
-	return rpcResponse{
+	return rpc.Response{
 		ID:     req.ID,
 		OK:     true,
-		Result: sessionSnapshot(sessionID, session),
+		Result: sessionStatusResult(status),
 	}
 }
 
-func (s *rpcServer) handleSessionStatus(req rpcRequest) rpcResponse {
+func (s *daemonServer) handleSessionStatus(req rpc.Request) rpc.Response {
 	sessionID, ok := getStringParam(req.Params, "session_id")
 	if !ok || sessionID == "" {
-		return rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: "session.status requires session_id",
 			},
 		}
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	status, err := s.sessions.Status(sessionID)
+	if err != nil {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: sessionError(err),
+		}
+	}
 
-	session, exists := s.sessions[sessionID]
-	if !exists {
-		return rpcResponse{
+	return rpc.Response{
+		ID:     req.ID,
+		OK:     true,
+		Result: sessionStatusResult(status),
+	}
+}
+
+func (s *daemonServer) handleTerminalOpen(req rpc.Request) rpc.Response {
+	command, ok := getStringParam(req.Params, "command")
+	if !ok || command == "" {
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
-				Code:    "not_found",
-				Message: "session not found",
+			Error: &rpc.Error{
+				Code:    "invalid_params",
+				Message: "terminal.open requires command",
 			},
 		}
 	}
 
-	return rpcResponse{
+	cols, ok := getIntParam(req.Params, "cols")
+	if !ok || cols <= 0 {
+		return rpc.Response{
+			ID: req.ID,
+			OK: false,
+			Error: &rpc.Error{
+				Code:    "invalid_params",
+				Message: "terminal.open requires cols > 0",
+			},
+		}
+	}
+	rows, ok := getIntParam(req.Params, "rows")
+	if !ok || rows <= 0 {
+		return rpc.Response{
+			ID: req.ID,
+			OK: false,
+			Error: &rpc.Error{
+				Code:    "invalid_params",
+				Message: "terminal.open requires rows > 0",
+			},
+		}
+	}
+
+	sessionID, attachmentID := s.sessions.Open(cols, rows)
+	status, err := s.sessions.Status(sessionID)
+	if err != nil {
+		return rpc.Response{ID: req.ID, OK: false, Error: sessionError(err)}
+	}
+	if err := s.terminals.Open(sessionID, command, status.EffectiveCols, status.EffectiveRows); err != nil {
+		_ = s.sessions.Close(sessionID)
+		return rpc.Response{ID: req.ID, OK: false, Error: terminalError(err)}
+	}
+
+	result := sessionStatusResult(status)
+	result["attachment_id"] = attachmentID
+	result["offset"] = 0
+
+	return rpc.Response{
 		ID:     req.ID,
 		OK:     true,
-		Result: sessionSnapshot(sessionID, session),
+		Result: result,
 	}
 }
 
-func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID string, attachmentID string, cols int, rows int, badResp *rpcResponse) {
+func (s *daemonServer) handleTerminalRead(req rpc.Request) rpc.Response {
 	sessionID, ok := getStringParam(req.Params, "session_id")
 	if !ok || sessionID == "" {
-		resp := rpcResponse{
+		return rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
+				Code:    "invalid_params",
+				Message: "terminal.read requires session_id",
+			},
+		}
+	}
+
+	offset, ok := getUint64Param(req.Params, "offset")
+	if !ok {
+		return rpc.Response{
+			ID: req.ID,
+			OK: false,
+			Error: &rpc.Error{
+				Code:    "invalid_params",
+				Message: "terminal.read requires offset >= 0",
+			},
+		}
+	}
+
+	maxBytes := 65536
+	if parsed, ok := getIntParam(req.Params, "max_bytes"); ok && parsed > 0 {
+		maxBytes = parsed
+	}
+	timeoutMs := 0
+	if parsed, ok := getIntParam(req.Params, "timeout_ms"); ok && parsed >= 0 {
+		timeoutMs = parsed
+	}
+
+	result, err := s.terminals.Read(sessionID, offset, maxBytes, time.Duration(timeoutMs)*time.Millisecond)
+	if err != nil {
+		return rpc.Response{ID: req.ID, OK: false, Error: terminalError(err)}
+	}
+
+	return rpc.Response{
+		ID: req.ID,
+		OK: true,
+		Result: map[string]any{
+			"session_id":  sessionID,
+			"offset":      result.Offset,
+			"base_offset": result.BaseOffset,
+			"truncated":   result.Truncated,
+			"eof":         result.EOF,
+			"data":        base64.StdEncoding.EncodeToString(result.Data),
+		},
+	}
+}
+
+func (s *daemonServer) handleTerminalWrite(req rpc.Request) rpc.Response {
+	sessionID, ok := getStringParam(req.Params, "session_id")
+	if !ok || sessionID == "" {
+		return rpc.Response{
+			ID: req.ID,
+			OK: false,
+			Error: &rpc.Error{
+				Code:    "invalid_params",
+				Message: "terminal.write requires session_id",
+			},
+		}
+	}
+	encoded, ok := getStringParam(req.Params, "data")
+	if !ok {
+		return rpc.Response{
+			ID: req.ID,
+			OK: false,
+			Error: &rpc.Error{
+				Code:    "invalid_params",
+				Message: "terminal.write requires data",
+			},
+		}
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return rpc.Response{
+			ID: req.ID,
+			OK: false,
+			Error: &rpc.Error{
+				Code:    "invalid_params",
+				Message: "terminal.write data must be base64",
+			},
+		}
+	}
+	if err := s.terminals.Write(sessionID, data); err != nil {
+		return rpc.Response{ID: req.ID, OK: false, Error: terminalError(err)}
+	}
+
+	return rpc.Response{
+		ID: req.ID,
+		OK: true,
+		Result: map[string]any{
+			"session_id": sessionID,
+			"written":    len(data),
+		},
+	}
+}
+
+func parseSessionAttachmentParams(req rpc.Request, method string) (sessionID string, attachmentID string, cols int, rows int, badResp *rpc.Response) {
+	sessionID, ok := getStringParam(req.Params, "session_id")
+	if !ok || sessionID == "" {
+		resp := rpc.Response{
+			ID: req.ID,
+			OK: false,
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: method + " requires session_id",
 			},
@@ -865,10 +872,10 @@ func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID stri
 	}
 	attachmentID, ok = getStringParam(req.Params, "attachment_id")
 	if !ok || attachmentID == "" {
-		resp := rpcResponse{
+		resp := rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: method + " requires attachment_id",
 			},
@@ -878,10 +885,10 @@ func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID stri
 
 	cols, ok = getIntParam(req.Params, "cols")
 	if !ok || cols <= 0 {
-		resp := rpcResponse{
+		resp := rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: method + " requires cols > 0",
 			},
@@ -890,10 +897,10 @@ func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID stri
 	}
 	rows, ok = getIntParam(req.Params, "rows")
 	if !ok || rows <= 0 {
-		resp := rpcResponse{
+		resp := rpc.Response{
 			ID: req.ID,
 			OK: false,
-			Error: &rpcError{
+			Error: &rpc.Error{
 				Code:    "invalid_params",
 				Message: method + " requires rows > 0",
 			},
@@ -904,147 +911,87 @@ func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID stri
 	return sessionID, attachmentID, cols, rows, nil
 }
 
-func recomputeSessionSize(session *sessionState) {
-	if len(session.attachments) == 0 {
-		session.effectiveCols = session.lastKnownCols
-		session.effectiveRows = session.lastKnownRows
-		return
-	}
-
-	minCols := 0
-	minRows := 0
-	for _, attachment := range session.attachments {
-		if minCols == 0 || attachment.Cols < minCols {
-			minCols = attachment.Cols
-		}
-		if minRows == 0 || attachment.Rows < minRows {
-			minRows = attachment.Rows
-		}
-	}
-
-	session.effectiveCols = minCols
-	session.effectiveRows = minRows
-	session.lastKnownCols = minCols
-	session.lastKnownRows = minRows
-}
-
-func sessionSnapshot(sessionID string, session *sessionState) map[string]any {
-	attachmentIDs := make([]string, 0, len(session.attachments))
-	for attachmentID := range session.attachments {
-		attachmentIDs = append(attachmentIDs, attachmentID)
-	}
-	sort.Strings(attachmentIDs)
-
-	attachments := make([]map[string]any, 0, len(attachmentIDs))
-	for _, attachmentID := range attachmentIDs {
-		attachment := session.attachments[attachmentID]
+func sessionStatusResult(status session.SessionStatus) map[string]any {
+	attachments := make([]map[string]any, 0, len(status.Attachments))
+	for _, attachment := range status.Attachments {
 		attachments = append(attachments, map[string]any{
-			"attachment_id": attachmentID,
+			"attachment_id": attachment.AttachmentID,
 			"cols":          attachment.Cols,
 			"rows":          attachment.Rows,
 			"updated_at":    attachment.UpdatedAt.Format(time.RFC3339Nano),
 		})
 	}
-
 	return map[string]any{
-		"session_id":      sessionID,
+		"session_id":      status.SessionID,
 		"attachments":     attachments,
-		"effective_cols":  session.effectiveCols,
-		"effective_rows":  session.effectiveRows,
-		"last_known_cols": session.lastKnownCols,
-		"last_known_rows": session.lastKnownRows,
+		"effective_cols":  status.EffectiveCols,
+		"effective_rows":  status.EffectiveRows,
+		"last_known_cols": status.LastKnownCols,
+		"last_known_rows": status.LastKnownRows,
 	}
 }
 
-func (s *rpcServer) getStream(streamID string) (*streamState, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	state, ok := s.streams[streamID]
-	return state, ok
+func sessionError(err error) *rpc.Error {
+	switch err {
+	case nil:
+		return nil
+	case session.ErrSessionNotFound:
+		return &rpc.Error{Code: "not_found", Message: "session not found"}
+	case session.ErrAttachmentNotFound:
+		return &rpc.Error{Code: "not_found", Message: "attachment not found"}
+	case session.ErrInvalidSize:
+		return &rpc.Error{Code: "invalid_params", Message: err.Error()}
+	default:
+		return &rpc.Error{Code: "internal_error", Message: err.Error()}
+	}
 }
 
-func (s *rpcServer) dropStream(streamID string) {
+func terminalError(err error) *rpc.Error {
+	switch err {
+	case nil:
+		return nil
+	case terminal.ErrSessionNotFound:
+		return &rpc.Error{Code: "not_found", Message: "terminal session not found"}
+	case terminal.ErrReadTimeout:
+		return &rpc.Error{Code: "deadline_exceeded", Message: err.Error()}
+	case terminal.ErrInvalidCommand, terminal.ErrSessionExists:
+		return &rpc.Error{Code: "invalid_params", Message: err.Error()}
+	default:
+		return &rpc.Error{Code: "internal_error", Message: err.Error()}
+	}
+}
+
+func (s *daemonServer) getStream(streamID string) (net.Conn, bool) {
 	s.mu.Lock()
-	state, ok := s.streams[streamID]
+	defer s.mu.Unlock()
+	conn, ok := s.streams[streamID]
+	return conn, ok
+}
+
+func (s *daemonServer) dropStream(streamID string) {
+	s.mu.Lock()
+	conn, ok := s.streams[streamID]
 	if ok {
 		delete(s.streams, streamID)
 	}
 	s.mu.Unlock()
 	if ok {
-		_ = state.conn.Close()
+		_ = conn.Close()
 	}
 }
 
-func (s *rpcServer) closeAll() {
+func (s *daemonServer) closeAll() {
 	s.mu.Lock()
 	streams := make([]net.Conn, 0, len(s.streams))
-	for id, state := range s.streams {
+	for id, conn := range s.streams {
 		delete(s.streams, id)
-		streams = append(streams, state.conn)
-	}
-	for id := range s.sessions {
-		delete(s.sessions, id)
+		streams = append(streams, conn)
 	}
 	s.mu.Unlock()
 	for _, conn := range streams {
 		_ = conn.Close()
 	}
-}
-
-func (s *rpcServer) streamPump(streamID string, conn net.Conn) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			_ = s.frameWriter.writeEvent(rpcEvent{
-				Event:    "proxy.stream.error",
-				StreamID: streamID,
-				Error:    fmt.Sprintf("stream panic: %v", recovered),
-			})
-			s.dropStream(streamID)
-		}
-	}()
-
-	buffer := make([]byte, 32768)
-	for {
-		n, readErr := conn.Read(buffer)
-		data := append([]byte(nil), buffer[:max(0, n)]...)
-		if len(data) > 0 {
-			_ = s.frameWriter.writeEvent(rpcEvent{
-				Event:      "proxy.stream.data",
-				StreamID:   streamID,
-				DataBase64: base64.StdEncoding.EncodeToString(data),
-			})
-		}
-
-		if readErr == nil {
-			if n == 0 {
-				_ = s.frameWriter.writeEvent(rpcEvent{
-					Event:    "proxy.stream.error",
-					StreamID: streamID,
-					Error:    "read made no progress",
-				})
-				s.dropStream(streamID)
-				return
-			}
-			continue
-		}
-
-		if readErr == io.EOF {
-			_ = s.frameWriter.writeEvent(rpcEvent{
-				Event:      "proxy.stream.eof",
-				StreamID:   streamID,
-				DataBase64: "",
-			})
-		} else if !errors.Is(readErr, net.ErrClosed) {
-			_ = s.frameWriter.writeEvent(rpcEvent{
-				Event:    "proxy.stream.error",
-				StreamID: streamID,
-				Error:    readErr.Error(),
-			})
-		}
-
-		s.dropStream(streamID)
-		return
-	}
+	s.terminals.CloseAll()
 }
 
 func getStringParam(params map[string]any, key string) (string, bool) {
@@ -1089,9 +1036,6 @@ func getIntParam(params map[string]any, key string) (int, bool) {
 	case uint64:
 		return int(value), true
 	case float64:
-		if math.Trunc(value) != value {
-			return 0, false
-		}
 		return int(value), true
 	case json.Number:
 		n, err := value.Int64()
@@ -1099,6 +1043,56 @@ func getIntParam(params map[string]any, key string) (int, bool) {
 			return 0, false
 		}
 		return int(n), true
+	default:
+		return 0, false
+	}
+}
+
+func getUint64Param(params map[string]any, key string) (uint64, bool) {
+	if params == nil {
+		return 0, false
+	}
+	raw, ok := params[key]
+	if !ok || raw == nil {
+		return 0, false
+	}
+	switch value := raw.(type) {
+	case uint64:
+		return value, true
+	case uint:
+		return uint64(value), true
+	case uint32:
+		return uint64(value), true
+	case uint16:
+		return uint64(value), true
+	case uint8:
+		return uint64(value), true
+	case int:
+		if value < 0 {
+			return 0, false
+		}
+		return uint64(value), true
+	case int64:
+		if value < 0 {
+			return 0, false
+		}
+		return uint64(value), true
+	case int32:
+		if value < 0 {
+			return 0, false
+		}
+		return uint64(value), true
+	case float64:
+		if value < 0 {
+			return 0, false
+		}
+		return uint64(value), true
+	case json.Number:
+		n, err := value.Int64()
+		if err != nil || n < 0 {
+			return 0, false
+		}
+		return uint64(n), true
 	default:
 		return 0, false
 	}
