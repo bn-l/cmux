@@ -1,4 +1,5 @@
 import XCTest
+import GRDB
 @testable import cmux_DEV
 
 final class AppDatabaseTests: XCTestCase {
@@ -64,5 +65,78 @@ final class AppDatabaseTests: XCTestCase {
 
         XCTAssertEqual(try db.fetchHostCount(), 1)
         XCTAssertEqual(try db.readTerminalSnapshot(), legacySnapshot)
+    }
+
+    func testFreshDatabaseStartsWithNoPlaceholderHost() throws {
+        let db = try AppDatabase.inMemory()
+
+        XCTAssertEqual(try db.readTerminalSnapshot(), .empty())
+        XCTAssertEqual(try db.fetchHostCount(), 0)
+    }
+
+    func testMigratorPrunesLegacySeedPlaceholderHost() throws {
+        let databaseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("sqlite")
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+
+        let dbQueue = try DatabaseQueue(path: databaseURL.path)
+        let migrator = AppDatabaseMigrator.makeMigrator()
+        try migrator.migrate(dbQueue, upTo: "v3_expand_mobile_inbox_cache")
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO hosts (
+                    host_id,
+                    stable_id,
+                    name,
+                    hostname,
+                    port,
+                    username,
+                    symbol_name,
+                    palette,
+                    bootstrap_command,
+                    trusted_host_key,
+                    pending_host_key,
+                    sort_index,
+                    source,
+                    transport_preference,
+                    ssh_authentication_method,
+                    team_id,
+                    server_id,
+                    allows_ssh_fallback,
+                    direct_tls_pins_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    UUID().uuidString,
+                    UUID().uuidString,
+                    String(localized: "terminal.seed.mac_mini", defaultValue: "Mac Mini"),
+                    "cmux-macmini",
+                    22,
+                    "cmux",
+                    "desktopcomputer",
+                    TerminalHostPalette.mint.rawValue,
+                    "tmux new-session -A -s {{session}}",
+                    nil,
+                    nil,
+                    0,
+                    TerminalHostSource.custom.rawValue,
+                    TerminalTransportPreference.rawSSH.rawValue,
+                    TerminalSSHAuthenticationMethod.password.rawValue,
+                    nil,
+                    nil,
+                    true,
+                    "[]",
+                ]
+            )
+        }
+
+        try migrator.migrate(dbQueue)
+
+        let db = try AppDatabase(path: databaseURL.path)
+        XCTAssertEqual(try db.readTerminalSnapshot(), .empty())
+        XCTAssertEqual(try db.fetchHostCount(), 0)
     }
 }

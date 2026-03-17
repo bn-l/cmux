@@ -103,6 +103,47 @@ enum AppDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("v4_prune_seed_placeholder_hosts") { db in
+            try db.execute(
+                sql: """
+                DELETE FROM hosts
+                WHERE name = ?
+                  AND hostname = ?
+                  AND port = 22
+                  AND username = ?
+                  AND symbol_name = ?
+                  AND palette = ?
+                  AND bootstrap_command = ?
+                  AND trusted_host_key IS NULL
+                  AND pending_host_key IS NULL
+                  AND sort_index = 0
+                  AND source = ?
+                  AND transport_preference = ?
+                  AND ssh_authentication_method = ?
+                  AND team_id IS NULL
+                  AND server_id IS NULL
+                  AND allows_ssh_fallback = 1
+                  AND direct_tls_pins_json = '[]'
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM workspaces
+                    WHERE workspaces.host_id = hosts.host_id
+                  )
+                """,
+                arguments: [
+                    String(localized: "terminal.seed.mac_mini", defaultValue: "Mac Mini"),
+                    "cmux-macmini",
+                    "cmux",
+                    "desktopcomputer",
+                    TerminalHostPalette.mint.rawValue,
+                    "tmux new-session -A -s {{session}}",
+                    TerminalHostSource.custom.rawValue,
+                    TerminalTransportPreference.rawSSH.rawValue,
+                    TerminalSSHAuthenticationMethod.password.rawValue,
+                ]
+            )
+        }
+
         return migrator
     }
 

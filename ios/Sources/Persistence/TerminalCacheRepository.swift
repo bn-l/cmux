@@ -14,7 +14,7 @@ final class TerminalCacheRepository: TerminalSnapshotPersisting {
             #if DEBUG
             print("Failed to load terminal snapshot from SQLite: \(error)")
             #endif
-            return .seed()
+            return .empty()
         }
     }
 

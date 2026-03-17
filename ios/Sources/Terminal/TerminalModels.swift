@@ -315,6 +315,14 @@ struct TerminalStoreSnapshot: Codable, Equatable, Sendable {
     var workspaces: [TerminalWorkspace]
     var selectedWorkspaceID: TerminalWorkspace.ID?
 
+    static func empty() -> Self {
+        Self(
+            hosts: [],
+            workspaces: [],
+            selectedWorkspaceID: nil
+        )
+    }
+
     static func seed() -> Self {
         Self(
             hosts: [
@@ -353,7 +361,7 @@ final class TerminalSnapshotStore: TerminalSnapshotPersisting {
     func load() -> TerminalStoreSnapshot {
         guard let data = try? Data(contentsOf: fileURL),
               let snapshot = try? decoder.decode(TerminalStoreSnapshot.self, from: data) else {
-            return .seed()
+            return .empty()
         }
 
         return snapshot

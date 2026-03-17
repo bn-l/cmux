@@ -343,7 +343,7 @@ final class AppDatabase {
                 .flatMap(UUID.init(uuidString:))
 
             if hosts.isEmpty && workspaces.isEmpty {
-                return .seed()
+                return .empty()
             }
 
             return TerminalStoreSnapshot(
