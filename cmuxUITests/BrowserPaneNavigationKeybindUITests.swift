@@ -1009,23 +1009,25 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
 final class TerminalFontZoomShortcutUITests: XCTestCase {
     private var socketPath = ""
-    private var launchTag = ""
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
         socketPath = "/tmp/cmux-ui-test-terminal-font-zoom-\(UUID().uuidString).sock"
-        launchTag = "ui-tests-terminal-font-zoom-\(UUID().uuidString.prefix(8))"
         try? FileManager.default.removeItem(atPath: socketPath)
     }
 
     func testCmdEqualZoomsInFocusedTerminal() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launch()
+        app.activate()
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            waitForCondition(timeout: 12.0) {
+                guard app.state != .runningForeground else { return true }
+                app.activate()
+                return app.state == .runningForeground
+            },
             "Expected app to launch in foreground. state=\(app.state.rawValue)"
         )
 
@@ -1056,17 +1058,6 @@ final class TerminalFontZoomShortcutUITests: XCTestCase {
             baselineFontSize,
             "Expected Cmd+= to increase terminal font size. baseline=\(baselineFontSize) increased=\(increasedFontSize)"
         )
-    }
-
-    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        if app.wait(for: .runningForeground, timeout: timeout) {
-            return true
-        }
-        if app.state == .runningBackground {
-            app.activate()
-            return app.wait(for: .runningForeground, timeout: 6.0)
-        }
-        return false
     }
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
