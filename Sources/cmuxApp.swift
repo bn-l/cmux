@@ -2453,6 +2453,7 @@ private struct AcknowledgmentsView: View {
 
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static let shared = SettingsWindowController()
+    private var pendingNavigationTarget: SettingsNavigationTarget?
 
     private init() {
         let window = NSWindow(
@@ -2485,13 +2486,22 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         if !window.isVisible {
             window.center()
         }
+        pendingNavigationTarget = navigationTarget
         window.makeKeyAndOrderFront(nil)
-        if let navigationTarget {
-            SettingsNavigationRequest.post(navigationTarget)
-        }
+        postPendingNavigationTargetIfPossible()
 #if DEBUG
         dlog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
 #endif
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        postPendingNavigationTargetIfPossible()
+    }
+
+    private func postPendingNavigationTargetIfPossible() {
+        guard let window, window.isKeyWindow, let navigationTarget = pendingNavigationTarget else { return }
+        pendingNavigationTarget = nil
+        SettingsNavigationRequest.post(navigationTarget)
     }
 }
 
