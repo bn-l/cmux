@@ -9568,13 +9568,7 @@ final class BrowserDataImportCoordinator {
         }
 
         private func defaultSelectedSourceProfileIDs(for browser: InstalledBrowserCandidate) -> Set<String> {
-            if let defaultProfile = browser.profiles.first(where: \.isDefault) {
-                return [defaultProfile.id]
-            }
-            if let firstProfile = browser.profiles.first {
-                return [firstProfile.id]
-            }
-            return []
+            Set(browser.profiles.map(\.id))
         }
 
         private func selectedSourceProfiles() -> [InstalledBrowserProfile] {

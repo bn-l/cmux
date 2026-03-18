@@ -32,7 +32,9 @@ final class BrowserImportProfilesUITests: XCTestCase {
         let app = launchApp()
 
         app.buttons["Next"].click()
+        waitForSourceProfilesStep(app)
         app.buttons["Next"].click()
+        waitForDataTypesStep(app)
 
         XCTAssertTrue(
             app.radioButtons["Separate profiles"].waitForExistence(timeout: 5.0),
@@ -62,7 +64,9 @@ final class BrowserImportProfilesUITests: XCTestCase {
         let app = launchApp()
 
         app.buttons["Next"].click()
+        waitForSourceProfilesStep(app)
         app.buttons["Next"].click()
+        waitForDataTypesStep(app)
 
         let mergeRadio = app.radioButtons["Merge into one"]
         XCTAssertTrue(mergeRadio.waitForExistence(timeout: 5.0))
@@ -89,7 +93,9 @@ final class BrowserImportProfilesUITests: XCTestCase {
         let app = launchApp()
 
         app.buttons["Next"].click()
+        waitForSourceProfilesStep(app)
         app.buttons["Next"].click()
+        waitForDataTypesStep(app)
 
         let cookiesCheckbox = app.checkBoxes["BrowserImportCookiesCheckbox"]
         XCTAssertTrue(cookiesCheckbox.waitForExistence(timeout: 5.0))
@@ -192,6 +198,20 @@ final class BrowserImportProfilesUITests: XCTestCase {
             app.buttons["BrowserImportHintImportButton"].exists
         }
         XCTAssertTrue(hintOpened, "Expected the blank browser import hint to appear")
+    }
+
+    private func waitForSourceProfilesStep(_ app: XCUIApplication) {
+        let sourceProfilesReady = browserImportPollUntil(timeout: 5.0) {
+            app.checkBoxes["You"].exists || app.staticTexts["Step 2 of 3"].exists
+        }
+        XCTAssertTrue(sourceProfilesReady, "Expected the source-profile step to finish loading")
+    }
+
+    private func waitForDataTypesStep(_ app: XCUIApplication) {
+        let dataTypesReady = browserImportPollUntil(timeout: 5.0) {
+            app.checkBoxes["BrowserImportCookiesCheckbox"].exists
+        }
+        XCTAssertTrue(dataTypesReady, "Expected the import data-type step to finish loading")
     }
 
     private func openImportWizardFromBlankImportHint(_ app: XCUIApplication) {

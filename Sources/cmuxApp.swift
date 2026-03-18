@@ -2487,9 +2487,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         }
         window.makeKeyAndOrderFront(nil)
         if let navigationTarget {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                SettingsNavigationRequest.post(navigationTarget)
-            }
+            SettingsNavigationRequest.post(navigationTarget)
         }
 #if DEBUG
         dlog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
@@ -2506,8 +2504,11 @@ enum SettingsNavigationTarget: String {
 enum SettingsNavigationRequest {
     static let notificationName = Notification.Name("cmux.settings.navigate")
     private static let targetKey = "target"
+    @MainActor private static var pendingTarget: SettingsNavigationTarget?
 
+    @MainActor
     static func post(_ target: SettingsNavigationTarget) {
+        pendingTarget = target
         NotificationCenter.default.post(
             name: notificationName,
             object: nil,
@@ -2518,6 +2519,18 @@ enum SettingsNavigationRequest {
     static func target(from notification: Notification) -> SettingsNavigationTarget? {
         guard let rawValue = notification.userInfo?[targetKey] as? String else { return nil }
         return SettingsNavigationTarget(rawValue: rawValue)
+    }
+
+    @MainActor
+    static func consumePendingTarget() -> SettingsNavigationTarget? {
+        defer { pendingTarget = nil }
+        return pendingTarget
+    }
+
+    @MainActor
+    static func clearPendingTarget(_ target: SettingsNavigationTarget) {
+        guard pendingTarget == target else { return }
+        pendingTarget = nil
     }
 }
 
@@ -5116,11 +5129,11 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let target = SettingsNavigationRequest.target(from: notification) else { return }
-            DispatchQueue.main.async {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    proxy.scrollTo(target, anchor: .top)
-                }
-            }
+            handleSettingsNavigation(target, proxy: proxy, animated: true)
+        }
+        .onAppear {
+            guard let target = SettingsNavigationRequest.consumePendingTarget() else { return }
+            handleSettingsNavigation(target, proxy: proxy, animated: false)
         }
         .confirmationDialog(
             String(localized: "settings.browser.history.clearDialog.title", defaultValue: "Clear browser history?"),
@@ -5170,6 +5183,23 @@ struct SettingsView: View {
         } message: {
             Text(notificationCustomSoundErrorAlertMessage)
         }
+        }
+    }
+
+    private func handleSettingsNavigation(
+        _ target: SettingsNavigationTarget,
+        proxy: ScrollViewProxy,
+        animated: Bool
+    ) {
+        SettingsNavigationRequest.clearPendingTarget(target)
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(target, anchor: .top)
+                }
+            } else {
+                proxy.scrollTo(target, anchor: .top)
+            }
         }
     }
 
