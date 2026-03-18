@@ -693,6 +693,8 @@ fileprivate final class PaneStripMotionTimelineState {
     var maxHostedOverlapPx = 0
     var maxWrongHitCount = 0
     var sampleCounts: [String: Int] = [:]
+    var nonBlankSampleCounts: [String: Int] = [:]
+    var firstNonBlankFrameByLabel: [String: Int] = [:]
     var referenceByLabel: [String: ReferenceSample] = [:]
     var trace: [String] = []
 
@@ -873,6 +875,12 @@ fileprivate func capturePaneStripMotionFrame(_ st: PaneStripMotionTimelineState)
         let hasDimensions = iosWidth > 0 && iosHeight > 0 && expectedWidth > 0 && expectedHeight > 0
         let hasSizeMismatch = hasDimensions && (abs(iosWidth - expectedWidth) > 2 || abs(iosHeight - expectedHeight) > 2)
         let stretchRisk = gravity == CALayerContentsGravity.resize.rawValue
+        if !isBlank {
+            st.nonBlankSampleCounts[target.label, default: 0] += 1
+            if st.firstNonBlankFrameByLabel[target.label] == nil {
+                st.firstNonBlankFrameByLabel[target.label] = st.framesWritten
+            }
+        }
         let visibilityFailureReason: String? = {
             guard hasPassedBootstrapGrace, anchorShouldShowTerminalContent else { return nil }
             if sample.hostedHidden { return "hidden" }
@@ -3996,6 +4004,13 @@ class TabManager: ObservableObject {
             fail("Initial terminal not ready (attached=\(initialTerminalReadiness.attached ? 1 : 0) surface=\(initialTerminalReadiness.hasSurface ? 1 : 0))")
             return
         }
+        guard await primeAndWaitForVisibleTerminalContent(sourcePanelId, label: "SOURCE") else {
+            fail(
+                "Initial terminal did not paint visible content",
+                extra: terminalVisibilityDebugInfo(for: sourcePanelId)
+            )
+            return
+        }
 
         func waitUntilTerminalReady(_ panelId: UUID) async -> Bool {
             let readiness = await waitForTerminalPanelReadyForUITest(tab: tab, panelId: panelId)
@@ -4014,6 +4029,31 @@ class TabManager: ObservableObject {
                 return portalSample
             }
             return terminal.surface.hostedView.debugInlineMotionSample(normalizedCrop: crop)
+        }
+
+        func primeTerminalContent(_ panelId: UUID, label: String) {
+            guard let terminal = tab.terminalPanel(for: panelId) else { return }
+            terminal.surface.sendText(
+                "printf '\\033[2J\\033[H'; for i in {1..120}; do echo CMUX_PANESTRIP_\(label)_$i; done; printf '\\033[HCMUX_PANESTRIP_MARKER_\(label)\\n'\r"
+            )
+        }
+
+        func waitForTerminalPanelPainted(_ panelId: UUID, timeoutSeconds: TimeInterval = 4.0) async -> Bool {
+            let deadline = Date().addingTimeInterval(timeoutSeconds)
+            while Date() < deadline {
+                if let sample = motionSample(for: panelId)?.surfaceSample,
+                   sample.sampleCount > 0,
+                   !sample.isProbablyBlank {
+                    return true
+                }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            return false
+        }
+
+        func primeAndWaitForVisibleTerminalContent(_ panelId: UUID, label: String) async -> Bool {
+            primeTerminalContent(panelId, label: label)
+            return await waitForTerminalPanelPainted(panelId)
         }
 
         func terminalVisibilityDebugInfo(for panelId: UUID) -> [String: String] {
@@ -4073,7 +4113,9 @@ class TabManager: ObservableObject {
             maxHostedOverlapPx: Int,
             maxWrongHitCount: Int,
             trace: [String],
-            sampleCounts: [String: Int]
+            sampleCounts: [String: Int],
+            nonBlankSampleCounts: [String: Int],
+            firstNonBlankFrameByLabel: [String: Int]
         )
 
         switch scenario {
@@ -4094,11 +4136,26 @@ class TabManager: ObservableObject {
                 )
                 return
             }
+            if result.nonBlankSampleCounts["T", default: 0] == 0 {
+                var extra = terminalVisibilityDebugInfo(for: sourcePanelId)
+                extra["sampleCounts"] = debugJSONString(result.sampleCounts)
+                extra["nonBlankSampleCounts"] = debugJSONString(result.nonBlankSampleCounts)
+                extra["timelineTrace"] = result.trace.joined(separator: "|")
+                fail("Initial terminal never produced visible content during capture", extra: extra)
+                return
+            }
 
         case "focus_reveal_right":
             guard let rightPanel = tab.openTerminalPaneRight(from: sourcePanelId, focus: false),
                   await waitUntilTerminalReady(rightPanel.id) else {
                 fail("Failed to create right pane for focus reveal")
+                return
+            }
+            guard await primeAndWaitForVisibleTerminalContent(rightPanel.id, label: "RIGHT") else {
+                fail(
+                    "Right pane did not paint visible content for focus reveal",
+                    extra: terminalVisibilityDebugInfo(for: rightPanel.id)
+                )
                 return
             }
 
@@ -4123,11 +4180,26 @@ class TabManager: ObservableObject {
                     }),
                 ]
             )
+            if result.nonBlankSampleCounts["R", default: 0] == 0 {
+                var extra = terminalVisibilityDebugInfo(for: rightPanel.id)
+                extra["sampleCounts"] = debugJSONString(result.sampleCounts)
+                extra["nonBlankSampleCounts"] = debugJSONString(result.nonBlankSampleCounts)
+                extra["timelineTrace"] = result.trace.joined(separator: "|")
+                fail("Right pane never produced visible content during focus reveal", extra: extra)
+                return
+            }
 
         case "pan_viewport_right":
             guard let rightPanel = tab.openTerminalPaneRight(from: sourcePanelId, focus: false),
                   await waitUntilTerminalReady(rightPanel.id) else {
                 fail("Failed to create right pane for viewport pan")
+                return
+            }
+            guard await primeAndWaitForVisibleTerminalContent(rightPanel.id, label: "RIGHT") else {
+                fail(
+                    "Right pane did not paint visible content for viewport pan",
+                    extra: terminalVisibilityDebugInfo(for: rightPanel.id)
+                )
                 return
             }
 
@@ -4152,9 +4224,18 @@ class TabManager: ObservableObject {
                     }),
                 ]
             )
+            if result.nonBlankSampleCounts["R", default: 0] == 0 {
+                var extra = terminalVisibilityDebugInfo(for: rightPanel.id)
+                extra["sampleCounts"] = debugJSONString(result.sampleCounts)
+                extra["nonBlankSampleCounts"] = debugJSONString(result.nonBlankSampleCounts)
+                extra["timelineTrace"] = result.trace.joined(separator: "|")
+                fail("Right pane never produced visible content during viewport pan", extra: extra)
+                return
+            }
 
         case "open_pane_right":
             var createdPanelId: UUID?
+            var didPrimeCreatedPane = false
 
             result = await capturePaneStripMotionTimeline(
                 frameCount: frameCount,
@@ -4163,7 +4244,13 @@ class TabManager: ObservableObject {
                     .init(label: "L", sample: { @MainActor in motionSample(for: sourcePanelId) }, expectedPanelId: { sourcePanelId }),
                     .init(
                         label: "R",
-                        sample: { @MainActor in motionSample(for: createdPanelId) },
+                        sample: { @MainActor in
+                            if let createdPanelId, !didPrimeCreatedPane {
+                                primeTerminalContent(createdPanelId, label: "RIGHT")
+                                didPrimeCreatedPane = true
+                            }
+                            return motionSample(for: createdPanelId)
+                        },
                         expectedPanelId: { createdPanelId },
                         bootstrapGraceFrames: newlyVisiblePaneBootstrapGraceFrames,
                         minimumEvaluationFrame: actionFrame,
@@ -4174,6 +4261,10 @@ class TabManager: ObservableObject {
                 actions: [
                     (frame: actionFrame, action: {
                         createdPanelId = tab.openTerminalPaneRight(from: sourcePanelId)?.id
+                        if let createdPanelId {
+                            primeTerminalContent(createdPanelId, label: "RIGHT")
+                            didPrimeCreatedPane = true
+                        }
                     }),
                 ]
             )
@@ -4185,6 +4276,21 @@ class TabManager: ObservableObject {
 
             if !(await waitUntilTerminalReady(createdPanelId)) {
                 fail("Created pane did not become terminal-ready")
+                return
+            }
+            if result.nonBlankSampleCounts["R", default: 0] == 0 {
+                var extra = terminalVisibilityDebugInfo(for: createdPanelId)
+                extra["sampleCounts"] = debugJSONString(result.sampleCounts)
+                extra["nonBlankSampleCounts"] = debugJSONString(result.nonBlankSampleCounts)
+                extra["timelineTrace"] = result.trace.joined(separator: "|")
+                fail("Created pane never produced visible content during open", extra: extra)
+                return
+            }
+            guard await waitForTerminalPanelPainted(createdPanelId) else {
+                fail(
+                    "Created pane did not paint visible content after open",
+                    extra: terminalVisibilityDebugInfo(for: createdPanelId)
+                )
                 return
             }
 
@@ -4205,6 +4311,14 @@ class TabManager: ObservableObject {
             "maxWrongHitCount": String(result.maxWrongHitCount),
             "timelineTrace": result.trace.joined(separator: "|"),
             "sampleCounts": result.sampleCounts
+                .sorted(by: { $0.key < $1.key })
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: ","),
+            "nonBlankSampleCounts": result.nonBlankSampleCounts
+                .sorted(by: { $0.key < $1.key })
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: ","),
+            "firstNonBlankFrames": result.firstNonBlankFrameByLabel
                 .sorted(by: { $0.key < $1.key })
                 .map { "\($0.key)=\($0.value)" }
                 .joined(separator: ","),
@@ -4276,10 +4390,12 @@ class TabManager: ObservableObject {
         maxHostedOverlapPx: Int,
         maxWrongHitCount: Int,
         trace: [String],
-        sampleCounts: [String: Int]
+        sampleCounts: [String: Int],
+        nonBlankSampleCounts: [String: Int],
+        firstNonBlankFrameByLabel: [String: Int]
     ) {
         guard frameCount > 0 else {
-            return (nil, nil, nil, nil, nil, nil, 0, 0, 0, 0, [], [:])
+            return (nil, nil, nil, nil, nil, nil, 0, 0, 0, 0, [], [:], [:], [:])
         }
 
         let st = PaneStripMotionTimelineState(frameCount: frameCount, actionFrame: actionFrame)
@@ -4310,7 +4426,9 @@ class TabManager: ObservableObject {
             st.maxHostedOverlapPx,
             st.maxWrongHitCount,
             st.trace,
-            st.sampleCounts
+            st.sampleCounts,
+            st.nonBlankSampleCounts,
+            st.firstNonBlankFrameByLabel
         )
     }
 

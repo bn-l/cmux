@@ -2085,6 +2085,12 @@ enum TerminalWindowPortalRegistry {
         }
     }
 
+    static func synchronizeExternalGeometryForAllWindowsNow() {
+        for portal in Self.portalsByWindowId.values {
+            portal.synchronizeAllEntriesFromExternalGeometryChange()
+        }
+    }
+
     static func hideHostedView(_ hostedView: GhosttySurfaceScrollView) {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId],

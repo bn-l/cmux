@@ -5427,7 +5427,10 @@ extension Workspace: BonsplitDelegate {
         _ = snapshot
         // Paper-canvas motion is driven by SwiftUI layout and layer presentation, so portal-hosted
         // terminals need an explicit external geometry sync on each geometry tick to stay aligned
-        // with their animated pane anchors.
+        // with their animated pane anchors. Do one immediate pass so a newly inserted pane does
+        // not spend a visible frame at stale geometry, then keep deferred passes for follow-up
+        // settles while SwiftUI animation and AppKit layout continue to tick.
+        TerminalWindowPortalRegistry.synchronizeExternalGeometryForAllWindowsNow()
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
