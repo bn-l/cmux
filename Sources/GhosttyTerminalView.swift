@@ -2489,6 +2489,30 @@ final class GhosttyMetalLayer: CAMetalLayer {
     }
 }
 
+final class TerminalSurfaceRegistry {
+    static let shared = TerminalSurfaceRegistry()
+
+    private let lock = NSLock()
+    private let surfaces = NSHashTable<AnyObject>.weakObjects()
+
+    private init() {}
+
+    func register(_ surface: TerminalSurface) {
+        lock.lock()
+        defer { lock.unlock() }
+        surfaces.add(surface)
+    }
+
+    func allSurfaces() -> [TerminalSurface] {
+        lock.lock()
+        let objects = surfaces.allObjects.compactMap { $0 as? TerminalSurface }
+        lock.unlock()
+        return objects.sorted { lhs, rhs in
+            lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+}
+
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
 
 final class TerminalSurface: Identifiable, ObservableObject {
@@ -2538,11 +2562,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var lastPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
+    private let debugMetadataLock = NSLock()
+    private let createdAt: Date = Date()
+    private var runtimeSurfaceCreatedAt: Date?
+    private var teardownRequestedAt: Date?
+    private var teardownRequestReason: String?
     private var pendingTextQueue: [Data] = []
     private var pendingTextBytes: Int = 0
     private let maxPendingTextBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    /// Tracks the last focus state to avoid sending redundant focus events.
+    /// This prevents prompt redraw issues with zsh themes like Powerlevel10k.
+    private var lastFocusState: Bool = false
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
 #endif
@@ -2623,6 +2655,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
         // Surface is created when attached to a view
         hostedView.attachSurface(self)
+        TerminalSurfaceRegistry.shared.register(self)
     }
 
 
@@ -2677,6 +2710,47 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func portalBindingStateLabel() -> String {
         portalLifecycleState.rawValue
+    }
+
+    private func withDebugMetadataLock<T>(_ body: () -> T) -> T {
+        debugMetadataLock.lock()
+        defer { debugMetadataLock.unlock() }
+        return body()
+    }
+
+    func debugCreatedAt() -> Date {
+        withDebugMetadataLock { createdAt }
+    }
+
+    func debugRuntimeSurfaceCreatedAt() -> Date? {
+        withDebugMetadataLock { runtimeSurfaceCreatedAt }
+    }
+
+    func debugTeardownRequest() -> (requestedAt: Date?, reason: String?) {
+        withDebugMetadataLock { (teardownRequestedAt, teardownRequestReason) }
+    }
+
+    func debugLastKnownWorkspaceId() -> UUID {
+        tabId
+    }
+
+    func debugSurfaceContextLabel() -> String {
+        cmuxSurfaceContextName(surfaceContext)
+    }
+
+    func debugInitialCommand() -> String? {
+        initialCommand
+    }
+
+    func debugPortalHostLease() -> (hostId: String?, inWindow: Bool?, area: CGFloat?) {
+        guard let activePortalHostLease else {
+            return (nil, nil, nil)
+        }
+        return (
+            hostId: String(describing: activePortalHostLease.hostId),
+            inWindow: activePortalHostLease.inWindow,
+            area: activePortalHostLease.area
+        )
     }
 
     func canAcceptPortalBinding(expectedSurfaceId: UUID?, expectedGeneration: UInt64?) -> Bool {
@@ -2774,9 +2848,28 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
     }
 
+    private func recordTeardownRequest(reason: String) {
+        withDebugMetadataLock {
+            if teardownRequestedAt == nil {
+                teardownRequestedAt = Date()
+            }
+            if let existing = teardownRequestReason, !existing.isEmpty {
+                return
+            }
+            teardownRequestReason = reason
+        }
+    }
+
+    private func recordRuntimeSurfaceCreation() {
+        withDebugMetadataLock {
+            runtimeSurfaceCreatedAt = Date()
+        }
+    }
+
     func beginPortalCloseLifecycle(reason: String) {
         guard portalLifecycleState != .closed else { return }
         guard portalLifecycleState != .closing else { return }
+        recordTeardownRequest(reason: reason)
         portalLifecycleState = .closing
         portalLifecycleGeneration &+= 1
 #if DEBUG
@@ -2805,6 +2898,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// before deinit; deinit will skip the free if already torn down.
     @MainActor
     func teardownSurface() {
+        recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
 
         let callbackContext = surfaceCallbackContext
@@ -3198,6 +3292,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
         guard let createdSurface = surface else { return }
+        recordRuntimeSurfaceCreation()
 
         // Session scrollback replay must be one-shot. Reusing it on a later runtime
         // surface recreation would inject stale restored output into a live shell.
@@ -3371,6 +3466,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func setFocus(_ focused: Bool) {
         guard let surface = surface else { return }
+        // Only send focus events when the state changes to avoid redundant
+        // prompt redraws with zsh themes like Powerlevel10k.
+        guard focused != lastFocusState else { return }
+        lastFocusState = focused
         ghostty_surface_set_focus(surface, focused)
 
         // If we focus a surface while it is being rapidly reparented (closing splits, etc),
@@ -4725,7 +4824,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Check if this event matches a Ghostty keybinding.
         let bindingFlags: ghostty_binding_flags_e? = {
             var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
-            let text = event.characters ?? ""
+            let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
             var flags = ghostty_binding_flags_e(0)
             let isBinding = text.withCString { ptr in
                 keyEvent.text = ptr
@@ -5112,6 +5211,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
 #endif
                 } else {
+                    keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                     keyEvent.text = nil
                     #if DEBUG
                     let ghosttySendStart = ProcessInfo.processInfo.systemUptime
@@ -5126,6 +5226,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     _ = ghostty_surface_key(surface, keyEvent)
                     #endif
                 }
+            }
+
+            if shouldSendCommittedIMEConfirmKey(
+                event: translationEvent,
+                markedTextBefore: markedTextBefore
+            ) {
+                keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+                keyEvent.text = nil
+#if DEBUG
+                let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+                _ = sendTimedGhosttyKey(
+                    surface,
+                    keyEvent,
+                    path: "terminal.keyDown.accumulatedConfirmGhosttySend",
+                    event: event
+                )
+                ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+#else
+                _ = ghostty_surface_key(surface, keyEvent)
+#endif
             }
         } else {
             // Get the appropriate text for this key event
@@ -5157,6 +5277,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
 #endif
                 } else {
+                    keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                     keyEvent.text = nil
                     #if DEBUG
                     let ghosttySendStart = ProcessInfo.processInfo.systemUptime
@@ -5172,6 +5293,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     #endif
                 }
             } else {
+                keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                 keyEvent.text = nil
                 #if DEBUG
                 let ghosttySendStart = ProcessInfo.processInfo.systemUptime
@@ -5325,7 +5447,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
             // If we have a single control character, return the character without
             // the control modifier so Ghostty's KeyEncoder can handle it.
-            if scalar.value < 0x20 {
+            if isControlCharacterScalar(scalar) {
                 if flags.contains(.control) {
                     return event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control))
                 }
@@ -5362,9 +5484,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return scalar.value
     }
 
+    private func isControlCharacterScalar(_ scalar: UnicodeScalar) -> Bool {
+        scalar.value < 0x20 || scalar.value == 0x7F
+    }
+
     private func shouldSendText(_ text: String) -> Bool {
-        guard let first = text.utf8.first else { return false }
-        return first >= 0x20
+        guard !text.isEmpty else { return false }
+        if text.count == 1, let scalar = text.unicodeScalars.first {
+            return !isControlCharacterScalar(scalar)
+        }
+        return true
     }
 
     /// If AppKit consumed Shift+Space for IME/input-source switching, interpretKeyEvents
@@ -5376,6 +5505,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard flags == [.shift] else { return false }
         guard !markedTextBefore, markedText.length == 0 else { return false }
         return true
+    }
+
+    private func shouldSendCommittedIMEConfirmKey(event: NSEvent, markedTextBefore: Bool) -> Bool {
+        guard markedTextBefore, markedText.length == 0 else { return false }
+        return event.keyCode == 36 || event.keyCode == 76
     }
 
     private func ghosttyKeyEvent(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_input_key_s {
@@ -5997,6 +6131,12 @@ final class GhosttySurfaceScrollView: NSView {
     private var windowObservers: [NSObjectProtocol] = []
     private var isLiveScrolling = false
     private var lastSentRow: Int?
+    /// Tracks whether the user has scrolled away from the bottom to review scrollback.
+    /// When true, auto-scroll should be suspended to prevent the "doomscroll" bug
+    /// where the terminal fights the user's scroll position.
+    private var userScrolledAwayFromBottom = false
+    /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
+    private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var activeDropZone: DropZone?
@@ -6324,6 +6464,8 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.isLiveScrolling = false
+            // Final scroll position check to update userScrolledAwayFromBottom state
+            self?.handleLiveScroll()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -7187,6 +7329,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     var debugPortalVisibleInUI: Bool {
         surfaceView.isVisibleInUI
+    }
+
+    var debugPortalActive: Bool {
+        isActive
     }
 
     var debugPortalFrameInWindow: CGRect {
@@ -8239,11 +8385,29 @@ final class GhosttySurfaceScrollView: NSView {
                 let offsetY =
                     CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
                 let targetOrigin = CGPoint(x: 0, y: offsetY)
-                if !pointApproximatelyEqual(scrollView.contentView.bounds.origin, targetOrigin) {
+
+                // Check if we're currently at the bottom (with threshold for float drift)
+                let currentOrigin = scrollView.contentView.bounds.origin
+                let documentHeight = documentView.frame.height
+                let viewportHeight = scrollView.contentView.bounds.height
+                let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
+                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
+
+                // Update userScrolledAwayFromBottom based on current position
+                if isAtBottom {
+                    userScrolledAwayFromBottom = false
+                }
+
+                // Only auto-scroll if user hasn't manually scrolled away from bottom
+                // or if we're following terminal output (scrollbar shows we're at bottom)
+                let shouldAutoScroll = !userScrolledAwayFromBottom ||
+                    (scrollbar.offset + scrollbar.len >= scrollbar.total)
+
+                if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
 #if DEBUG
                     logDragGeometryChange(
                         event: "scrollOrigin",
-                        old: scrollView.contentView.bounds.origin,
+                        old: currentOrigin,
                         new: targetOrigin
                     )
 #endif
@@ -8270,6 +8434,14 @@ final class GhosttySurfaceScrollView: NSView {
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
+
+        // Track if user has scrolled away from bottom to review scrollback
+        if scrollOffset > Self.scrollToBottomThreshold {
+            userScrolledAwayFromBottom = true
+        } else if scrollOffset <= 0 {
+            userScrolledAwayFromBottom = false
+        }
+
         let row = Int(scrollOffset / cellHeight)
 
         guard row != lastSentRow else { return }

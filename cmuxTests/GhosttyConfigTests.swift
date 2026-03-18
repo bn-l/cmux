@@ -867,6 +867,75 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
         XCTAssertEqual(rewritten, original)
     }
 
+    func testBuffersSplitLoopbackAliasHeadersUntilFullRequestArrives() {
+        var streamRewriter = RemoteLoopbackHTTPRequestStreamRewriter(
+            aliasHost: "cmux-loopback.localtest.me"
+        )
+
+        let firstChunk = Data(
+            (
+                "GET /demo HTTP/1.1\r\n" +
+                "Host: cmux-loop"
+            ).utf8
+        )
+        let secondChunk = Data(
+            (
+                "back.localtest.me:3000\r\n" +
+                "Origin: http://cmux-loopback.localtest.me:3000\r\n" +
+                "Referer: http://cmux-loopback.localtest.me:3000/app\r\n" +
+                "\r\n" +
+                "body=1"
+            ).utf8
+        )
+
+        let firstOutput = streamRewriter.rewriteNextChunk(firstChunk, eof: false)
+        let secondOutput = streamRewriter.rewriteNextChunk(secondChunk, eof: false)
+
+        XCTAssertTrue(firstOutput.isEmpty)
+
+        let text = String(decoding: secondOutput, as: UTF8.self)
+        XCTAssertTrue(text.contains("Host: localhost:3000"))
+        XCTAssertTrue(text.contains("Origin: http://localhost:3000"))
+        XCTAssertTrue(text.contains("Referer: http://localhost:3000/app"))
+        XCTAssertTrue(text.hasSuffix("\r\n\r\nbody=1"))
+        XCTAssertFalse(text.contains("cmux-loopback.localtest.me"))
+    }
+
+    func testFlushesBufferedLoopbackAliasHeadersOnEOFWhenHeadersRemainIncomplete() {
+        var streamRewriter = RemoteLoopbackHTTPRequestStreamRewriter(
+            aliasHost: "cmux-loopback.localtest.me"
+        )
+
+        let firstChunk = Data(
+            (
+                "GET /demo HTTP/1.1\r\n" +
+                "Host: cmux-loop"
+            ).utf8
+        )
+        let secondChunk = Data(
+            (
+                "back.localtest.me:3000\r\n" +
+                "Origin: http://cmux-loopback.localtest.me:3000\r\n" +
+                "Referer: http://cmux-loopback.localtest.me:3000/app\r\n" +
+                "body=1"
+            ).utf8
+        )
+
+        let firstOutput = streamRewriter.rewriteNextChunk(firstChunk, eof: false)
+        let secondOutput = streamRewriter.rewriteNextChunk(secondChunk, eof: true)
+        let thirdOutput = streamRewriter.rewriteNextChunk(Data(), eof: true)
+
+        XCTAssertTrue(firstOutput.isEmpty)
+
+        let text = String(decoding: secondOutput, as: UTF8.self)
+        XCTAssertTrue(text.contains("Host: localhost:3000"))
+        XCTAssertTrue(text.contains("Origin: http://localhost:3000"))
+        XCTAssertTrue(text.contains("Referer: http://localhost:3000/app"))
+        XCTAssertTrue(text.hasSuffix("\r\nbody=1"))
+        XCTAssertFalse(text.contains("cmux-loopback.localtest.me"))
+        XCTAssertTrue(thirdOutput.isEmpty)
+    }
+
     func testRewritesLoopbackResponseHeadersBackToAlias() {
         let original = Data(
             (
@@ -2522,16 +2591,20 @@ final class BrowserInstallDetectorTests: XCTestCase {
             return
         }
 
-        XCTAssertEqual(safari.profiles.map(\.displayName), ["Default", "Work", "Travel"])
+        XCTAssertEqual(Set(safari.profiles.map(\.displayName)), Set(["Default", "Work", "Travel"]))
         XCTAssertEqual(
-            safari.profiles.map { $0.rootURL.path(percentEncoded: false) }.sorted(),
+            safari.profiles
+                .map { $0.rootURL.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false) }
+                .sorted(),
             [
-                home.appendingPathComponent("Library/Safari", isDirectory: true).path(percentEncoded: false),
-                home.appendingPathComponent("Library/Safari/Profiles/Work", isDirectory: true).path(percentEncoded: false),
+                home.appendingPathComponent("Library/Safari", isDirectory: true)
+                    .standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false),
+                home.appendingPathComponent("Library/Safari/Profiles/Work", isDirectory: true)
+                    .standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false),
                 home.appendingPathComponent(
                     "Library/Containers/com.apple.Safari/Data/Library/Safari/Profiles/Travel",
                     isDirectory: true
-                ).path(percentEncoded: false),
+                ).standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false),
             ].sorted()
         )
     }
@@ -2542,7 +2615,12 @@ final class BrowserInstallDetectorTests: XCTestCase {
 
     private func createFile(at url: URL, contents: Data) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        _ = FileManager.default.createFile(atPath: url.path, contents: contents)
+        guard FileManager.default.createFile(atPath: url.path, contents: contents) else {
+            throw CocoaError(
+                .fileWriteUnknown,
+                userInfo: [NSFilePathErrorKey: url.path]
+            )
+        }
     }
 }
 

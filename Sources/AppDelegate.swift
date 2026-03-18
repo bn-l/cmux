@@ -417,11 +417,13 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         let homeDirectoryPath: String
         let fileExistsAtPath: (String) -> Bool
         let isExecutableFileAtPath: (String) -> Bool
+        let applicationPathForName: (String) -> String?
 
         static let live = DetectionEnvironment(
             homeDirectoryPath: FileManager.default.homeDirectoryForCurrentUser.path,
             fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) },
-            isExecutableFileAtPath: { FileManager.default.isExecutableFile(atPath: $0) }
+            isExecutableFileAtPath: { FileManager.default.isExecutableFile(atPath: $0) },
+            applicationPathForName: { NSWorkspace.shared.fullPath(forApplication: $0) }
         )
     }
 
@@ -432,8 +434,6 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     static func availableTargets(in environment: DetectionEnvironment = .live) -> Set<Self> {
         Set(commandPaletteShortcutTargets.filter { $0.isAvailable(in: environment) })
     }
-
-    static let cachedLiveAvailableTargets: Set<Self> = availableTargets(in: .live)
 
     var commandPaletteCommandId: String {
         "palette.terminalOpenDirectory.\(rawValue)"
@@ -524,6 +524,17 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         for path in expandedCandidatePaths(in: environment) where environment.fileExistsAtPath(path) {
             return path
         }
+
+        // Fall back to LaunchServices so apps outside the standard bundle paths
+        // still appear in the command palette.
+        for applicationName in applicationSearchNames {
+            guard let resolvedPath = environment.applicationPathForName(applicationName),
+                  environment.fileExistsAtPath(resolvedPath) else {
+                continue
+            }
+            return resolvedPath
+        }
+
         return nil
     }
 
@@ -541,6 +552,14 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         }
 
         return uniquePreservingOrder(expanded)
+    }
+
+    private var applicationSearchNames: [String] {
+        uniquePreservingOrder(
+            applicationBundlePathCandidates.map {
+                URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent
+            }
+        )
     }
 
     private var applicationBundlePathCandidates: [String] {
@@ -2313,6 +2332,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // In UI tests, `WindowGroup` occasionally fails to materialize a window quickly on the VM.
         // If there are no windows shortly after launch, force-create one so XCUITest can proceed.
         if isRunningUnderXCTest {
+            if let rawVariant = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_VARIANT"] {
+                UserDefaults.standard.set(
+                    BrowserImportHintSettings.variant(for: rawVariant).rawValue,
+                    forKey: BrowserImportHintSettings.variantKey
+                )
+            }
+            if let rawShow = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_SHOW"] {
+                UserDefaults.standard.set(
+                    rawShow == "1",
+                    forKey: BrowserImportHintSettings.showOnBlankTabsKey
+                )
+            }
+            if let rawDismissed = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_DISMISSED"] {
+                UserDefaults.standard.set(
+                    rawDismissed == "1",
+                    forKey: BrowserImportHintSettings.dismissedKey
+                )
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard let self else { return }
                 if NSApp.windows.isEmpty {
@@ -2321,6 +2358,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.moveUITestWindowToTargetDisplayIfNeeded()
                 NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
                 self.writeUITestDiagnosticsIfNeeded(stage: "afterForceWindow")
+            }
+            if env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_OPEN_BLANK_BROWSER"] == "1" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+                    guard let self else { return }
+                    _ = self.openBrowserAndFocusAddressBar(insertAtEnd: true)
+                }
+            }
+            if env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_OPEN_SETTINGS"] == "1" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
+                    self?.openPreferencesWindow(
+                        debugSource: "uiTest.browserImportHint",
+                        navigationTarget: .browser
+                    )
+                }
+            }
+            if env["CMUX_UI_TEST_BROWSER_IMPORT_AUTO_OPEN"] == "1" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                }
             }
         }
 #endif
@@ -10444,14 +10500,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func ensureApplicationIcon() {
         let mode = AppIconSettings.resolvedMode()
-        if mode == .automatic {
-            // Let the asset catalog handle appearance-based icon selection.
-            if let icon = NSImage(named: NSImage.applicationIconName) {
-                NSApplication.shared.applicationIconImage = icon
-            }
-        } else {
-            AppIconSettings.applyIcon(mode)
-        }
+        AppIconSettings.applyIcon(mode)
     }
 
     private func scheduleLaunchServicesBundleRegistration(
