@@ -17,8 +17,13 @@ case "${ZIG_REQUIRED}:${ZIG_PLATFORM}" in
 esac
 
 if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}$"; then
-  echo "zig ${ZIG_REQUIRED} already installed"
-  exit 0
+  ZIG_ENV_JSON="$(zig env 2>/dev/null || true)"
+  ZIG_LIB_DIR="$(printf '%s\n' "$ZIG_ENV_JSON" | sed -n 's/.*"lib_dir"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+  if [ -n "$ZIG_LIB_DIR" ] && [ -d "$ZIG_LIB_DIR" ]; then
+    echo "zig ${ZIG_REQUIRED} already installed"
+    exit 0
+  fi
+  echo "zig ${ZIG_REQUIRED} binary is present but lib_dir is missing, reinstalling"
 fi
 
 echo "Installing zig ${ZIG_REQUIRED} from tarball"
