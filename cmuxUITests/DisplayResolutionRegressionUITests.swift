@@ -1,19 +1,19 @@
 import XCTest
 import Foundation
+import AppKit
 
 final class DisplayResolutionRegressionUITests: XCTestCase {
     private let displayHarnessManifestPath = "/tmp/cmux-ui-test-display-harness.json"
     private var launchTag = ""
     private var socketPath = ""
     private var diagnosticsPath = ""
-    private var appLogPath = ""
     private var displayReadyPath = ""
     private var displayIDPath = ""
     private var displayStartPath = ""
     private var displayDonePath = ""
     private var helperBinaryPath = ""
     private var helperLogPath = ""
-    private var appProcess: Process?
+    private var appApplication: NSRunningApplication?
     private var helperProcess: Process?
 
     override func setUp() {
@@ -24,7 +24,6 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         launchTag = "ui-tests-display-resolution-\(token.prefix(8))"
         socketPath = "/tmp/cmux-ui-test-display-churn-\(token).sock"
         diagnosticsPath = "/tmp/cmux-ui-test-display-churn-\(token).json"
-        appLogPath = "/tmp/cmux-ui-test-display-churn-\(token).log"
         displayReadyPath = "/tmp/cmux-ui-test-display-ready-\(token)"
         displayIDPath = "/tmp/cmux-ui-test-display-id-\(token)"
         displayStartPath = "/tmp/cmux-ui-test-display-start-\(token)"
@@ -36,9 +35,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     }
 
     override func tearDown() {
-        appProcess?.terminate()
-        appProcess?.waitUntilExit()
-        appProcess = nil
+        terminateLaunchedAppIfNeeded()
         helperProcess?.terminate()
         helperProcess?.waitUntilExit()
         helperProcess = nil
@@ -60,7 +57,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             XCTFail(
                 "Expected control socket to respond. requested=\(socketPath) tag=\(launchTag) " +
                 "candidates=\(expectedSocketCandidates(includeFallback: true)) diagnostics=\(loadDiagnostics() ?? [:]) " +
-                "appLog=\(readTrimmedFile(atPath: appLogPath) ?? "<missing>")"
+                "app=\(launchedAppDiagnostics())"
             )
             return
         }
@@ -68,7 +65,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         XCTAssertTrue(waitForSocketPong(timeout: 4.0), "Expected control socket to respond at \(socketPath)")
         XCTAssertTrue(
             waitForTargetDisplayMove(targetDisplayID: targetDisplayID, timeout: 12.0),
-            "Expected app window to move to display \(targetDisplayID). diagnostics=\(loadDiagnostics() ?? [:]) appLog=\(readTrimmedFile(atPath: appLogPath) ?? "<missing>")"
+            "Expected app window to move to display \(targetDisplayID). diagnostics=\(loadDiagnostics() ?? [:]) app=\(launchedAppDiagnostics())"
         )
 
         guard let baselineStats = waitForRenderStats(timeout: 8.0) else {
@@ -214,48 +211,104 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     }
 
     private func launchAppProcess(targetDisplayID: String) throws {
-        let executableURL = try builtAppExecutableURL()
-        let proc = Process()
-        proc.executableURL = executableURL
-        proc.arguments = ["-socketControlMode", "allowAll"]
+        let appURL = try builtAppBundleURL()
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.createsNewApplicationInstance = true
+        configuration.arguments = ["-socketControlMode", "allowAll"]
+        configuration.environment = launchEnvironment(targetDisplayID: targetDisplayID)
 
-        var env = ProcessInfo.processInfo.environment
-        env["CMUX_SOCKET_PATH"] = socketPath
-        env["CMUX_SOCKET_MODE"] = "allowAll"
-        env["CMUX_SOCKET_ENABLE"] = "1"
-        env["CMUX_UI_TEST_MODE"] = "1"
-        env["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
-        env["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
-        env["CMUX_UI_TEST_TARGET_DISPLAY_ID"] = targetDisplayID
-        env["CMUX_TAG"] = launchTag
-        proc.environment = env
+        let launchExpectation = expectation(description: "launch display regression app")
+        var launchError: Error?
+        var application: NSRunningApplication?
 
-        let logHandle = FileHandle(forWritingAtPath: appLogPath) ?? {
-            FileManager.default.createFile(atPath: appLogPath, contents: nil)
-            return FileHandle(forWritingAtPath: appLogPath)
-        }()
-        proc.standardOutput = logHandle
-        proc.standardError = logHandle
+        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { app, error in
+            application = app
+            launchError = error
+            launchExpectation.fulfill()
+        }
 
-        try proc.run()
-        appProcess = proc
+        wait(for: [launchExpectation], timeout: 12.0)
+
+        if let launchError {
+            throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to launch app bundle at \(appURL.path): \(launchError)"
+            ])
+        }
+
+        guard let application else {
+            throw NSError(domain: "DisplayResolutionRegressionUITests", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "NSWorkspace launched no app for bundle \(appURL.path)"
+            ])
+        }
+
+        appApplication = application
     }
 
-    private func builtAppExecutableURL() throws -> URL {
+    private func launchEnvironment(targetDisplayID: String) -> [String: String] {
+        [
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_SOCKET_MODE": "allowAll",
+            "CMUX_SOCKET_ENABLE": "1",
+            "CMUX_UI_TEST_MODE": "1",
+            "CMUX_UI_TEST_SOCKET_SANITY": "1",
+            "CMUX_UI_TEST_DIAGNOSTICS_PATH": diagnosticsPath,
+            "CMUX_UI_TEST_TARGET_DISPLAY_ID": targetDisplayID,
+            "CMUX_TAG": launchTag,
+        ]
+    }
+
+    private func builtAppBundleURL() throws -> URL {
+        var candidates: [URL] = []
+        let env = ProcessInfo.processInfo.environment
+
+        if let builtProductsDir = env["BUILT_PRODUCTS_DIR"], !builtProductsDir.isEmpty {
+            candidates.append(URL(fileURLWithPath: builtProductsDir).appendingPathComponent("cmux DEV.app"))
+        }
+
         let bundleURL = Bundle(for: Self.self).bundleURL
         let productsURL = bundleURL
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let appURL = productsURL.appendingPathComponent("cmux DEV.app")
-        let executableURL = appURL.appendingPathComponent("Contents/MacOS/cmux DEV")
-        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
-            throw NSError(domain: "DisplayResolutionRegressionUITests", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "Built app executable not found at \(executableURL.path)"
-            ])
+        candidates.append(productsURL.appendingPathComponent("cmux DEV.app"))
+
+        var seen = Set<String>()
+        for candidate in candidates {
+            let resolved = candidate.resolvingSymlinksInPath()
+            guard seen.insert(resolved.path).inserted else { continue }
+            let infoPlistPath = resolved.appendingPathComponent("Contents/Info.plist").path
+            if FileManager.default.fileExists(atPath: infoPlistPath) {
+                return resolved
+            }
         }
-        return executableURL
+
+        throw NSError(domain: "DisplayResolutionRegressionUITests", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "Built app bundle not found. candidates=\(candidates.map(\.path))"
+        ])
+    }
+
+    private func terminateLaunchedAppIfNeeded() {
+        guard let appApplication else { return }
+        defer { self.appApplication = nil }
+
+        if appApplication.isTerminated {
+            return
+        }
+
+        if !appApplication.terminate() {
+            _ = appApplication.forceTerminate()
+        }
+
+        _ = waitForCondition(timeout: 5.0) {
+            appApplication.isTerminated
+        }
+    }
+
+    private func launchedAppDiagnostics() -> String {
+        guard let appApplication else { return "not-launched" }
+        return "pid=\(appApplication.processIdentifier) terminated=\(appApplication.isTerminated ? "1" : "0")"
     }
 
     private func waitForTargetDisplayMove(targetDisplayID: String, timeout: TimeInterval) -> Bool {
@@ -476,7 +529,6 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         for path in [
             socketPath,
             diagnosticsPath,
-            appLogPath,
             displayReadyPath,
             displayIDPath,
             displayStartPath,
