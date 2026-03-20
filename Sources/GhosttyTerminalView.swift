@@ -2586,6 +2586,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private struct PortalHostLease {
         let hostId: ObjectIdentifier
         let paneId: UUID
+        let instanceSerial: UInt64
         let inWindow: Bool
         let area: CGFloat
     }
@@ -2767,7 +2768,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private static let portalHostAreaThreshold: CGFloat = 4
-    private static let portalHostReplacementAreaGainRatio: CGFloat = 1.2
 
     private static func portalHostArea(for bounds: CGRect) -> CGFloat {
         max(0, bounds.width) * max(0, bounds.height)
@@ -2787,6 +2787,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         activePortalHostLease = PortalHostLease(
             hostId: current.hostId,
             paneId: current.paneId,
+            instanceSerial: current.instanceSerial,
             inWindow: false,
             area: current.area
         )
@@ -2803,6 +2804,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func claimPortalHost(
         hostId: ObjectIdentifier,
         paneId: PaneID,
+        instanceSerial: UInt64,
         inWindow: Bool,
         bounds: CGRect,
         reason: String
@@ -2810,6 +2812,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let next = PortalHostLease(
             hostId: hostId,
             paneId: paneId.id,
+            instanceSerial: instanceSerial,
             inWindow: inWindow,
             area: Self.portalHostArea(for: bounds)
         )
@@ -2822,12 +2825,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
             let currentUsable = Self.portalHostIsUsable(current)
             let nextUsable = Self.portalHostIsUsable(next)
+            // During split churn SwiftUI can briefly keep the old host alive while the new
+            // host for the same pane is already in the window. Prefer the newer live host
+            // immediately so the surface moves with the pane instead of waiting for a later
+            // update from unrelated focus/layout work.
+            let newerSamePaneHostReady =
+                current.paneId == paneId.id &&
+                nextUsable &&
+                next.instanceSerial > current.instanceSerial
             // A dragged terminal must hand off immediately when it moves to a different pane.
             // Waiting for the old host to become "worse" leaves the moved pane blank/stale.
             let shouldReplace =
                 current.paneId != paneId.id ||
                 !currentUsable ||
-                (nextUsable && next.area > (current.area * Self.portalHostReplacementAreaGainRatio))
+                newerSamePaneHostReady
 
             if shouldReplace {
 #if DEBUG
@@ -8816,10 +8827,23 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var onTriggerFlash: (() -> Void)? = nil
 
     private final class HostContainerView: NSView {
+        private static var nextInstanceSerial: UInt64 = 0
+
         var onDidMoveToWindow: (() -> Void)?
         var onGeometryChanged: (() -> Void)?
+        let instanceSerial: UInt64
         private(set) var geometryRevision: UInt64 = 0
         private var lastReportedGeometryState: GeometryState?
+
+        override init(frame frameRect: NSRect) {
+            Self.nextInstanceSerial &+= 1
+            instanceSerial = Self.nextInstanceSerial
+            super.init(frame: frameRect)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) not implemented")
+        }
 
         private struct GeometryState: Equatable {
             let frame: CGRect
@@ -8931,7 +8955,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSView {
-        let container = HostContainerView()
+        let container = HostContainerView(frame: .zero)
         container.wantsLayer = false
         // The actual terminal surface lives in the AppKit portal layer above SwiftUI.
         // This empty placeholder should not be walked by the accessibility subsystem.
@@ -8983,6 +9007,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             terminalSurface.claimPortalHost(
                 hostId: ObjectIdentifier(host),
                 paneId: paneId,
+                instanceSerial: host.instanceSerial,
                 inWindow: host.window != nil,
                 bounds: host.bounds,
                 reason: "update"
@@ -9045,6 +9070,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 guard terminalSurface.claimPortalHost(
                     hostId: ObjectIdentifier(host),
                     paneId: paneId,
+                    instanceSerial: host.instanceSerial,
                     inWindow: host.window != nil,
                     bounds: host.bounds,
                     reason: "didMoveToWindow"
@@ -9071,6 +9097,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 guard terminalSurface.claimPortalHost(
                     hostId: ObjectIdentifier(host),
                     paneId: paneId,
+                    instanceSerial: host.instanceSerial,
                     inWindow: host.window != nil,
                     bounds: host.bounds,
                     reason: "geometryChanged"
