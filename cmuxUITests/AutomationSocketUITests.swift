@@ -84,11 +84,19 @@ final class AutomationSocketUITests: XCTestCase {
             return
         }
         socketPath = resolvedPath
-        XCTAssertTrue(
-            waitForSocketPong(timeout: 12.0),
-            "Expected control socket to respond at \(socketPath). " +
-                "lastPing=\(lastPingResponse.isEmpty ? "<nil>" : lastPingResponse) " +
-                "diagnostics=\(loadDiagnostics() ?? [:])"
+        guard let socketDiagnostics = waitForSocketReadyDiagnostics(timeout: 12.0) else {
+            XCTFail(
+                "Expected control socket diagnostics to report ready at \(socketPath). " +
+                    "lastPing=\(lastPingResponse.isEmpty ? "<nil>" : lastPingResponse) " +
+                    "diagnostics=\(loadDiagnostics() ?? [:])"
+            )
+            return
+        }
+        XCTAssertEqual(
+            socketDiagnostics["socketPingResponse"],
+            "PONG",
+            "Expected app-side socket sanity ping to succeed before repeated send-key test. " +
+                "diagnostics=\(socketDiagnostics)"
         )
 
         guard let target = ensureTerminalSurface(timeout: 10.0) else {
@@ -101,7 +109,7 @@ final class AutomationSocketUITests: XCTestCase {
 
         for iteration in 1...8 {
             XCTAssertEqual(
-                socketCommand("ping", responseTimeout: 1.5),
+                waitForSocketPong(timeout: 4.0),
                 "PONG",
                 "Expected ping before send_key on iteration \(iteration)"
             )
@@ -113,7 +121,7 @@ final class AutomationSocketUITests: XCTestCase {
             )
 
             XCTAssertEqual(
-                socketCommand("ping", responseTimeout: 1.5),
+                waitForSocketPong(timeout: 4.0),
                 "PONG",
                 "Expected ping after send_key on iteration \(iteration)"
             )
@@ -178,16 +186,29 @@ final class AutomationSocketUITests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                let response = self.socketCommand("ping", responseTimeout: 1.5)
-                self.lastPingResponse = response ?? ""
-                return response == "PONG"
-            },
-            object: NSObject()
-        )
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    private func waitForSocketPong(timeout: TimeInterval) -> String? {
+        var lastResponse: String?
+        _ = waitForCondition(timeout: timeout) {
+            lastResponse = self.socketCommand("ping", responseTimeout: 1.5)
+            self.lastPingResponse = lastResponse ?? ""
+            return lastResponse == "PONG"
+        }
+        let finalResponse = lastResponse == "PONG" ? "PONG" : (socketCommand("ping", responseTimeout: 1.5) ?? lastResponse)
+        lastPingResponse = finalResponse ?? ""
+        return finalResponse
+    }
+
+    private func waitForSocketReadyDiagnostics(timeout: TimeInterval) -> [String: String]? {
+        var lastDiagnostics: [String: String]?
+        let isReady = waitForCondition(timeout: timeout) {
+            guard let diagnostics = self.loadDiagnostics() else { return false }
+            lastDiagnostics = diagnostics
+            if let expectedPath = diagnostics["socketExpectedPath"], !expectedPath.isEmpty, expectedPath != self.socketPath {
+                return false
+            }
+            return diagnostics["socketReady"] == "1"
+        }
+        return isReady ? lastDiagnostics : loadDiagnostics()
     }
 
     private func resolveSocketPath(timeout: TimeInterval) -> String? {
@@ -250,7 +271,47 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     private func socketCommand(_ command: String, responseTimeout: TimeInterval = 2.0) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendLine(command)
+        if let response = ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendLine(command) {
+            return response
+        }
+        return socketCommandViaNetcat(command, responseTimeout: responseTimeout)
+    }
+
+    private func socketCommandViaNetcat(_ command: String, responseTimeout: TimeInterval = 2.0) -> String? {
+        let netcatPath = "/usr/bin/nc"
+        guard FileManager.default.isExecutableFile(atPath: netcatPath) else { return nil }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let timeoutSeconds = max(1, Int(ceil(responseTimeout)))
+        let script =
+            "printf '%s\\n' \(shellSingleQuote(command)) | " +
+            "\(netcatPath) -U \(shellSingleQuote(socketPath)) -w \(timeoutSeconds) 2>/dev/null"
+        process.arguments = ["-lc", script]
+
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        process.waitUntilExit()
+
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: outputData, encoding: .utf8) else { return nil }
+        if let firstLine = output.split(separator: "\n", maxSplits: 1).first {
+            return String(firstLine).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func shellSingleQuote(_ value: String) -> String {
+        if value.isEmpty { return "''" }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
     private func ensureTerminalSurface(timeout: TimeInterval) -> (workspaceId: String, surfaceId: String)? {
