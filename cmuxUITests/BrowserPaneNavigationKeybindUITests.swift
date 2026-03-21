@@ -1,6 +1,5 @@
 import XCTest
 import Foundation
-import CoreGraphics
 
 final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     private var dataPath = ""
@@ -417,7 +416,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         let initialDownCount = Int(initialArrowSnapshot["browserArrowDownCount"] ?? "") ?? -1
         let initialUpCount = Int(initialArrowSnapshot["browserArrowUpCount"] ?? "") ?? -1
 
-        pressRawArrowKey(.down)
+        simulateShortcut("down")
         guard let baselineDownSnapshot = waitForDataSnapshot(
             timeout: 5.0,
             predicate: { data in
@@ -435,7 +434,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         let baselineDownCount = Int(baselineDownSnapshot["browserArrowDownCount"] ?? "") ?? -1
         let baselineUpCount = Int(baselineDownSnapshot["browserArrowUpCount"] ?? "") ?? -1
 
-        pressRawArrowKey(.up)
+        simulateShortcut("up")
         guard let baselineUpSnapshot = waitForDataSnapshot(
             timeout: 5.0,
             predicate: { data in
@@ -478,7 +477,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             return
         }
 
-        pressRawArrowKey(.down)
+        simulateShortcut("down")
         guard let postCmdLDownSnapshot = waitForDataSnapshot(
             timeout: 5.0,
             predicate: { data in
@@ -495,7 +494,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         }
         let postCmdLDownCount = Int(postCmdLDownSnapshot["browserArrowDownCount"] ?? "") ?? -1
 
-        pressRawArrowKey(.up)
+        simulateShortcut("up")
         guard let postCmdLUpSnapshot = waitForDataSnapshot(
             timeout: 5.0,
             predicate: { data in
@@ -1214,58 +1213,21 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    private enum RawArrowKey {
-        case down
-        case up
-
-        var keyCode: CGKeyCode {
-            switch self {
-            case .down:
-                return 125
-            case .up:
-                return 126
-            }
-        }
-
-        var name: String {
-            switch self {
-            case .down:
-                return "Down Arrow"
-            case .up:
-                return "Up Arrow"
-            }
-        }
-    }
-
-    private func pressRawArrowKey(_ key: RawArrowKey) {
-        guard let source = CGEventSource(stateID: .hidSystemState) else {
-            XCTFail("Expected CGEventSource for raw \(key.name) keypress")
-            return
-        }
-
-        postRawKeyboardEvent(keyCode: key.keyCode, keyDown: true, source: source, keyName: key.name)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        postRawKeyboardEvent(keyCode: key.keyCode, keyDown: false, source: source, keyName: key.name)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.10))
-    }
-
-    private func postRawKeyboardEvent(
-        keyCode: CGKeyCode,
-        keyDown: Bool,
-        source: CGEventSource,
-        keyName: String
-    ) {
-        guard let event = CGEvent(
-            keyboardEventSource: source,
-            virtualKey: keyCode,
-            keyDown: keyDown
-        ) else {
-            XCTFail("Expected CGEvent for raw \(keyName) keyDown=\(keyDown)")
-            return
-        }
-
-        event.flags = []
-        event.post(tap: .cghidEventTap)
+    private func simulateShortcut(_ combo: String) {
+        let result = executeCmuxCommand(
+            executablePaths: resolveCmuxCLIPaths(),
+            arguments: ["simulate_shortcut", combo]
+        )
+        XCTAssertEqual(
+            result.terminationStatus,
+            0,
+            "Expected simulate_shortcut \(combo) to run successfully. stdout=\(result.stdout) stderr=\(result.stderr)"
+        )
+        XCTAssertEqual(
+            result.stdout,
+            "OK",
+            "Expected simulate_shortcut \(combo) to return OK. stdout=\(result.stdout) stderr=\(result.stderr)"
+        )
     }
 
     private func loadData() -> [String: String]? {
