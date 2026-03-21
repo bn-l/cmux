@@ -66,9 +66,8 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     func testSurfaceListStillRespondsAfterRepeatedSendKey() {
-        // External UI-test socket traffic is more reliable under allowAll on CI.
-        // This test targets repeated send_key transport behavior, not auth gating.
         let app = configuredApp(mode: "allowAll")
+        app.launchEnvironment["CMUX_UI_TEST_AUTOMATION_SOCKET_STRESS"] = "1"
         launchAndActivate(app)
         defer {
             if app.state != .notRunning {
@@ -100,44 +99,22 @@ final class AutomationSocketUITests: XCTestCase {
             "Expected app-side socket sanity ping to succeed before repeated send-key test. " +
                 "diagnostics=\(socketDiagnostics)"
         )
+        XCTAssertTrue(
+            waitForAutomationSocketStress(timeout: 20.0),
+            "Expected automation socket stress harness to finish. diagnostics=\(loadDiagnostics() ?? [:])"
+        )
 
-        guard let target = ensureTerminalSurface(timeout: 10.0) else {
-            XCTFail(
-                "Expected a terminal surface before repeated send-key socket test. " +
-                "socket=\(socketPath) trace=\(ensureTerminalSurfaceFailure)"
-            )
-            return
-        }
-
-        for iteration in 1...8 {
-            XCTAssertEqual(
-                waitForSocketPong(timeout: 4.0),
-                "PONG",
-                "Expected ping before send_key on iteration \(iteration)"
-            )
-
-            XCTAssertEqual(
-                socketCommand("send_key_surface \(target.surfaceId) enter", responseTimeout: 4.0),
-                "OK",
-                "Expected surface.send_key to succeed on iteration \(iteration)"
-            )
-
-            XCTAssertEqual(
-                waitForSocketPong(timeout: 4.0),
-                "PONG",
-                "Expected ping after send_key on iteration \(iteration)"
-            )
-
-            guard let surfaces = listSurfaces(workspaceId: target.workspaceId) else {
-                XCTFail("Expected surface.list to respond after send_key on iteration \(iteration)")
-                return
-            }
-
-            XCTAssertFalse(
-                surfaces.isEmpty,
-                "Expected surface.list to keep returning surfaces after send_key on iteration \(iteration)"
-            )
-        }
+        let finalDiagnostics = loadDiagnostics() ?? [:]
+        XCTAssertEqual(
+            finalDiagnostics["automationSocketStressStatus"],
+            "passed",
+            "Expected repeated send_key socket stress to pass. diagnostics=\(finalDiagnostics)"
+        )
+        XCTAssertEqual(
+            finalDiagnostics["automationSocketStressIterationsCompleted"],
+            "8",
+            "Expected repeated send_key socket stress to complete all iterations. diagnostics=\(finalDiagnostics)"
+        )
     }
 
     private func configuredApp(mode: String) -> XCUIApplication {
@@ -145,6 +122,7 @@ final class AutomationSocketUITests: XCTestCase {
         app.launchArguments += ["-\(modeKey)", mode]
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_MODE"] = mode
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
@@ -218,6 +196,13 @@ final class AutomationSocketUITests: XCTestCase {
             return nil
         }
         return socketPath
+    }
+
+    private func waitForAutomationSocketStress(timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            guard let diagnostics = self.loadDiagnostics() else { return false }
+            return diagnostics["automationSocketStressDone"] == "1"
+        }
     }
 
     private func currentWorkspaceId() -> String? {
