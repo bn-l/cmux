@@ -95,9 +95,8 @@ build_helper() {
   local target="${2:-}"
   local args=(
     zig build
-    cli-helper
     -Dapp-runtime=none
-    -Demit-macos-app=false
+    -Demit-macos-app=true
     -Demit-xcframework=false
     -Doptimize=ReleaseFast
     --prefix
@@ -114,6 +113,22 @@ build_helper() {
   )
 }
 
+helper_binary_path() {
+  local prefix="$1"
+  local bin_path="$prefix/bin/ghostty"
+  local app_path="$prefix/Ghostty.app/Contents/MacOS/ghostty"
+  if [[ -x "$bin_path" ]]; then
+    printf '%s\n' "$bin_path"
+    return 0
+  fi
+  if [[ -x "$app_path" ]]; then
+    printf '%s\n' "$app_path"
+    return 0
+  fi
+  echo "error: Ghostty helper binary missing under $prefix" >&2
+  return 1
+}
+
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-ghostty-helper.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -125,13 +140,20 @@ if [[ "$UNIVERSAL" == "true" ]]; then
   build_helper "$ARM64_PREFIX" "aarch64-macos"
   build_helper "$X86_PREFIX" "x86_64-macos"
   /usr/bin/lipo -create \
-    "$ARM64_PREFIX/bin/ghostty" \
-    "$X86_PREFIX/bin/ghostty" \
+    "$(helper_binary_path "$ARM64_PREFIX")" \
+    "$(helper_binary_path "$X86_PREFIX")" \
     -output "$OUTPUT_PATH"
 else
   SINGLE_PREFIX="$TMP_DIR/single"
   build_helper "$SINGLE_PREFIX" "$TARGET_TRIPLE"
-  install -m 755 "$SINGLE_PREFIX/bin/ghostty" "$OUTPUT_PATH"
+  install -m 755 "$(helper_binary_path "$SINGLE_PREFIX")" "$OUTPUT_PATH"
 fi
 
 chmod +x "$OUTPUT_PATH"
+
+# Ghostty's macOS helper binary is linked as if it lives in Contents/MacOS.
+# cmux stores it in Contents/Resources/bin, so rewrite the Frameworks rpath to
+# point back at Contents/Frameworks from that location.
+/usr/bin/install_name_tool \
+  -rpath "@executable_path/../Frameworks" "@executable_path/../../Frameworks" \
+  "$OUTPUT_PATH"

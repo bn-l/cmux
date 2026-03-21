@@ -417,12 +417,8 @@ else
 fi
 sleep 0.3
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
-GHOSTTY_HELPER_SRC="$PWD/ghostty/zig-out/bin/ghostty"
 if [[ -d "$PWD/cmuxd" ]]; then
   (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
-fi
-if [[ -d "$PWD/ghostty" ]]; then
-  (cd "$PWD/ghostty" && zig build cli-helper -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Doptimize=ReleaseFast)
 fi
 if [[ -x "$CMUXD_SRC" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
@@ -430,11 +426,24 @@ if [[ -x "$CMUXD_SRC" ]]; then
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
 fi
-if [[ -x "$GHOSTTY_HELPER_SRC" ]]; then
+if [[ -d "$PWD/ghostty" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   mkdir -p "$BIN_DIR"
-  cp "$GHOSTTY_HELPER_SRC" "$BIN_DIR/ghostty"
-  chmod +x "$BIN_DIR/ghostty"
+  case "$(/usr/bin/uname -m)" in
+    arm64)
+      GHOSTTY_HELPER_TARGET="aarch64-macos"
+      ;;
+    x86_64)
+      GHOSTTY_HELPER_TARGET="x86_64-macos"
+      ;;
+    *)
+      echo "error: unsupported host architecture for Ghostty helper: $(/usr/bin/uname -m)" >&2
+      exit 1
+      ;;
+  esac
+  "$PWD/scripts/build-ghostty-cli-helper.sh" \
+    --target "$GHOSTTY_HELPER_TARGET" \
+    --output "$BIN_DIR/ghostty"
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 if [[ -x "$CLI_PATH" ]]; then
