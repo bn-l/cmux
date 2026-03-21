@@ -325,23 +325,17 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_INPUT_SETUP"] = "1"
         launchAndEnsureForeground(app)
 
         XCTAssertTrue(
             waitForData(
                 keys: [
                     "browserPanelId",
-                    "webViewFocused",
-                    "webInputFocusSeeded",
-                    "webInputFocusElementId",
-                    "webInputFocusSecondaryElementId",
-                    "webInputFocusSecondaryClickOffsetX",
-                    "webInputFocusSecondaryClickOffsetY"
+                    "webViewFocused"
                 ],
                 timeout: 12.0
             ),
-            "Expected setup data including focused page input to be written"
+            "Expected basic browser setup data to be written"
         )
 
         guard let setup = loadData() else {
@@ -353,39 +347,24 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             XCTFail("Missing browserPanelId in setup data")
             return
         }
-        guard let primaryInputId = setup["webInputFocusElementId"], !primaryInputId.isEmpty else {
-            XCTFail("Missing webInputFocusElementId in setup data")
-            return
-        }
-        guard let secondaryInputId = setup["webInputFocusSecondaryElementId"], !secondaryInputId.isEmpty else {
-            XCTFail("Missing webInputFocusSecondaryElementId in setup data")
-            return
-        }
-        guard let secondaryClickOffsetXRaw = setup["webInputFocusSecondaryClickOffsetX"],
-              let secondaryClickOffsetYRaw = setup["webInputFocusSecondaryClickOffsetY"],
-              let secondaryClickOffsetX = Double(secondaryClickOffsetXRaw),
-              let secondaryClickOffsetY = Double(secondaryClickOffsetYRaw) else {
-            XCTFail(
-                "Missing or invalid secondary input click offsets in setup data. " +
-                "webInputFocusSecondaryClickOffsetX=\(setup["webInputFocusSecondaryClickOffsetX"] ?? "nil") " +
-                "webInputFocusSecondaryClickOffsetY=\(setup["webInputFocusSecondaryClickOffsetY"] ?? "nil")"
-            )
-            return
-        }
         guard let cliPath = resolveCmuxCLIPath() else {
             XCTFail("Expected bundled cmux CLI for browser arrow-key UI test")
             return
         }
+        let browserPane = app.otherElements["BrowserPanelContent.\(browserPanelId)"].firstMatch
+        XCTAssertTrue(browserPane.waitForExistence(timeout: 6.0), "Expected browser pane content before arrow-key regression check")
 
-        guard let initialReport = installBrowserArrowReport(
+        guard let harness = installBrowserArrowHarness(
             cliPath: cliPath,
-            surfaceId: browserPanelId,
-            primaryInputId: primaryInputId,
-            secondaryInputId: secondaryInputId
+            surfaceId: browserPanelId
         ) else {
-            XCTFail("Expected browser arrow report setup to succeed")
+            XCTFail("Expected browser arrow harness setup to succeed")
             return
         }
+
+        let primaryInputId = harness.primaryInputId
+        let secondaryInputId = harness.secondaryInputId
+        let initialReport = harness.report
 
         XCTAssertEqual(initialReport.active, primaryInputId, "Expected primary page input to stay focused before baseline arrows")
 
@@ -433,13 +412,9 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected Cmd+L to focus the omnibar before the page-click arrow-key check"
         )
 
-        let window = app.windows.firstMatch
-        XCTAssertTrue(window.waitForExistence(timeout: 6.0), "Expected app window for page-click arrow-key regression check")
-
         RunLoop.current.run(until: Date().addingTimeInterval(0.15))
-        window
-            .coordinate(withNormalizedOffset: CGVector(dx: 0.0, dy: 0.0))
-            .withOffset(CGVector(dx: secondaryClickOffsetX, dy: secondaryClickOffsetY))
+        browserPane
+            .coordinate(withNormalizedOffset: CGVector(dx: harness.secondaryCenterX, dy: harness.secondaryCenterY))
             .click()
 
         guard let clickedInputReport = waitForBrowserArrowReport(
@@ -1189,24 +1164,76 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         }
     }
 
-    private func installBrowserArrowReport(
+    private struct BrowserArrowHarness {
+        let report: BrowserArrowReport
+        let primaryInputId: String
+        let secondaryInputId: String
+        let secondaryCenterX: Double
+        let secondaryCenterY: Double
+    }
+
+    private func installBrowserArrowHarness(
         cliPath: String,
-        surfaceId: String,
-        primaryInputId: String,
-        secondaryInputId: String
-    ) -> BrowserArrowReport? {
-        let primaryLiteral = javaScriptLiteral(primaryInputId)
-        let secondaryLiteral = javaScriptLiteral(secondaryInputId)
+        surfaceId: String
+    ) -> BrowserArrowHarness? {
         let script = """
         (() => {
-          const primary = document.getElementById(\(primaryLiteral));
-          const secondary = document.getElementById(\(secondaryLiteral));
-          if (!primary || !secondary) {
-            return JSON.stringify({
-              error: "missing-input",
-              primaryExists: !!primary,
-              secondaryExists: !!secondary
-            });
+          const root = document.body || document.documentElement;
+          if (!root) {
+            return JSON.stringify({ error: "missing-root" });
+          }
+          const ensureInput = (id, value) => {
+            const existing = document.getElementById(id);
+            const input = (existing && existing.tagName && existing.tagName.toLowerCase() === "input")
+              ? existing
+              : (() => {
+                  const created = document.createElement("input");
+                  created.id = id;
+                  created.type = "text";
+                  created.value = value;
+                  return created;
+                })();
+            input.autocapitalize = "off";
+            input.autocomplete = "off";
+            input.spellcheck = false;
+            input.style.display = "block";
+            input.style.width = "100%";
+            input.style.margin = "0";
+            input.style.padding = "8px 10px";
+            input.style.border = "1px solid #5f6368";
+            input.style.borderRadius = "6px";
+            input.style.boxSizing = "border-box";
+            input.style.fontSize = "14px";
+            input.style.fontFamily = "system-ui, -apple-system, sans-serif";
+            input.style.background = "white";
+            input.style.color = "black";
+            return input;
+          };
+          let container = document.getElementById("cmux-ui-test-arrow-container");
+          if (!container || !container.tagName || container.tagName.toLowerCase() !== "div") {
+            container = document.createElement("div");
+            container.id = "cmux-ui-test-arrow-container";
+            root.appendChild(container);
+          }
+          container.style.position = "fixed";
+          container.style.left = "24px";
+          container.style.top = "24px";
+          container.style.width = "min(520px, calc(100vw - 48px))";
+          container.style.display = "grid";
+          container.style.rowGap = "12px";
+          container.style.padding = "12px";
+          container.style.background = "rgba(255,255,255,0.92)";
+          container.style.border = "1px solid rgba(95,99,104,0.55)";
+          container.style.borderRadius = "8px";
+          container.style.boxShadow = "0 2px 10px rgba(0,0,0,0.2)";
+          container.style.zIndex = "2147483647";
+          const primary = ensureInput("cmux-ui-test-arrow-input-primary", "cmux-ui-arrow-primary");
+          const secondary = ensureInput("cmux-ui-test-arrow-input-secondary", "cmux-ui-arrow-secondary");
+          if (primary.parentElement !== container) {
+            container.appendChild(primary);
+          }
+          if (secondary.parentElement !== container) {
+            container.appendChild(secondary);
           }
           if (!window.__cmuxArrowKeyReport) {
             window.__cmuxArrowKeyReport = { down: 0, up: 0 };
@@ -1236,11 +1263,62 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             const end = primary.value.length;
             primary.setSelectionRange(end, end);
           }
+          const secondaryRect = secondary.getBoundingClientRect();
+          const viewportWidth = Math.max(Number(window.innerWidth) || 0, 1);
+          const viewportHeight = Math.max(Number(window.innerHeight) || 0, 1);
+          const secondaryCenterX = Math.min(
+            0.98,
+            Math.max(0.02, (secondaryRect.left + (secondaryRect.width / 2)) / viewportWidth)
+          );
+          const secondaryCenterY = Math.min(
+            0.98,
+            Math.max(0.02, (secondaryRect.top + (secondaryRect.height / 2)) / viewportHeight)
+          );
+          const base = updateSelection();
           window.cmuxArrowReport = () => updateSelection();
-          return JSON.stringify(window.cmuxArrowReport());
+          return JSON.stringify({
+            down: base.down,
+            up: base.up,
+            active: base.active,
+            selectionStart: base.selectionStart,
+            selectionEnd: base.selectionEnd,
+            primaryId: primary.id || "",
+            secondaryId: secondary.id || "",
+            secondaryCenterX,
+            secondaryCenterY
+          });
         })();
         """
-        return browserArrowReport(cliPath: cliPath, surfaceId: surfaceId, script: script)
+        guard let raw = browserEval(cliPath: cliPath, surfaceId: surfaceId, script: script),
+              let data = raw.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let primaryInputId = (payload["primaryId"] as? String) ?? ""
+        let secondaryInputId = (payload["secondaryId"] as? String) ?? ""
+        let secondaryCenterX = (payload["secondaryCenterX"] as? NSNumber)?.doubleValue ?? -1
+        let secondaryCenterY = (payload["secondaryCenterY"] as? NSNumber)?.doubleValue ?? -1
+        guard !primaryInputId.isEmpty,
+              !secondaryInputId.isEmpty,
+              secondaryCenterX > 0,
+              secondaryCenterX < 1,
+              secondaryCenterY > 0,
+              secondaryCenterY < 1 else {
+            return nil
+        }
+        return BrowserArrowHarness(
+            report: BrowserArrowReport(
+                down: (payload["down"] as? NSNumber)?.intValue ?? 0,
+                up: (payload["up"] as? NSNumber)?.intValue ?? 0,
+                active: (payload["active"] as? String) ?? "",
+                selectionStart: (payload["selectionStart"] as? NSNumber)?.intValue,
+                selectionEnd: (payload["selectionEnd"] as? NSNumber)?.intValue
+            ),
+            primaryInputId: primaryInputId,
+            secondaryInputId: secondaryInputId,
+            secondaryCenterX: secondaryCenterX,
+            secondaryCenterY: secondaryCenterY
+        )
     }
 
     private func waitForBrowserArrowReport(
