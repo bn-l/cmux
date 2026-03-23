@@ -197,6 +197,83 @@ func compatPackageDir() string {
 	return filepath.Dir(file)
 }
 
+type unixDaemonServer struct {
+	SocketPath string
+	cmd        *exec.Cmd
+	stderr     *bytes.Buffer
+}
+
+func startUnixDaemon(t *testing.T, bin string) string {
+	t.Helper()
+
+	socketDir, err := os.MkdirTemp("", "cmuxd-unix-")
+	if err != nil {
+		t.Fatalf("mkdir temp socket dir: %v", err)
+	}
+	shortDir := filepath.Join(os.TempDir(), filepath.Base(socketDir))
+	if renameErr := os.Rename(socketDir, shortDir); renameErr == nil {
+		socketDir = shortDir
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(socketDir)
+	})
+
+	socketPath := filepath.Join(socketDir, "s.sock")
+	server := &unixDaemonServer{
+		SocketPath: socketPath,
+		stderr:     &bytes.Buffer{},
+	}
+	server.cmd = exec.Command(
+		bin,
+		"serve",
+		"--unix",
+		"--socket", server.SocketPath,
+	)
+	server.cmd.Dir = daemonRemoteRoot()
+	server.cmd.Stderr = server.stderr
+
+	if err := server.cmd.Start(); err != nil {
+		t.Fatalf("start unix daemon: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if server.cmd.Process != nil {
+			_ = server.cmd.Process.Kill()
+		}
+		_ = server.cmd.Wait()
+	})
+
+	waitForUnixSocket(t, server)
+	return server.SocketPath
+}
+
+type unixJSONRPCClient struct {
+	conn   net.Conn
+	reader *bufio.Reader
+}
+
+func newUnixJSONRPCClient(t *testing.T, socketPath string) *unixJSONRPCClient {
+	t.Helper()
+
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatalf("dial unix socket %s: %v", socketPath, err)
+	}
+	t.Cleanup(func() {
+		_ = conn.Close()
+	})
+
+	return &unixJSONRPCClient{
+		conn:   conn,
+		reader: bufio.NewReader(conn),
+	}
+}
+
+func (c *unixJSONRPCClient) Call(t *testing.T, payload map[string]any) map[string]any {
+	t.Helper()
+	return writeAndReadJSONWithReader(t, c.conn, c.reader, payload)
+}
+
 type tlsDaemonServer struct {
 	Addr         string
 	ServerID     string
@@ -297,6 +374,11 @@ func dialTLSServer(t *testing.T, server *tlsDaemonServer) *tls.Conn {
 
 func writeAndReadJSON(t *testing.T, conn net.Conn, payload map[string]any) map[string]any {
 	t.Helper()
+	return writeAndReadJSONWithReader(t, conn, bufio.NewReader(conn), payload)
+}
+
+func writeAndReadJSONWithReader(t *testing.T, conn net.Conn, reader *bufio.Reader, payload map[string]any) map[string]any {
+	t.Helper()
 
 	if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
 		t.Fatalf("set conn deadline: %v", err)
@@ -310,7 +392,6 @@ func writeAndReadJSON(t *testing.T, conn net.Conn, payload map[string]any) map[s
 		t.Fatalf("write payload %q: %v", string(encoded), err)
 	}
 
-	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		t.Fatalf("read response: %v", err)
@@ -321,6 +402,27 @@ func writeAndReadJSON(t *testing.T, conn net.Conn, payload map[string]any) map[s
 		t.Fatalf("decode response %q: %v", strings.TrimSpace(line), err)
 	}
 	return response
+}
+
+func waitForUnixSocket(t *testing.T, server *unixDaemonServer) {
+	t.Helper()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		info, err := os.Stat(server.SocketPath)
+		if err == nil && info.Mode()&os.ModeSocket != 0 {
+			conn, dialErr := net.DialTimeout("unix", server.SocketPath, 100*time.Millisecond)
+			if dialErr == nil {
+				_ = conn.Close()
+				return
+			}
+			err = dialErr
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("unix daemon did not start on %s: %v\nstderr:\n%s", server.SocketPath, err, server.stderr.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func waitForTLSServer(t *testing.T, server *tlsDaemonServer) {

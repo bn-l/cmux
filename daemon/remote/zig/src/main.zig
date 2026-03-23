@@ -2,6 +2,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 const cli_relay = @import("cli_relay.zig");
 const serve_tls = @import("serve_tls.zig");
+const serve_unix = @import("serve_unix.zig");
 const ticket_auth = @import("ticket_auth.zig");
 const serve_stdio = @import("serve_stdio.zig");
 const json_rpc = @import("json_rpc.zig");
@@ -58,12 +59,17 @@ fn run(args: []const []const u8) !u8 {
             try serve_stdio.serve();
             return 0;
         }
+        if (args.len >= 3 and std.mem.eql(u8, args[2], "--unix")) {
+            const cfg = try parseServeUnixArgs(args[3..]);
+            try serve_unix.serve(cfg);
+            return 0;
+        }
         if (args.len >= 3 and std.mem.eql(u8, args[2], "--tls")) {
             const cfg = try parseServeTLSArgs(args[3..]);
             try serve_tls.serve(cfg);
             return 0;
         }
-        try stderr.print("serve requires exactly one of --stdio or --tls\n", .{});
+        try stderr.print("serve requires exactly one of --stdio, --unix, or --tls\n", .{});
         try stderr.flush();
         return 2;
     }
@@ -76,9 +82,33 @@ fn usage(stderr: anytype) !void {
     try stderr.print("Usage:\n", .{});
     try stderr.print("  cmuxd-remote version\n", .{});
     try stderr.print("  cmuxd-remote serve --stdio\n", .{});
+    try stderr.print("  cmuxd-remote serve --unix --socket <path>\n", .{});
     try stderr.print("  cmuxd-remote serve --tls --listen <addr> --server-id <id> --ticket-secret <secret> --cert-file <path> --key-file <path>\n", .{});
     try stderr.print("  cmuxd-remote cli <command> [args...]\n", .{});
     try stderr.flush();
+}
+
+fn parseServeUnixArgs(args: []const []const u8) !serve_unix.Config {
+    var cfg = serve_unix.Config{
+        .socket_path = "",
+    };
+
+    var idx: usize = 0;
+    while (idx < args.len) : (idx += 1) {
+        const flag = args[idx];
+        if (idx + 1 >= args.len) return error.InvalidServeUnixArgs;
+        const value = args[idx + 1];
+
+        if (std.mem.eql(u8, flag, "--socket")) {
+            cfg.socket_path = value;
+        } else {
+            return error.InvalidServeUnixArgs;
+        }
+        idx += 1;
+    }
+
+    if (cfg.socket_path.len == 0) return error.InvalidServeUnixArgs;
+    return cfg;
 }
 
 fn parseServeTLSArgs(args: []const []const u8) !serve_tls.Config {
