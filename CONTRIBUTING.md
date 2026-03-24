@@ -99,4 +99,4 @@ See `docs/ghostty-fork.md` for details on fork changes and conflict notes.
 
 ## License
 
-By contributing to this repository, you agree that your contributions are licensed under the project's GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`).
+By contributing to this repository, you agree that your contributions are licensed under the project's GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`). Manaflow, Inc. retains the right to offer contributed code under a commercial license.
