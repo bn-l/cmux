@@ -268,6 +268,6 @@ cmux مجاني ومفتوح المصدر وسيظل كذلك دائمًا. إذ
 
 ## الرخصة
 
-cmux مفتوح المصدر بموجب [AGPL-3.0](LICENSE).
+cmux مفتوح المصدر بموجب [AGPL-3.0-or-later](LICENSE).
 
 إذا لم تستطع مؤسستك الامتثال لـ AGPL، فهناك ترخيص تجاري متاح. تواصل مع [founders@manaflow.com](mailto:founders@manaflow.com) للتفاصيل.
