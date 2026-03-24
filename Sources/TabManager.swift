@@ -855,7 +855,6 @@ class TabManager: ObservableObject {
         })
 
         startAgentPIDSweepTimer()
-
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
@@ -886,6 +885,11 @@ class TabManager: ObservableObject {
         }
         timer.resume()
         agentPIDSweepTimer = timer
+    }
+
+    func refreshTrackedWorkspaceGitMetadataForTesting() {
+        // Test seam used by the regression test. The real refresh behavior lands
+        // in the follow-up fix commit so this test demonstrates the failure first.
     }
 
     private func sweepStaleAgentPIDs() {
