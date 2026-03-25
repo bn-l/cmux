@@ -1397,14 +1397,9 @@ final class WindowTerminalPortal: NSObject {
 
         let oldFrame = hostedView.frame
 #if DEBUG
-        // Paper layout debug: log anchor frame and portal target
-        let anchorInWin = anchorView.convert(anchorView.bounds, to: nil)
-        dlog(
-            "portal.paper.sync hosted=\(portalDebugToken(hostedView)) " +
-            "anchor=\(Int(anchorInWin.origin.x)),\(Int(anchorInWin.origin.y)) \(Int(anchorInWin.width))x\(Int(anchorInWin.height)) " +
-            "target=\(Int(targetFrame.origin.x)),\(Int(targetFrame.origin.y)) \(Int(targetFrame.width))x\(Int(targetFrame.height)) " +
-            "hide=\(shouldHide ? 1 : 0) out=\(outsideHostBounds ? 1 : 0) vis=\(entry.visibleInUI ? 1 : 0)"
-        )
+        // Verbose portal sync logging (uncomment for debugging portal positioning)
+        // let anchorInWin = anchorView.convert(anchorView.bounds, to: nil)
+        // dlog("portal.paper.sync hosted=\(portalDebugToken(hostedView)) anchor=\(Int(anchorInWin.origin.x)),\(Int(anchorInWin.origin.y)) \(Int(anchorInWin.width))x\(Int(anchorInWin.height)) target=\(Int(targetFrame.origin.x)),\(Int(targetFrame.origin.y)) \(Int(targetFrame.width))x\(Int(targetFrame.height)) hide=\(shouldHide ? 1 : 0) out=\(outsideHostBounds ? 1 : 0) vis=\(entry.visibleInUI ? 1 : 0)")
         let frameWasClamped = hasFiniteFrame && !Self.rectApproximatelyEqual(frameInHost, targetFrame)
         if frameWasClamped {
             dlog(
