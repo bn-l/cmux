@@ -10,7 +10,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 CEF_BRIDGE_DIR="$PROJECT_DIR/vendor/cef-bridge"
 
 # CEF version pinned for this release
-CEF_VERSION="146.0.6+g68649e2+chromium-146.0.7680.154"
+CEF_VERSION="138.0.60+gd8bc8bd+chromium-138.0.7204.307"
 CEF_PLATFORM="macosarm64"
 CEF_DIST_NAME="cef_binary_${CEF_VERSION}_${CEF_PLATFORM}_minimal"
 CEF_CACHE_DIR="${CMUX_CEF_CACHE_DIR:-$HOME/.cache/cmux/cef}"
@@ -120,7 +120,7 @@ build_stub_framework() {
     printf 'void cmux_cef_framework_stub(void) {}\n' | \
         clang -dynamiclib "${arch_flags[@]}" -mmacosx-version-min=13.0 \
             -install_name "@rpath/Chromium Embedded Framework.framework/Chromium Embedded Framework" \
-            -compatibility_version 1460.0.6 -current_version 1460.0.6 \
+            -compatibility_version 1380.0.60 -current_version 1380.0.60 \
             -x c - -o "$framework_bin"
     ln -sfn "A" "$framework_current_dir"
     ln -sfn "Versions/Current/Chromium Embedded Framework" "$framework_dir/Chromium Embedded Framework"

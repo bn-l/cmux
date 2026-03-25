@@ -1,4 +1,5 @@
 import Foundation
+import Bonsplit
 
 /// Manages the CEF runtime lifecycle: initialization, message loop
 /// pumping, and shutdown.
@@ -62,7 +63,13 @@ final class CEFRuntime {
             withIntermediateDirectories: true
         )
 
+#if DEBUG
+        dlog("cef.init frameworkDir=\(frameworkDir) helperPath=\(helperPath) cacheRoot=\(cacheRoot)")
+#endif
         let result = cef_bridge_initialize(frameworkDir, helperPath, cacheRoot)
+#if DEBUG
+        dlog("cef.init result=\(result)")
+#endif
         if result == CEF_BRIDGE_OK {
             isInitialized = true
             initError = nil

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Bonsplit
 
 /// An NSView that hosts a CEF (Chromium) browser instance.
 ///
@@ -70,9 +71,26 @@ final class CEFBrowserView: NSView {
     }
 
     /// Actually create the CEF browser. Called when the view is ready.
+    /// Delays the actual CEF call by 1 second to allow CEF's internal
+    /// initialization (profile, GPU, network services) to complete.
     private func createBrowserNow() {
         guard let url = pendingURL, !browserCreationAttempted else { return }
         browserCreationAttempted = true
+
+#if DEBUG
+        dlog("cef.createBrowserNow url=\(url) bounds=\(bounds) window=\(window != nil) superview=\(superview != nil)")
+#endif
+
+        // Delay browser creation to allow CEF's internal systems to initialize.
+        // CefInitialize starts async work (profile, GPU, network) that must
+        // complete before CreateBrowser will succeed.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.createBrowserImmediate()
+        }
+    }
+
+    private func createBrowserImmediate() {
+        guard let url = pendingURL else { return }
 
         // Create profile if cache path provided
         if let cachePath = pendingCachePath {
@@ -145,33 +163,58 @@ final class CEFBrowserView: NSView {
             cef_bridge_browser_create(profileHandle, url, parentPtr, w, h, ptr)
         }
 
+#if DEBUG
+        dlog("cef.createBrowserNow browserHandle=\(browserHandle != nil ? "created" : "NULL") subviews=\(subviews.count)")
+#endif
+
         guard browserHandle != nil else {
             delegate?.cefBrowserView(self, didFailWithError: "Failed to create CEF browser")
             return
         }
 
-        // CEF creates a child NSView inside us (since we passed parent_view).
-        // Find and track it. Give CEF a moment to set up the view hierarchy.
-        DispatchQueue.main.async { [weak self] in
-            self?.findAndTrackCEFChildView()
-        }
+        // CEF creates the browser asynchronously. The child NSView will
+        // appear when OnAfterCreated fires. Poll for it.
+        pollForCEFChildView()
 
         pendingURL = nil
         pendingCachePath = nil
     }
 
-    private func findAndTrackCEFChildView() {
+    private var childViewPollCount = 0
+
+    private func pollForCEFChildView() {
+        childViewPollCount += 1
+        if findAndTrackCEFChildView() {
+#if DEBUG
+            dlog("cef.childFound after \(childViewPollCount) polls subviews=\(subviews.count)")
+#endif
+            return
+        }
+        // Retry up to 100 times (about 5 seconds at 20Hz)
+        if childViewPollCount < 100 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.pollForCEFChildView()
+            }
+        } else {
+#if DEBUG
+            dlog("cef.childNotFound gave up after \(childViewPollCount) polls")
+#endif
+        }
+    }
+
+    @discardableResult
+    private func findAndTrackCEFChildView() -> Bool {
         // CEF adds its own child view to our view
         if let child = subviews.first(where: { $0 !== cefChildView }) {
             child.frame = bounds
             child.autoresizingMask = [.width, .height]
             cefChildView = child
-            return
+            return true
         }
 
-        // Fallback: get the view handle from CEF
+        // Fallback: get the view handle from CEF (may be nil if async creation pending)
         guard let handle = browserHandle,
-              let nsviewPtr = cef_bridge_browser_get_nsview(handle) else { return }
+              let nsviewPtr = cef_bridge_browser_get_nsview(handle) else { return false }
         let childView = Unmanaged<NSView>.fromOpaque(nsviewPtr).takeUnretainedValue()
         if childView !== self {
             if childView.superview !== self {
@@ -180,7 +223,9 @@ final class CEFBrowserView: NSView {
                 addSubview(childView)
             }
             cefChildView = childView
+            return true
         }
+        return false
     }
 
     func destroyBrowser() {

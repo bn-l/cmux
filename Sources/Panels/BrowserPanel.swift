@@ -2617,25 +2617,11 @@ final class BrowserPanel: Panel, ObservableObject {
             }
 
             if CEFRuntime.shared.isInitialized {
-                let cachePath: String = {
-                    let appSupport = FileManager.default.urls(
-                        for: .applicationSupportDirectory,
-                        in: .userDomainMask
-                    ).first!
-                    let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
-                    return appSupport
-                        .appendingPathComponent(bundleID)
-                        .appendingPathComponent("browser_profiles")
-                        .appendingPathComponent(resolvedProfileID.uuidString)
-                        .appendingPathComponent("cef_cache")
-                        .path
-                }()
-                try? FileManager.default.createDirectory(
-                    atPath: cachePath,
-                    withIntermediateDirectories: true
-                )
-                let url = initialURL?.absoluteString ?? "about:blank"
-                cefView.createBrowser(initialURL: url, cachePath: cachePath)
+                // Use the default request context (no per-profile isolation yet).
+                // Per-profile CEF cache paths require Chrome-style profile
+                // management which we'll add in a later phase.
+                let url = initialURL?.absoluteString ?? "https://www.google.com"
+                cefView.createBrowser(initialURL: url, cachePath: nil)
             }
         } else {
             self.cefBrowserView = nil

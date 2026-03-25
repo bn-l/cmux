@@ -153,6 +153,9 @@ public:
 
     void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
         cef_browser_ = browser;
+        fprintf(stderr, "[CEF bridge] OnAfterCreated windowHandle=%p\n",
+                browser->GetHost()->GetWindowHandle());
+        fflush(stderr);
     }
 
     void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
@@ -197,6 +200,18 @@ class BridgeApp : public CefApp,
 public:
     CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override {
         return this;
+    }
+
+    void OnBeforeCommandLineProcessing(
+        const CefString& process_type,
+        CefRefPtr<CefCommandLine> command_line) override {
+        command_line->AppendSwitch("use-mock-keychain");
+        // Disable GPU process to avoid subprocess launch failures.
+        // The GPU process can't find the CEF framework from its sandboxed context.
+        command_line->AppendSwitch("disable-gpu");
+        command_line->AppendSwitch("disable-gpu-compositing");
+        // Run subprocesses in-process to avoid launch failures
+        command_line->AppendSwitch("single-process");
     }
 
 private:
@@ -262,8 +277,11 @@ int cef_bridge_initialize(
     std::string fwk_path = std::string(framework_path) +
         "/Chromium Embedded Framework.framework/Chromium Embedded Framework";
 
-    CefScopedLibraryLoader library_loader;
+    // Library loader must stay alive for the lifetime of CEF.
+    static CefScopedLibraryLoader library_loader;
     if (!library_loader.LoadInMain()) {
+        fprintf(stderr, "[CEF bridge] LoadInMain failed\n");
+        fflush(stderr);
         return CEF_BRIDGE_ERR_FAILED;
     }
 
@@ -282,20 +300,32 @@ int cef_bridge_initialize(
         std::string(framework_path) + "/Chromium Embedded Framework.framework";
     CefString(&settings.browser_subprocess_path) = helper_path;
     CefString(&settings.cache_path) = cache_root;
+    settings.log_severity = LOGSEVERITY_VERBOSE;
+    CefString(&settings.log_file) = std::string(cache_root) + "/cef_verbose.log";
 
     CefRefPtr<BridgeApp> app(new BridgeApp());
 
-    // Add command-line switch to use mock keychain for cookie encryption.
-    // This prevents the "wants to use your confidential information"
-    // keychain prompt on launch.
-    CefRefPtr<CefCommandLine> command_line = CefCommandLine::CreateCommandLine();
-    command_line->AppendSwitch("use-mock-keychain");
+    fprintf(stderr, "[CEF bridge] Calling CefInitialize...\n");
+    fflush(stderr);
 
     if (!CefInitialize(main_args, settings, app.get(), nullptr)) {
+        fprintf(stderr, "[CEF bridge] CefInitialize FAILED\n");
+        fflush(stderr);
         return CEF_BRIDGE_ERR_FAILED;
     }
 
+    fprintf(stderr, "[CEF bridge] CefInitialize OK\n");
+    fflush(stderr);
+
     g_initialized = true;
+
+    // Pump the message loop a few times to let CEF complete internal
+    // initialization (GPU process launch, network service, etc.)
+    // before the first CreateBrowser call.
+    for (int i = 0; i < 10; i++) {
+        CefDoMessageLoopWork();
+    }
+
     return CEF_BRIDGE_OK;
 }
 
@@ -364,13 +394,14 @@ cef_bridge_browser_t cef_bridge_browser_create(
     bb->client->SetOwner(bb);
 
     CefWindowInfo window_info;
-    window_info.size = sizeof(CefWindowInfo);
-    if (parent_view) {
-        window_info.parent_view = parent_view;
-        window_info.bounds = {0, 0, width, height};
-    }
+    // Do NOT set parent_view initially. CEF will create its own window.
+    // We'll reparent the view after creation.
+    // Setting parent_view with Chrome runtime causes CreateBrowser to fail.
 
     CefBrowserSettings browser_settings;
+    // Don't override size - the CefStructBase constructor sets it correctly
+    // from cef_browser_settings_t, not from CefBrowserSettings (which may
+    // be larger due to C++ padding).
 
     CefRefPtr<CefRequestContext> request_context;
     if (profile) {
@@ -379,13 +410,37 @@ cef_bridge_browser_t cef_bridge_browser_create(
 
     std::string url = initial_url ? initial_url : "about:blank";
 
-    CefRefPtr<CefBrowser> browser = CefBrowserHost::CreateBrowserSync(
+    fprintf(stderr, "[CEF bridge] Calling CreateBrowser size=%dx%d url=%s\n",
+            width, height, url.c_str());
+    fprintf(stderr, "[CEF bridge] CefCurrentlyOn(TID_UI)=%d\n",
+            CefCurrentlyOn(TID_UI));
+    fprintf(stderr, "[CEF bridge] windowInfo.size=%zu expected=%zu\n",
+            window_info.size, sizeof(cef_window_info_t));
+    fprintf(stderr, "[CEF bridge] browserSettings.size=%zu expected=%zu\n",
+            browser_settings.size, sizeof(cef_browser_settings_t));
+    fprintf(stderr, "[CEF bridge] client=%p\n", bb->client.get());
+    fflush(stderr);
+
+    // Try creating the browser. Both async and sync are tried.
+    bool ok = CefBrowserHost::CreateBrowser(
         window_info, bb->client, url, browser_settings, nullptr,
         request_context);
 
-    if (!browser) {
-        delete bb;
-        return nullptr;
+    fprintf(stderr, "[CEF bridge] CreateBrowser returned %d\n", ok);
+    fflush(stderr);
+
+    if (!ok) {
+        // Sync fallback
+        CefRefPtr<CefBrowser> browser = CefBrowserHost::CreateBrowserSync(
+            window_info, bb->client, url, browser_settings, nullptr,
+            request_context);
+        fprintf(stderr, "[CEF bridge] CreateBrowserSync returned %p\n",
+                browser.get());
+        fflush(stderr);
+        if (!browser) {
+            delete bb;
+            return nullptr;
+        }
     }
 
     return bb;
@@ -407,7 +462,10 @@ void* cef_bridge_browser_get_nsview(cef_bridge_browser_t browser) {
     if (!browser) return nullptr;
     auto* bb = static_cast<BridgeBrowser*>(browser);
     CefRefPtr<CefBrowser> b = bb->client->GetBrowser();
-    if (!b) return nullptr;
+    if (!b) {
+        // Browser not yet created (async creation pending).
+        return nullptr;
+    }
     return b->GetHost()->GetWindowHandle();
 }
 
