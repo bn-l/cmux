@@ -1563,40 +1563,23 @@ class GhosttyApp {
               !bundleId.isEmpty,
               let appSupportDirectory else { return paths }
 
-        let currentDir = appSupportDirectory.appendingPathComponent(bundleId, isDirectory: true)
-        let currentLegacyConfig = currentDir.appendingPathComponent("config", isDirectory: false)
-        let currentConfig = currentDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        paths.append(currentLegacyConfig.path)
-        paths.append(currentConfig.path)
+        let appSupportConfigURLs = cmuxAppSupportConfigURLs(
+            currentBundleIdentifier: bundleId,
+            appSupportDirectory: appSupportDirectory
+        )
+        paths.append(contentsOf: appSupportConfigURLs.map(\.path))
 
         let releaseDir = appSupportDirectory.appendingPathComponent(releaseBundleIdentifier, isDirectory: true)
         let releaseLegacyConfig = releaseDir.appendingPathComponent("config", isDirectory: false)
         let releaseConfig = releaseDir.appendingPathComponent("config.ghostty", isDirectory: false)
 
-        let currentConfigSize = configFileSize(at: currentConfig)
-        let currentLegacyConfigSize = configFileSize(at: currentLegacyConfig)
         let releaseConfigSize = configFileSize(at: releaseConfig)
         let releaseLegacyConfigSize = configFileSize(at: releaseLegacyConfig)
-
-        if shouldLoadReleaseAppSupportGhosttyConfig(
-            currentBundleIdentifier: bundleId,
-            currentConfigFileSize: currentConfigSize,
-            currentLegacyConfigFileSize: currentLegacyConfigSize,
-            releaseConfigFileSize: releaseConfigSize,
-            releaseLegacyConfigFileSize: releaseLegacyConfigSize
-        ) {
-            if let releaseLegacyConfigSize, releaseLegacyConfigSize > 0 {
-                paths.append(releaseLegacyConfig.path)
-            }
-            if let releaseConfigSize, releaseConfigSize > 0 {
-                paths.append(releaseConfig.path)
-            }
-        }
 
         if shouldLoadLegacyGhosttyConfig(
             newConfigFileSize: releaseConfigSize,
             legacyConfigFileSize: releaseLegacyConfigSize
-        ) {
+        ), !paths.contains(releaseLegacyConfig.path) {
             paths.append(releaseLegacyConfig.path)
         }
 
