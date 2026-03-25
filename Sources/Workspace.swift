@@ -259,25 +259,6 @@ extension TabID {
     }
 }
 
-extension BonsplitController {
-    struct ExternalTabDropRequest {
-        enum Destination {
-            case insert(targetPane: PaneID, targetIndex: Int?)
-            case split(targetPane: PaneID, orientation: SplitOrientation, insertFirst: Bool)
-        }
-
-        let tabId: TabID
-        let sourcePaneId: PaneID
-        let destination: Destination
-
-        init(tabId: TabID, sourcePaneId: PaneID, destination: Destination) {
-            self.tabId = tabId
-            self.sourcePaneId = sourcePaneId
-            self.destination = destination
-        }
-    }
-}
-
 @MainActor
 private enum BonsplitCompatibilityStateStore {
     struct State {
