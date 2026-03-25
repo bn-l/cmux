@@ -26,6 +26,18 @@ func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
         return nil
     }
 
+    // Best-effort check: reject pointers that are not the start of a live
+    // malloc allocation. ghostty_surface_quicklook_font returns an unretained
+    // pointer whose lifetime is managed by Ghostty; on Intel Macs the pointer
+    // can become stale after the internal font is freed (#1496, #1870).
+    // malloc_size is safe to call with any address (returns 0 for non-malloc
+    // pointers without dereferencing them). This does not guarantee the memory
+    // still contains a valid CTFont, but it catches the common case of
+    // fully-freed or unmapped allocations that would otherwise SIGSEGV.
+    guard malloc_size(quicklookFont) > 0 else {
+        return nil
+    }
+
     let ctFont = Unmanaged<CTFont>.fromOpaque(quicklookFont).takeUnretainedValue()
     let points = Float(CTFontGetSize(ctFont))
     guard points > 0 else { return nil }
@@ -5490,6 +5502,10 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var panelCustomTitles: [UUID: String] = [:]
     @Published private(set) var pinnedPanelIds: Set<UUID> = []
     @Published private(set) var manualUnreadPanelIds: Set<UUID> = []
+    @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
+    @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
+    @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
+    @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
     private var manualUnreadMarkedAt: [UUID: Date] = [:]
     nonisolated private static let manualUnreadFocusGraceInterval: TimeInterval = 0.2
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
@@ -5726,6 +5742,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: initialTerminalCommand,
             initialEnvironmentOverrides: initialTerminalEnvironment
         )
+        configureTerminalPanel(terminalPanel)
         panels[terminalPanel.id] = terminalPanel
         panelTitles[terminalPanel.id] = terminalPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: terminalPanel.id, configTemplate: configTemplate)
@@ -5776,6 +5793,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
             bonsplitController.selectTab(initialTabId)
         }
+        tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
     }
 
     deinit {
@@ -5895,6 +5913,19 @@ final class Workspace: Identifiable, ObservableObject {
 
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
         surfaceIdToPanelId.first { $0.value == panelId }?.key
+    }
+
+    private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
+        terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
+            guard let self, let terminalPanel else { return }
+            self.triggerWorkspacePaneFlash(panelId: terminalPanel.id, reason: reason)
+        }
+    }
+
+    private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
+        tmuxWorkspaceFlashPanelId = panelId
+        tmuxWorkspaceFlashReason = reason
+        tmuxWorkspaceFlashToken &+= 1
     }
 
 
@@ -6058,7 +6089,31 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func hasUnreadNotification(panelId: UUID) -> Bool {
-        AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: panelId) ?? false
+        AppDelegate.shared?.notificationStore?.hasVisibleNotificationIndicator(forTabId: id, surfaceId: panelId) ?? false
+    }
+
+    private func attentionPersistentState() -> WorkspaceAttentionPersistentState {
+        let notificationStore = AppDelegate.shared?.notificationStore
+        let unreadPanelIDs = Set(
+            panels.keys.filter {
+                notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: $0) ?? false
+            }
+        )
+        return WorkspaceAttentionPersistentState(
+            unreadPanelIDs: unreadPanelIDs,
+            focusedReadPanelID: notificationStore?.focusedReadIndicatorSurfaceId(forTabId: id),
+            manualUnreadPanelIDs: manualUnreadPanelIds
+        )
+    }
+
+    private func requestAttentionFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
+        let decision = WorkspaceAttentionCoordinator.decideFlash(
+            targetPanelID: panelId,
+            reason: reason,
+            persistentState: attentionPersistentState()
+        )
+        guard decision.isAllowed else { return }
+        panels[panelId]?.triggerFlash(reason: reason)
     }
 
     private func syncUnreadBadgeStateForPanel(_ panelId: UUID) {
@@ -7086,7 +7141,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
         lastTerminalConfigInheritancePanelId = terminalPanel.id
-        if let sourceSurface = terminalPanel.surface.surface,
+        if terminalPanel.surface.hasLiveSurface,
+           let sourceSurface = terminalPanel.surface.surface,
            let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface) {
             let existing = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
             if existing == nil || abs((existing ?? runtimePoints) - runtimePoints) > 0.05 {
@@ -7184,7 +7240,8 @@ final class Workspace: Identifiable, ObservableObject {
             preferredPanelId: preferredPanelId,
             inPane: preferredPaneId
         ) {
-            guard let sourceSurface = terminalPanel.surface.surface else { continue }
+            guard terminalPanel.surface.hasLiveSurface,
+                  let sourceSurface = terminalPanel.surface.surface else { continue }
             var config = cmuxInheritedSurfaceConfig(
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT
@@ -7273,6 +7330,7 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal,
             initialCommand: remoteTerminalStartupCommand
         )
+        configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         if remoteTerminalStartupCommand != nil {
@@ -7362,6 +7420,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: remoteTerminalStartupCommand,
             additionalEnvironment: startupEnvironment
         )
+        configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         if remoteTerminalStartupCommand != nil {
@@ -8480,8 +8539,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func moveFocus(direction: NavigationDirection) {
+        let previousFocusedPanelId = focusedPanelId
+
         // Unfocus the currently-focused panel before navigating.
-        if let prevPanelId = focusedPanelId, let prev = panels[prevPanelId] {
+        if let prevPanelId = previousFocusedPanelId, let prev = panels[prevPanelId] {
             prev.unfocus()
         }
 
@@ -8493,6 +8554,7 @@ final class Workspace: Identifiable, ObservableObject {
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
+
     }
 
     // MARK: - Surface Navigation
@@ -8599,7 +8661,7 @@ final class Workspace: Identifiable, ObservableObject {
     // MARK: - Flash/Notification Support
 
     func triggerFocusFlash(panelId: UUID) {
-        panels[panelId]?.triggerFlash()
+        requestAttentionFlash(panelId: panelId, reason: .navigation)
     }
 
     func triggerNotificationFocusFlash(
@@ -8607,7 +8669,7 @@ final class Workspace: Identifiable, ObservableObject {
         requiresSplit: Bool = false,
         shouldFocus: Bool = true
     ) {
-        guard let terminalPanel = terminalPanel(for: panelId) else { return }
+        guard terminalPanel(for: panelId) != nil else { return }
         if shouldFocus {
             focusPanel(panelId)
         }
@@ -8615,11 +8677,18 @@ final class Workspace: Identifiable, ObservableObject {
         if requiresSplit && !isSplit {
             return
         }
-        terminalPanel.triggerFlash()
+        requestAttentionFlash(panelId: panelId, reason: .notificationArrival)
+    }
+
+    func triggerNotificationDismissFlash(panelId: UUID) {
+        guard terminalPanel(for: panelId) != nil else { return }
+        requestAttentionFlash(panelId: panelId, reason: .notificationDismiss)
     }
 
     func triggerDebugFlash(panelId: UUID) {
-        triggerNotificationFocusFlash(panelId: panelId, requiresSplit: false, shouldFocus: true)
+        guard panels[panelId] != nil else { return }
+        focusPanel(panelId)
+        requestAttentionFlash(panelId: panelId, reason: .debug)
     }
 
     // MARK: - Portal Lifecycle
@@ -8657,6 +8726,7 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             portOrdinal: portOrdinal
         )
+        configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -9521,8 +9591,28 @@ extension Workspace: BonsplitDelegate {
     @MainActor
     private func confirmClosePanel(for tabId: TabID) async -> Bool {
         let alert = NSAlert()
+
         alert.messageText = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
-        alert.informativeText = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
+
+        let panelName: String? = {
+            guard let panelId = panelIdFromSurfaceId(tabId) else { return nil }
+            if let custom = panelCustomTitles[panelId], !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return custom
+            }
+            if let title = panelTitles[panelId], !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return title
+            }
+            if let dir = panelDirectories[panelId], !dir.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return (dir as NSString).lastPathComponent
+            }
+            return nil
+        }()
+
+        if let panelName {
+            alert.informativeText = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
+        } else {
+            alert.informativeText = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
+        }
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
@@ -10343,6 +10433,7 @@ extension Workspace: BonsplitDelegate {
                         configTemplate: inheritedConfig,
                         portOrdinal: portOrdinal
                     )
+                    configureTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
                     panelTitles[replacementPanel.id] = replacementPanel.displayTitle
                     seedTerminalInheritanceFontPoints(panelId: replacementPanel.id, configTemplate: inheritedConfig)
@@ -10409,6 +10500,7 @@ extension Workspace: BonsplitDelegate {
             configTemplate: inheritedConfig,
             portOrdinal: portOrdinal
         )
+        configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -10506,7 +10598,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
-        _ = snapshot
+        tmuxLayoutSnapshot = snapshot
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
