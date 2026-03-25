@@ -117,12 +117,12 @@ struct PaperTabBarView: View {
             Button {
                 controller.requestNewTab(kind: "terminal", inPane: pane.id)
             } label: {
-                Image(systemName: "terminal")
-                    .font(.system(size: 12))
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .medium))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("New Terminal")
+            .help(String(localized: "tabBar.newTab", defaultValue: "New Tab"))
         }
         .padding(.trailing, 8)
     }
