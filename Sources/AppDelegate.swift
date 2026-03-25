@@ -1798,6 +1798,14 @@ func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {
     return true
 }
 
+func shouldReserveHorizontalCommandArrowForFocusedTerminal(
+    event: NSEvent,
+    shortcut: StoredShortcut,
+    terminalIsFocused: Bool
+) -> Bool {
+    false
+}
+
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
     guard let responder else { return nil }
     if let ghosttyView = responder as? GhosttyNSView {

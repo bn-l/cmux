@@ -2328,6 +2328,66 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedDelta, 1)
     }
 
+    func testBareCommandLeftArrowIsReservedForFocusedTerminal() {
+        guard let event = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [.command],
+            keyCode: 123,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Cmd+Left event")
+            return
+        }
+
+        XCTAssertTrue(
+            shouldReserveHorizontalCommandArrowForFocusedTerminal(
+                event: event,
+                shortcut: StoredShortcut(key: "←", command: true, shift: false, option: false, control: false),
+                terminalIsFocused: true
+            )
+        )
+    }
+
+    func testBareCommandRightArrowIsReservedForFocusedTerminal() {
+        guard let event = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSRightArrowFunctionKey)!),
+            modifiers: [.command],
+            keyCode: 124,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Cmd+Right event")
+            return
+        }
+
+        XCTAssertTrue(
+            shouldReserveHorizontalCommandArrowForFocusedTerminal(
+                event: event,
+                shortcut: StoredShortcut(key: "→", command: true, shift: false, option: false, control: false),
+                terminalIsFocused: true
+            )
+        )
+    }
+
+    func testOptionModifiedHorizontalCommandArrowIsNotReservedForFocusedTerminal() {
+        guard let event = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [.command, .option],
+            keyCode: 123,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Cmd+Option+Left event")
+            return
+        }
+
+        XCTAssertFalse(
+            shouldReserveHorizontalCommandArrowForFocusedTerminal(
+                event: event,
+                shortcut: StoredShortcut(key: "←", command: true, shift: false, option: true, control: false),
+                terminalIsFocused: true
+            )
+        )
+    }
+
     func testEscapeDismissesCommandPaletteWhenVisibilityStateStaysStalePastInitialPendingWindow() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
