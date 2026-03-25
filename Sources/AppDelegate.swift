@@ -4627,10 +4627,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isCommandPaletteFocusStealingTerminalOrBrowserResponder(responder)
     }
 
-    private func isTerminalOrBrowserView(_ view: NSView) -> Bool {
-        isCommandPaletteFocusStealingTerminalOrBrowserView(view)
-    }
-
     private func isInsideCommandPaletteOverlay(_ view: NSView) -> Bool {
         var current: NSView? = view
         while let candidate = current {
