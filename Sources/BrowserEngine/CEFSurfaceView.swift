@@ -27,7 +27,6 @@ final class CEFSurfaceView: NSView {
         displayLayer.contentsGravity = .resizeAspectFill
         displayLayer.magnificationFilter = .nearest
         displayLayer.isOpaque = true
-        displayLayer.backgroundColor = NSColor.red.cgColor // DEBUG: red = layer visible but no content
         // Disable implicit animations on the display layer
         displayLayer.actions = [
             "contents": NSNull(),

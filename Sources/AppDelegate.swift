@@ -2736,6 +2736,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
+        autoOpenChromiumIfRequested()
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
@@ -10043,6 +10044,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = focusBrowserAddressBar(panelId: panelId)
 #endif
         return panelId
+    }
+
+    /// Check for CMUX_AUTO_CHROMIUM_URL env var and auto-open a Chromium tab.
+    /// Used for headless/SSH testing.
+    func autoOpenChromiumIfRequested() {
+        let urlStr = ProcessInfo.processInfo.environment["CMUX_AUTO_CHROMIUM_URL"]
+#if DEBUG
+        dlog("cef.autoOpen urlStr=\(urlStr ?? "nil")")
+#endif
+        guard let urlStr, let url = URL(string: urlStr) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+#if DEBUG
+            dlog("cef.autoOpen.fire tabManager=\(self?.tabManager != nil)")
+#endif
+            _ = self?.openChromiumBrowserAndFocusAddressBar(url: url)
+        }
     }
 
     @discardableResult
