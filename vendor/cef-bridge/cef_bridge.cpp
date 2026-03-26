@@ -393,12 +393,11 @@ cef_bridge_browser_t cef_bridge_browser_create(
     bb->client->SetOwner(bb);
 
     CefWindowInfo window_info;
-    if (parent_view) {
-        window_info.parent_view = parent_view;
-        window_info.bounds = {0, 0, width, height};
-        // Alloy runtime required when parent_view is set on macOS.
-        window_info.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
-    }
+    // Use Chrome runtime (default) for full Chrome UI (address bar, context
+    // menus, extensions toolbar). The browser opens in its own window which
+    // Swift code positions as a child window over the panel area.
+    window_info.bounds = {0, 0, width, height};
+    window_info.hidden = true;
 
     CefBrowserSettings browser_settings;
     // Don't override size - the CefStructBase constructor sets it correctly
@@ -465,7 +464,18 @@ void* cef_bridge_browser_get_nsview(cef_bridge_browser_t browser) {
     auto* bb = static_cast<BridgeBrowser*>(browser);
     CefRefPtr<CefBrowser> b = bb->client->GetBrowser();
     if (!b) return nullptr;
-    return b->GetHost()->GetWindowHandle();
+
+    void* view = b->GetHost()->GetWindowHandle();
+    if (!view) return nullptr;
+
+    // For Chrome runtime, the view is inside CEF's own NSWindow.
+    // Return the NSWindow so Swift can add it as a child window.
+#ifdef __APPLE__
+    id nsview = (id)view;
+    id window = ((id(*)(id, SEL))objc_msgSend)(nsview, sel_getUid("window"));
+    if (window) return (void*)window;
+#endif
+    return view;
 }
 
 // -------------------------------------------------------------------

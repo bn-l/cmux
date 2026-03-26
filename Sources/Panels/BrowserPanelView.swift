@@ -445,8 +445,10 @@ struct BrowserPanelView: View {
         // Layering contract: browser Cmd+F UI is mounted in the portal-hosted AppKit
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
-            addressBar
-                .fixedSize(horizontal: false, vertical: true)
+            if panel.engineType != .chromium {
+                addressBar
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             webView
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
