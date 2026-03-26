@@ -42,6 +42,9 @@ enum KeyboardShortcutSettings {
         case splitBrowserRight
         case splitBrowserDown
 
+        // File Explorer
+        case toggleFileExplorer
+
         // Panels
         case openBrowser
         case toggleBrowserDeveloperTools
@@ -80,6 +83,7 @@ enum KeyboardShortcutSettings {
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
+            case .toggleFileExplorer: return String(localized: "shortcut.toggleFileExplorer.label", defaultValue: "Toggle File Explorer")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
@@ -117,6 +121,7 @@ enum KeyboardShortcutSettings {
             case .selectSurfaceByNumber: return "shortcut.selectSurfaceByNumber"
             case .newSurface: return "shortcut.newSurface"
             case .toggleTerminalCopyMode: return "shortcut.toggleTerminalCopyMode"
+            case .toggleFileExplorer: return "shortcut.toggleFileExplorer"
             case .openBrowser: return "shortcut.openBrowser"
             case .toggleBrowserDeveloperTools: return "shortcut.toggleBrowserDeveloperTools"
             case .showBrowserJavaScriptConsole: return "shortcut.showBrowserJavaScriptConsole"
@@ -183,6 +188,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+            case .toggleFileExplorer:
+                return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .toggleBrowserDeveloperTools:

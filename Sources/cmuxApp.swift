@@ -139,6 +139,7 @@ struct cmuxApp: App {
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var sidebarSelectionState = SidebarSelectionState()
+    @StateObject private var fileExplorerState = FileExplorerState()
     @StateObject private var cmuxConfigStore = CmuxConfigStore()
     private let primaryWindowId = UUID()
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -338,6 +339,7 @@ struct cmuxApp: App {
                 .environmentObject(notificationStore)
                 .environmentObject(sidebarState)
                 .environmentObject(sidebarSelectionState)
+                .environmentObject(fileExplorerState)
                 .environmentObject(cmuxConfigStore)
                 .onAppear {
 #if DEBUG
@@ -348,6 +350,7 @@ struct cmuxApp: App {
                     // Start the Unix socket controller for programmatic access
                     updateSocketController()
                     appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+                    appDelegate.fileExplorerState = fileExplorerState
                     cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
                     cmuxConfigStore.loadAll()
                     applyAppearance()

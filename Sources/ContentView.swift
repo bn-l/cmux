@@ -1554,6 +1554,7 @@ struct ContentView: View {
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    @EnvironmentObject var fileExplorerState: FileExplorerState
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -1565,6 +1566,7 @@ struct ContentView: View {
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
+    @StateObject private var fileExplorerStore = FileExplorerStore()
     @State private var previousSelectedWorkspaceId: UUID?
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffGeneration: UInt64 = 0
@@ -2413,10 +2415,17 @@ struct ContentView: View {
     }
 
     private var terminalContentWithSidebarDropOverlay: some View {
-        terminalContent
-            .overlay {
-                SidebarExternalDropOverlay(draggedTabId: sidebarDraggedTabId)
+        HStack(spacing: 0) {
+            terminalContent
+                .overlay {
+                    SidebarExternalDropOverlay(draggedTabId: sidebarDraggedTabId)
+                }
+            if fileExplorerState.isVisible {
+                Divider()
+                FileExplorerView(store: fileExplorerStore, state: fileExplorerState)
+                    .frame(width: fileExplorerState.width)
             }
+        }
     }
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
@@ -2569,6 +2578,59 @@ struct ContentView: View {
         )
     }
 
+    private func syncFileExplorerDirectory() {
+        guard let selectedId = tabManager.selectedTabId,
+              let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+            return
+        }
+
+        let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !dir.isEmpty else { return }
+
+        if tab.isRemoteWorkspace {
+            let config = tab.remoteConfiguration
+            let remotePath = tab.remoteDaemonStatus.remotePath
+            let isReady = tab.remoteDaemonStatus.state == .ready
+            let homePath = remotePath.flatMap { path -> String? in
+                // Extract home from remote path context
+                // For SSH, try to derive home from the working directory if it starts with /home/
+                let components = dir.split(separator: "/")
+                if components.count >= 2, components[0] == "home" {
+                    return "/home/\(components[1])"
+                }
+                if dir.hasPrefix("/root") {
+                    return "/root"
+                }
+                return nil
+            } ?? ""
+
+            if let existingProvider = fileExplorerStore.provider as? SSHFileExplorerProvider,
+               existingProvider.destination == config?.destination {
+                existingProvider.updateAvailability(isReady, homePath: isReady ? homePath : nil)
+                if isReady {
+                    fileExplorerStore.setRootPath(dir)
+                    fileExplorerStore.hydrateExpandedNodes()
+                }
+            } else if let config {
+                let provider = SSHFileExplorerProvider(
+                    destination: config.destination,
+                    port: config.port,
+                    identityFile: config.identityFile,
+                    sshOptions: config.sshOptions,
+                    homePath: homePath,
+                    isAvailable: isReady
+                )
+                fileExplorerStore.setProvider(provider)
+                fileExplorerStore.setRootPath(dir)
+            }
+        } else {
+            if !(fileExplorerStore.provider is LocalFileExplorerProvider) {
+                fileExplorerStore.setProvider(LocalFileExplorerProvider())
+            }
+            fileExplorerStore.setRootPath(dir)
+        }
+    }
+
     private var focusedDirectory: String? {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
@@ -2657,6 +2719,7 @@ struct ContentView: View {
             syncSidebarSelectedWorkspaceIds()
             applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
             updateTitlebarText()
+            syncFileExplorerDirectory()
 
             // Startup recovery (#399): if session restore or a race condition leaves the
             // view in a broken state (empty tabs, no selection, unmounted workspaces),
@@ -2726,6 +2789,7 @@ struct ContentView: View {
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == newValue }
             }
             updateTitlebarText()
+            syncFileExplorerDirectory()
         })
 
         view = AnyView(view.onChange(of: selectedTabIds) { _ in

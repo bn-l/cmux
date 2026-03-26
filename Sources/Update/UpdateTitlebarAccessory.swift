@@ -1201,6 +1201,7 @@ final class UpdateTitlebarAccessoryController {
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+    private let fileExplorerIdentifier = NSUserInterfaceItemIdentifier("cmux.fileExplorerToggle")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
 
     init(viewModel: UpdateViewModel) {
@@ -1325,6 +1326,15 @@ final class UpdateTitlebarAccessoryController {
             controlsControllers.add(controls)
         }
 
+        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == fileExplorerIdentifier }) {
+            let toggle = FileExplorerTitlebarAccessoryViewController(onToggle: {
+                AppDelegate.shared?.fileExplorerState?.toggle()
+            })
+            toggle.layoutAttribute = .trailing
+            toggle.view.identifier = fileExplorerIdentifier
+            window.addTitlebarAccessoryViewController(toggle)
+        }
+
         attachedWindows.add(window)
 
 #if DEBUG
@@ -1338,7 +1348,8 @@ final class UpdateTitlebarAccessoryController {
 
     private func removeAccessoryIfPresent(from window: NSWindow) {
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
-            window.titlebarAccessoryViewControllers[index].view.identifier == controlsIdentifier
+            let id = window.titlebarAccessoryViewControllers[index].view.identifier
+            return id == controlsIdentifier || id == fileExplorerIdentifier
         }
         guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 
