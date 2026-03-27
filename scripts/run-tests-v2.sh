@@ -16,7 +16,7 @@ APP="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
 RUN_TAG="tests-v2"
 
 echo "== build =="
-# Work around stale explicit-module cache artifacts (notably Sentry headers) that can
+# Work around stale explicit-module cache artifacts that can
 # intermittently break incremental VM builds with "file ... has been modified since the
 # module file ... was built".
 rm -rf "$DERIVED_DATA_PATH/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules" || true

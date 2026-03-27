@@ -730,9 +730,9 @@ class TabManager: ObservableObject {
         }
         didSet {
             guard selectedTabId != oldValue else { return }
-            sentryBreadcrumb("workspace.switch", data: [
-                "tabCount": tabs.count
-            ])
+#if DEBUG
+            dlog("workspace.switch tabCount=\(tabs.count)")
+#endif
             let previousTabId = oldValue
             if let previousTabId,
                let previousPanelId = focusedPanelId(for: previousTabId) {
@@ -1231,7 +1231,9 @@ class TabManager: ObservableObject {
         maybeMutateSelectionDuringWorkspaceCreationForDev(snapshot: snapshot)
 #endif
         let nextTabCount = snapshot.tabs.count + 1
-        sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
+#if DEBUG
+        dlog("workspace.create tabCount=\(nextTabCount)")
+#endif
         let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
         let workingDirectory = explicitWorkingDirectory ?? snapshot.preferredWorkingDirectory
         let inheritedConfig = workspaceCreationConfigTemplate(
@@ -2571,7 +2573,9 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace) {
         guard tabs.count > 1 else { return }
-        sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
+#if DEBUG
+        dlog("workspace.close tabCount=\(tabs.count - 1)")
+#endif
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         sidebarSelectedWorkspaceIds.remove(workspace.id)
 
@@ -3628,7 +3632,9 @@ class TabManager: ObservableObject {
         guard let tab = tabs.first(where: { $0.id == tabId }),
               tab.panels[surfaceId] != nil else { return nil }
         tab.clearSplitZoom()
-        sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
+#if DEBUG
+        dlog("split.create direction=\(direction)")
+#endif
         return newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus)
     }
 
@@ -5661,7 +5667,6 @@ extension Notification.Name {
     static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
     static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
-    static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")

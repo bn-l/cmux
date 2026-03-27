@@ -40,8 +40,8 @@ export default function PrivacyPolicyPage() {
       <p>
         We collect &ldquo;Non-Personal Information&rdquo; and &ldquo;Personal
         Information.&rdquo; Non-Personal Information includes information that
-        cannot be used to personally identify you, such as anonymous usage data,
-        platform types, and crash diagnostics. Personal Information includes
+        cannot be used to personally identify you, such as platform types and
+        application version. Personal Information includes
         your email address if you choose to contact us.
       </p>
 
@@ -50,22 +50,12 @@ export default function PrivacyPolicyPage() {
         The Application may collect the following information automatically:
       </p>
       <ul>
-        <li>Crash reports and error diagnostics (via Sentry)</li>
         <li>Operating system version and application version</li>
-        <li>Anonymous usage patterns</li>
       </ul>
       <p>
         The Application checks for updates via Sparkle, which may transmit your
         operating system version and application version to our update server.
       </p>
-      <p>
-        The Site uses PostHog for anonymous analytics, including page views and
-        navigation patterns. PostHog stores a cookie to distinguish unique
-        visitors. No personally identifiable information is collected through
-        analytics. You can opt out by using a browser extension that blocks
-        tracking scripts.
-      </p>
-
       <h3>2. Information you provide directly</h3>
       <p>
         If you contact us via email or our contact page, we collect the
@@ -86,27 +76,12 @@ export default function PrivacyPolicyPage() {
       </p>
       <ul>
         <li>
-          <strong>Sentry</strong> &mdash; error tracking and crash reporting.
-          May collect error logs, stack traces, device information, and OS
-          version.
-        </li>
-        <li>
           <strong>Sparkle</strong> &mdash; auto-update framework. Transmits
           application and OS version to check for updates.
         </li>
         <li>
           <strong>Ghostty / libghostty</strong> &mdash; terminal rendering
           engine. Runs entirely locally on your device.
-        </li>
-        <li>
-          <strong>PostHog</strong> &mdash; website analytics. Collects anonymous
-          page view data, navigation patterns, and browser metadata via a
-          first-party proxy. No personally identifiable information is collected.
-        </li>
-        <li>
-          <strong>Resend</strong> &mdash; transactional email delivery. Used to
-          deliver feedback submissions from the Application. Your email address
-          is transmitted to Resend only if you voluntarily submit feedback.
         </li>
       </ul>
       <p>
@@ -117,8 +92,7 @@ export default function PrivacyPolicyPage() {
       <h2>III. How We Use and Share Information</h2>
       <p>
         We do not sell, trade, rent or otherwise share your Personal Information
-        with third parties for marketing purposes. We use crash reports and
-        diagnostics solely to improve the Application. We may share information
+        with third parties for marketing purposes. We may share information
         if we have a good-faith belief that disclosure is necessary to meet
         legal process or protect against harm.
       </p>
@@ -171,8 +145,8 @@ export default function PrivacyPolicyPage() {
 
       <h2>IX. Data Retention</h2>
       <p>
-        Crash reports and diagnostics are retained only as long as needed to
-        diagnose and fix issues. You may request deletion of any data associated
+        Update check metadata is retained only as long as needed. You may
+        request deletion of any data associated
         with you by contacting us at{" "}
         <a href="mailto:founders@manaflow.com">founders@manaflow.com</a>.
       </p>

@@ -56,11 +56,7 @@ def copy_runtime_frameworks(cli_path: str, fixture_contents: str) -> None:
             break
         current = parent
 
-    for search_root in search_roots:
-        sentry_framework = os.path.join(search_root, "Sentry.framework")
-        if os.path.isdir(sentry_framework):
-            shutil.copytree(sentry_framework, os.path.join(frameworks_dir, "Sentry.framework"))
-            return
+    pass
 
 
 def build_fixture(root: str, cli_path: str) -> str:

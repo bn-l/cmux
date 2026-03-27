@@ -5,7 +5,6 @@ import Metal
 import QuartzCore
 import Combine
 import Darwin
-import Sentry
 import Bonsplit
 import IOSurface
 import UniformTypeIdentifiers
@@ -1009,17 +1008,7 @@ class GhosttyApp {
                 lastReportedUptime: lastScrollLagReportUptime,
                 cooldown: scrollLagReportCooldownSeconds
             ) {
-                if TelemetrySettings.enabledForCurrentLaunch {
-                    SentrySDK.capture(message: "Scroll lag detected") { scope in
-                        scope.setLevel(.warning)
-                        scope.setContext(value: [
-                            "samples": samples,
-                            "avg_ms": String(format: "%.2f", avgLag),
-                            "max_ms": String(format: "%.2f", maxLag),
-                            "threshold_ms": threshold
-                        ], key: "scroll_lag")
-                    }
-                }
+                NSLog("[cmux] Scroll lag detected: samples=%d avg=%.2fms max=%.2fms threshold=%.0fms", samples, avgLag, maxLag, threshold)
                 lastScrollLagReportUptime = nowUptime
             }
             // Reset stats

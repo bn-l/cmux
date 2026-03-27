@@ -62,7 +62,7 @@ export function SiteHeader({
           <div className="flex flex-1 items-center justify-end gap-3 min-w-0">
             <GitHubStarsBadge />
             <div className="hidden md:block">
-              <DownloadButton size="sm" location="navbar" />
+              <DownloadButton size="sm" />
             </div>
             <ThemeToggle />
             <MobileDrawerToggle
@@ -136,9 +136,9 @@ export function SiteHeader({
           >
             {t("community")}
           </Link>
-          <GitHubStarsBadge location="mobile_drawer" />
+          <GitHubStarsBadge />
           <div className="pt-2">
-            <DownloadButton size="sm" location="mobile_drawer" />
+            <DownloadButton size="sm" />
           </div>
         </div>
       </nav>

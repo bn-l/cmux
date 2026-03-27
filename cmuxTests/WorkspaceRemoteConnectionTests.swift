@@ -1331,8 +1331,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_WORKSPACE_ID"] = staleWorkspace
         environment["CMUX_SURFACE_ID"] = staleSurface
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1434,8 +1433,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_WORKSPACE_ID"] = staleWorkspace
         environment["CMUX_SURFACE_ID"] = staleSurface
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1530,8 +1528,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1704,8 +1701,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_WORKSPACE_ID"] = staleWorkspace
         environment["CMUX_SURFACE_ID"] = staleSurface
         environment["CMUX_CLI_TTY_NAME"] = callerTTY
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1823,8 +1819,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = staleSurface
         environment["CMUX_CLI_TTY_NAME"] = callerTTY
         environment["TMUX"] = "/tmp/tmux-current,123,0"
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1959,8 +1954,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_WORKSPACE_ID"] = staleWorkspace
         environment["CMUX_SURFACE_ID"] = staleSurface
         environment["CMUX_CLI_TTY_NAME"] = callerTTY
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
 
         let result = runProcess(
             executablePath: cliPath,
@@ -2102,8 +2096,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = staleSurface
         environment["CMUX_CLI_TTY_NAME"] = callerTTY
         environment["TMUX"] = "/tmp/tmux-current,123,0"
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
 
         let result = runProcess(
             executablePath: cliPath,
