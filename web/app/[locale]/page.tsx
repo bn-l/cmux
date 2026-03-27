@@ -58,7 +58,7 @@ function HomeContent() {
           data-dev="download"
           style={{ marginTop: 21, marginBottom: 16 }}
         >
-          <DownloadButton location="hero" />
+          <DownloadButton />
           <GitHubButton />
         </div>
 
@@ -287,7 +287,7 @@ function HomeContent() {
 
         {/* Bottom CTA */}
         <div className="flex flex-wrap items-center justify-center gap-3 mt-12">
-          <DownloadButton location="bottom" />
+          <DownloadButton />
           <GitHubButton />
         </div>
         <div className="flex justify-center gap-4 mt-6">

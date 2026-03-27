@@ -104,8 +104,6 @@ def main() -> int:
     env = os.environ.copy()
     env["CMUX_SOCKET_PATH"] = "/tmp/cmux.sock"
     env["CMUX_TAG"] = tag
-    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
-    env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
     try:
         proc = subprocess.run(

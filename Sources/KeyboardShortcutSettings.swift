@@ -13,7 +13,6 @@ enum KeyboardShortcutSettings {
         case newWindow
         case closeWindow
         case openFolder
-        case sendFeedback
         case showNotifications
         case jumpToUnread
         case triggerFlash
@@ -56,7 +55,6 @@ enum KeyboardShortcutSettings {
             case .newWindow: return String(localized: "shortcut.newWindow.label", defaultValue: "New Window")
             case .closeWindow: return String(localized: "shortcut.closeWindow.label", defaultValue: "Close Window")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
-            case .sendFeedback: return String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback")
             case .showNotifications: return String(localized: "shortcut.showNotifications.label", defaultValue: "Show Notifications")
             case .jumpToUnread: return String(localized: "shortcut.jumpToUnread.label", defaultValue: "Jump to Latest Unread")
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
@@ -93,7 +91,6 @@ enum KeyboardShortcutSettings {
             case .newWindow: return "shortcut.newWindow"
             case .closeWindow: return "shortcut.closeWindow"
             case .openFolder: return "shortcut.openFolder"
-            case .sendFeedback: return "shortcut.sendFeedback"
             case .showNotifications: return "shortcut.showNotifications"
             case .jumpToUnread: return "shortcut.jumpToUnread"
             case .triggerFlash: return "shortcut.triggerFlash"
@@ -135,8 +132,6 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "w", command: true, shift: false, option: false, control: true)
             case .openFolder:
                 return StoredShortcut(key: "o", command: true, shift: false, option: false, control: false)
-            case .sendFeedback:
-                return StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
             case .showNotifications:
                 return StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
             case .jumpToUnread:
