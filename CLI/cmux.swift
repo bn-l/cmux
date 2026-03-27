@@ -9770,30 +9770,14 @@ struct CMUXCLI {
             } else {
                 throw CLIError(message: "Neither bun nor npm found in PATH. Install oh-my-opencode manually: bunx oh-my-opencode install")
             }
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
-            FileHandle.standardError.write("Installing oh-my-opencode plugin...\n".data(using: .utf8)!)
+            // Show install output directly so the user sees progress (npm can take 30s+)
+            process.standardOutput = FileHandle.standardError
+            process.standardError = FileHandle.standardError
+            FileHandle.standardError.write("Installing oh-my-opencode plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
             try process.run()
-            // Drain pipes concurrently to prevent deadlock from full buffers
-            var stderrData = Data()
-            let drainGroup = DispatchGroup()
-            drainGroup.enter()
-            DispatchQueue.global().async {
-                stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                drainGroup.leave()
-            }
-            drainGroup.enter()
-            DispatchQueue.global().async {
-                _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                drainGroup.leave()
-            }
-            drainGroup.wait()
             process.waitUntilExit()
             if process.terminationStatus != 0 {
-                let errText = String(data: stderrData, encoding: .utf8) ?? ""
-                throw CLIError(message: "Failed to install oh-my-opencode: \(errText)")
+                throw CLIError(message: "Failed to install oh-my-opencode. Try manually: npm install -g oh-my-opencode")
             }
             FileHandle.standardError.write("oh-my-opencode plugin installed\n".data(using: .utf8)!)
             // Re-create symlink if we installed into user dir
