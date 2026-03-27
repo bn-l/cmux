@@ -80,9 +80,6 @@
 - [ ] Close button for current/active tab should always be visible (not just on hover)
 - [ ] Add browser icon to the left of the plus button in the tab bar
 
-## Analytics
-- [x] Add PostHog tracking (set `PostHogAnalytics.apiKey` in `Sources/PostHogAnalytics.swift`)
-
 ### Browser Parity Completion (agent-browser port)
 - [x] Implement locator family:
   - `browser.find.role`
