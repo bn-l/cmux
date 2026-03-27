@@ -9316,6 +9316,28 @@ final class GhosttySurfaceScrollView: NSView {
         return surfaceView.pushTargetSurfaceSize(size)
     }
 
+    private func overlayScrollbarInsetWidth() -> CGFloat {
+        guard scrollView.hasVerticalScroller, scrollView.scrollerStyle == .overlay else { return 0 }
+
+        // If AppKit already reserved non-content width in `contentSize`, avoid double-subtraction.
+        let alreadyReserved = max(0, scrollView.bounds.width - scrollView.contentSize.width)
+        if alreadyReserved > 0.5 { return 0 }
+
+        let fallback = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
+        guard let verticalScroller = scrollView.verticalScroller else { return fallback }
+
+        let measuredWidth = verticalScroller.frame.width
+        if measuredWidth > 0 {
+            return max(measuredWidth, fallback)
+        }
+
+        let controlSizeWidth = NSScroller.scrollerWidth(
+            for: verticalScroller.controlSize,
+            scrollerStyle: .overlay
+        )
+        return max(controlSizeWidth, fallback)
+    }
+
     private func updateNotificationRingPath() {
         updateOverlayRingPath(
             layer: notificationRingLayer,
