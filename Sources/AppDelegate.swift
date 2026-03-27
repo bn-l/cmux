@@ -4758,6 +4758,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    /// Update every live surface's color scheme so that per-surface conditional
+    /// state (`Surface.config_conditional_state.theme`) matches the current
+    /// system appearance.  Surfaces that miss `viewDidChangeEffectiveAppearance`
+    /// (hidden tabs, detached bonsplit panels, etc.) would otherwise keep the
+    /// stale scheme and resolve conditional themes incorrectly.
+    func propagateColorSchemeToAllSurfaces(_ scheme: ghostty_color_scheme_e) {
+        var count = 0
+        forEachTerminalPanel { terminalPanel in
+            if let surface = terminalPanel.surface.surface {
+                ghostty_surface_set_color_scheme(surface, scheme)
+                count += 1
+            }
+        }
+#if DEBUG
+        let label = scheme == GHOSTTY_COLOR_SCHEME_DARK ? "dark" : "light"
+        dlog("appearance.propagateColorScheme scheme=\(label) surfaces=\(count)")
+#endif
+    }
+
     func refreshTerminalSurfacesAfterGhosttyConfigReload(source: String) {
         var refreshedCount = 0
         forEachTerminalPanel { terminalPanel in
