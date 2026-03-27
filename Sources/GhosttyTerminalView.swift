@@ -939,6 +939,7 @@ class GhosttyApp {
     private let backgroundLogLock = NSLock()
     private var backgroundLogSequence: UInt64 = 0
     private var appObservers: [NSObjectProtocol] = []
+    private var appearanceObservation: NSKeyValueObservation?
     private var bellAudioSound: NSSound?
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
@@ -1342,6 +1343,32 @@ class GhosttyApp {
             ghostty_app_set_focus(app, false)
         })
 
+        // Set the initial color scheme so Ghostty resolves conditional themes
+        // (e.g. "theme = light:X,dark:Y") correctly at startup.
+        if let app {
+            let initialScheme: ghostty_color_scheme_e =
+                NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? GHOSTTY_COLOR_SCHEME_DARK
+                    : GHOSTTY_COLOR_SCHEME_LIGHT
+            ghostty_app_set_color_scheme(app, initialScheme)
+        }
+
+        // Observe system appearance changes at the app level so ALL surfaces
+        // pick up light/dark transitions — not just surfaces whose NSView
+        // happens to receive viewDidChangeEffectiveAppearance.
+        appearanceObservation = NSApplication.shared.observe(
+            \.effectiveAppearance,
+            options: [.new]
+        ) { [weak self] _, change in
+            guard let appearance = change.newValue,
+                  let app = self?.app else { return }
+            let scheme: ghostty_color_scheme_e =
+                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? GHOSTTY_COLOR_SCHEME_DARK
+                    : GHOSTTY_COLOR_SCHEME_LIGHT
+            ghostty_app_set_color_scheme(app, scheme)
+        }
+
         #endif
     }
 
@@ -1727,13 +1754,6 @@ class GhosttyApp {
         incomingScope.rawValue >= currentScope.rawValue
     }
 
-    static func shouldReloadConfigurationForAppearanceChange(
-        previousColorScheme: GhosttyConfig.ColorSchemePreference?,
-        currentColorScheme: GhosttyConfig.ColorSchemePreference
-    ) -> Bool {
-        previousColorScheme != currentColorScheme
-    }
-
     static func shouldCaptureScrollLagEvent(
         samples: Int,
         averageMs: Double,
@@ -1875,34 +1895,6 @@ class GhosttyApp {
         DispatchQueue.main.async {
             AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(source: source)
         }
-    }
-
-    func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
-        let currentColorScheme = GhosttyConfig.currentColorSchemePreference(
-            appAppearance: appearance ?? NSApp?.effectiveAppearance
-        )
-        let shouldReload = Self.shouldReloadConfigurationForAppearanceChange(
-            previousColorScheme: lastAppearanceColorScheme,
-            currentColorScheme: currentColorScheme
-        )
-        if backgroundLogEnabled {
-            let previousLabel: String
-            switch lastAppearanceColorScheme {
-            case .light:
-                previousLabel = "light"
-            case .dark:
-                previousLabel = "dark"
-            case nil:
-                previousLabel = "nil"
-            }
-            let currentLabel: String = currentColorScheme == .dark ? "dark" : "light"
-            logBackground(
-                "appearance sync source=\(source) previous=\(previousLabel) current=\(currentLabel) reload=\(shouldReload)"
-            )
-        }
-        guard shouldReload else { return }
-        lastAppearanceColorScheme = currentColorScheme
-        reloadConfiguration(source: "appearanceSync:\(source)")
     }
 
     func openConfigurationInTextEdit() {
@@ -4560,10 +4552,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         updateSurfaceSize()
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
-        GhosttyApp.shared.synchronizeThemeWithAppearance(
-            effectiveAppearance,
-            source: "surface.viewDidMoveToWindow"
-        )
         applyWindowBackgroundIfActive()
         invalidateTextInputCoordinates()
     }
@@ -4577,10 +4565,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
         applySurfaceColorScheme()
-        GhosttyApp.shared.synchronizeThemeWithAppearance(
-            effectiveAppearance,
-            source: "surface.viewDidChangeEffectiveAppearance"
-        )
+        // App-level appearance observer (GhosttyApp.appearanceObservation) now
+        // drives ghostty_app_set_color_scheme → config reload for all surfaces.
+        // Per-surface synchronizeThemeWithAppearance removed to avoid duplicate reloads.
     }
 
     fileprivate func updateOcclusionState() {
