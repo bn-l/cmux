@@ -14,6 +14,7 @@ xcuserdata/
 
 # Swift Package Manager
 .swiftpm/
+.spm-cache/
 
 # GhosttyKit binary (built from ghostty submodule via scripts/setup.sh)
 GhosttyKit.xcframework
