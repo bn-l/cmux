@@ -47,25 +47,27 @@ daemon: app-release
     chmod 755 "$OUTPUT_DIR/$ASSET_NAME"
     SHA256=$(shasum -a 256 "$OUTPUT_DIR/$ASSET_NAME" | awk '{print $1}')
     RELEASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
-    MANIFEST=$(python3 -c "
-import json
-manifest = {
-    'schemaVersion': 1,
-    'appVersion': '${VERSION}',
-    'releaseTag': '${TAG}',
-    'releaseURL': '${RELEASE_URL}',
-    'checksumsAssetName': 'cmuxd-remote-checksums.txt',
-    'checksumsURL': '${RELEASE_URL}/cmuxd-remote-checksums.txt',
-    'entries': [{
-        'goOS': 'darwin',
-        'goArch': 'arm64',
-        'assetName': '${ASSET_NAME}',
-        'downloadURL': '${RELEASE_URL}/${ASSET_NAME}',
-        'sha256': '${SHA256}',
-    }],
-}
-print(json.dumps(manifest, separators=(',', ':')))
-")
+    MANIFEST=$(jq -nc \
+        --arg version "$VERSION" \
+        --arg tag "$TAG" \
+        --arg releaseUrl "$RELEASE_URL" \
+        --arg asset "$ASSET_NAME" \
+        --arg sha "$SHA256" \
+        '{
+            schemaVersion: 1,
+            appVersion: $version,
+            releaseTag: $tag,
+            releaseURL: $releaseUrl,
+            checksumsAssetName: "cmuxd-remote-checksums.txt",
+            checksumsURL: "\($releaseUrl)/cmuxd-remote-checksums.txt",
+            entries: [{
+                goOS: "darwin",
+                goArch: "arm64",
+                assetName: $asset,
+                downloadURL: "\($releaseUrl)/\($asset)",
+                sha256: $sha
+            }]
+        }')
     APP_PLIST="build/Build/Products/Release/cmux.app/Contents/Info.plist"
     plutil -remove CMUXRemoteDaemonManifestJSON "$APP_PLIST" 2>/dev/null || true
     plutil -insert CMUXRemoteDaemonManifestJSON -string "$MANIFEST" "$APP_PLIST"
