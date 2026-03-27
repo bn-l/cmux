@@ -9908,6 +9908,19 @@ struct CMUXCLI {
             explicitPassword: explicitPassword
         )
         let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"])
+        if openCodeExecutablePath == nil {
+            // Check if opencode is anywhere in PATH before doing expensive setup
+            let checkProcess = Process()
+            checkProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+            checkProcess.arguments = ["opencode"]
+            checkProcess.standardOutput = Pipe()
+            checkProcess.standardError = Pipe()
+            try? checkProcess.run()
+            checkProcess.waitUntilExit()
+            if checkProcess.terminationStatus != 0 {
+                throw CLIError(message: "opencode is not installed. Install it first:\n  npm install -g opencode-ai\n  # or\n  bun install -g opencode-ai\n\nThen run: cmux omo")
+            }
+        }
         configureOMOEnvironment(
             processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,
@@ -9940,7 +9953,7 @@ struct CMUXCLI {
             execvp("opencode", &argv)
         }
         let code = errno
-        throw CLIError(message: "Failed to launch opencode: \(String(cString: strerror(code)))")
+        throw CLIError(message: "Failed to launch opencode: \(String(cString: strerror(code)))\n\nIs opencode installed? Install with:\n  npm install -g opencode-ai")
     }
 
     private func runClaudeTeamsTmuxCompat(
