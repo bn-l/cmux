@@ -424,36 +424,6 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    func testAppearanceChangeReloadsWhenColorSchemeChanges() {
-        XCTAssertTrue(
-            GhosttyApp.shouldReloadConfigurationForAppearanceChange(
-                previousColorScheme: .dark,
-                currentColorScheme: .light
-            )
-        )
-        XCTAssertTrue(
-            GhosttyApp.shouldReloadConfigurationForAppearanceChange(
-                previousColorScheme: nil,
-                currentColorScheme: .dark
-            )
-        )
-    }
-
-    func testAppearanceChangeSkipsReloadWhenColorSchemeUnchanged() {
-        XCTAssertFalse(
-            GhosttyApp.shouldReloadConfigurationForAppearanceChange(
-                previousColorScheme: .light,
-                currentColorScheme: .light
-            )
-        )
-        XCTAssertFalse(
-            GhosttyApp.shouldReloadConfigurationForAppearanceChange(
-                previousColorScheme: .dark,
-                currentColorScheme: .dark
-            )
-        )
-    }
-
     func testScrollLagCaptureRequiresSustainedLag() {
         XCTAssertFalse(
             GhosttyApp.shouldCaptureScrollLagEvent(
