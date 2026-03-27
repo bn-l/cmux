@@ -9874,9 +9874,6 @@ struct CMUXCLI {
         socketPath: String,
         explicitPassword: String?
     ) throws {
-        // Ensure oh-my-opencode plugin is registered and installed
-        try omoEnsurePlugin()
-
         let processEnvironment = ProcessInfo.processInfo.environment
         var launcherEnvironment = processEnvironment
         launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -9885,15 +9882,10 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
-        let shimDirectory = try createOMOShimDirectory()
-        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let focusedContext = tmuxCompatFocusedContext(
-            processEnvironment: launcherEnvironment,
-            explicitPassword: explicitPassword
-        )
+
+        // Check for opencode before doing expensive plugin setup
         let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"])
         if openCodeExecutablePath == nil {
-            // Check if opencode is anywhere in PATH before doing expensive setup
             let checkProcess = Process()
             checkProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
             checkProcess.arguments = ["opencode"]
@@ -9905,6 +9897,16 @@ struct CMUXCLI {
                 throw CLIError(message: "opencode is not installed. Install it first:\n  npm install -g opencode-ai\n  # or\n  bun install -g opencode-ai\n\nThen run: cmux omo")
             }
         }
+
+        // Ensure oh-my-opencode plugin is registered and installed
+        try omoEnsurePlugin()
+
+        let shimDirectory = try createOMOShimDirectory()
+        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        let focusedContext = tmuxCompatFocusedContext(
+            processEnvironment: launcherEnvironment,
+            explicitPassword: explicitPassword
+        )
         configureOMOEnvironment(
             processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,
