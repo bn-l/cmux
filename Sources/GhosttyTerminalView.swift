@@ -7455,7 +7455,17 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
 #endif
-        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        // Reserve space for the scrollbar so the terminal grid never renders
+        // underneath it.  For legacy scrollers, AppKit already subtracts the
+        // scroller width from `contentSize`; for overlay scrollers, we subtract
+        // the overlay gutter manually.  Using `contentSize.width` (not
+        // `bounds.width`) as the base handles both styles correctly.
+        let scrollbarInset = overlayScrollbarInsetWidth()
+        let surfaceSize = CGSize(
+            width: max(0, scrollView.contentSize.width - scrollbarInset),
+            height: targetSize.height
+        )
+        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: surfaceSize)
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
             origin: documentView.frame.origin,
@@ -7496,7 +7506,7 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollView()
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
-        return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
+        return !sizeApproximatelyEqual(previousSurfaceSize, surfaceSize) || didCoreSurfaceChange
     }
 
     @discardableResult
@@ -9297,15 +9307,13 @@ final class GhosttySurfaceScrollView: NSView {
 
     /// Match upstream Ghostty behavior: use content area width (excluding non-content
     /// regions such as scrollbar space) when telling libghostty the terminal size.
+    /// The surface view's frame is already reduced by `overlayScrollbarInsetWidth()`
+    /// in `synchronizeGeometryAndContent()`, so we can push the frame size directly.
     @discardableResult
     private func synchronizeCoreSurface() -> Bool {
-        // Reserving extra overlay-scroller gutter here causes AppKit and libghostty to fight
-        // over terminal columns during split churn. The width can flap by one scrollbar gutter,
-        // which redraws the shell prompt multiple times on Cmd+D. Favor stable columns.
-        let width = max(0, scrollView.contentSize.width)
-        let height = surfaceView.frame.height
-        guard width > 0, height > 0 else { return false }
-        return surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
+        let size = surfaceView.frame.size
+        guard size.width > 0, size.height > 0 else { return false }
+        return surfaceView.pushTargetSurfaceSize(size)
     }
 
     private func updateNotificationRingPath() {
