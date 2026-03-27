@@ -83,14 +83,13 @@ Open the `.dmg` and drag cmux to your Applications folder. cmux auto-updates via
 ### Homebrew
 
 ```bash
-brew tap manaflow-ai/cmux
-brew install --cask cmux
+brew install --cask bn-l/tap/cmux
 ```
 
 To update later:
 
 ```bash
-brew upgrade --cask cmux
+brew upgrade --cask bn-l/tap/cmux
 ```
 
 On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
