@@ -2246,7 +2246,18 @@ final class BrowserPanel: Panel, ObservableObject {
     private var insecureHTTPAlertFactory: () -> NSAlert
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
-    @Published private(set) var preferredDeveloperToolsVisible: Bool = false
+    // Manual deduplication: @Published fires objectWillChange on every set, even when
+    // the value is unchanged. Because syncDeveloperToolsPreferenceFromInspector is called
+    // from updateNSView, redundant writes create an infinite SwiftUI invalidation loop.
+    private var _preferredDeveloperToolsVisible: Bool = false
+    private(set) var preferredDeveloperToolsVisible: Bool {
+        get { _preferredDeveloperToolsVisible }
+        set {
+            guard newValue != _preferredDeveloperToolsVisible else { return }
+            objectWillChange.send()
+            _preferredDeveloperToolsVisible = newValue
+        }
+    }
     private var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .unknown
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
