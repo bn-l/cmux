@@ -1354,7 +1354,15 @@ class GhosttyApp {
                 appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                     ? GHOSTTY_COLOR_SCHEME_DARK
                     : GHOSTTY_COLOR_SCHEME_LIGHT
+            // Update app-level conditional state (triggers soft config reload).
             ghostty_app_set_color_scheme(app, scheme)
+            // Propagate to every surface so per-surface conditional state is
+            // in sync.  Without this, surfaces that miss
+            // viewDidChangeEffectiveAppearance (hidden tabs, detached bonsplit
+            // panels) keep stale theme state and render the wrong colors.
+            DispatchQueue.main.async {
+                AppDelegate.shared?.propagateColorSchemeToAllSurfaces(scheme)
+            }
         }
 
         #endif
