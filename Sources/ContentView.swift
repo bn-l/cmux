@@ -8528,6 +8528,7 @@ struct VerticalTabsSidebar: View {
 
         VStack(spacing: 0) {
             GeometryReader { proxy in
+                ScrollViewReader { scrollProxy in
                 ScrollView {
                     VStack(spacing: 0) {
                         // Space for traffic lights / fullscreen controls
@@ -8579,6 +8580,7 @@ struct VerticalTabsSidebar: View {
                                     allRemoteContextMenuTargetsDisconnected: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
                                 )
                                 .equatable()
+                                .id(tab.id)
                             }
                         }
                         .padding(.vertical, 8)
@@ -8622,6 +8624,14 @@ struct VerticalTabsSidebar: View {
                 }
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
+                .onChange(of: tabManager.selectedTabId) { newValue in
+                    guard draggedTabId == nil else { return }
+                    guard let newValue else { return }
+                    withTransaction(Transaction(animation: nil)) {
+                        scrollProxy.scrollTo(newValue)
+                    }
+                }
+                } // ScrollViewReader
             }
             SidebarFooter(updateViewModel: updateViewModel, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
