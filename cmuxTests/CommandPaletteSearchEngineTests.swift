@@ -485,8 +485,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testPendingEmptyStateIsPreservedWhenRefiningAResolvedNoMatchQuery() {
-        XCTAssertTrue(
+    func testPendingEmptyStateIsNotPreservedWhileSearchIsStillPending() {
+        XCTAssertFalse(
             ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
                 isSearchPending: true,
                 visibleResultsScopeMatches: true,
@@ -494,6 +494,20 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 resolvedSearchFingerprintMatches: true,
                 resolvedResultsAreEmpty: true,
                 currentMatchingQuery: "zzzzzzzzz",
+                resolvedMatchingQuery: "zzzzzzzz"
+            )
+        )
+    }
+
+    func testPendingEmptyStateIsPreservedForSameResolvedNoMatchQuery() {
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+                isSearchPending: true,
+                visibleResultsScopeMatches: true,
+                resolvedSearchScopeMatches: true,
+                resolvedSearchFingerprintMatches: true,
+                resolvedResultsAreEmpty: true,
+                currentMatchingQuery: "zzzzzzzz",
                 resolvedMatchingQuery: "zzzzzzzz"
             )
         )
@@ -649,7 +663,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertNotEqual(base, renamed)
     }
 
-    func testSwitcherFingerprintTracksMetadataValuesAtSameCardinality() {
+    func testSwitcherFingerprintIgnoresWorkspaceDisplayNameChurn() {
         let windowID = UUID()
         let workspaceID = UUID()
         let base = ContentView.commandPaletteSwitcherFingerprint(
@@ -661,7 +675,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     workspaces: [
                         ContentView.CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
-                            displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(
                                 directories: ["/Users/example/dev/cmuxterm"],
                                 branches: ["feature/search-speed"],
@@ -682,7 +695,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     workspaces: [
                         ContentView.CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
-                            displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(
                                 directories: ["/Users/example/dev/other"],
                                 branches: ["feature/search-speed"],
@@ -703,7 +715,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     workspaces: [
                         ContentView.CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
-                            displayName: "Workspace Beta",
                             metadata: CommandPaletteSwitcherSearchMetadata(
                                 directories: ["/Users/example/dev/cmuxterm"],
                                 branches: ["feature/search-speed"],
@@ -716,8 +727,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             ]
         )
 
+        XCTAssertEqual(base, changedDisplayName)
         XCTAssertNotEqual(base, changedMetadata)
-        XCTAssertNotEqual(base, changedDisplayName)
     }
 
     func testSwitcherFingerprintTracksSurfaceValuesAtSameCardinality() {
@@ -734,7 +745,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     workspaces: [
                         ContentView.CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
-                            displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
                                 ContentView.CommandPaletteSwitcherFingerprintSurface(
@@ -762,7 +772,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     workspaces: [
                         ContentView.CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
-                            displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
                                 ContentView.CommandPaletteSwitcherFingerprintSurface(
@@ -790,7 +799,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     workspaces: [
                         ContentView.CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
-                            displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
                                 ContentView.CommandPaletteSwitcherFingerprintSurface(

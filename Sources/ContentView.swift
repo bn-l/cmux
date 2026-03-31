@@ -113,7 +113,11 @@ enum SidebarRemoteErrorCopySupport {
 }
 
 func sidebarSelectedWorkspaceBackgroundNSColor(for colorScheme: ColorScheme) -> NSColor {
-    cmuxAccentNSColor(for: colorScheme)
+    if let hex = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex"),
+       let parsed = NSColor(hex: hex) {
+        return parsed
+    }
+    return cmuxAccentNSColor(for: colorScheme)
 }
 
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
@@ -976,6 +980,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private var focusLockTimer: DispatchSourceTimer?
     private var scheduledFocusWorkItem: DispatchWorkItem?
     private var isPaletteVisible = false
+    private var currentRenderFingerprint: Int?
     private var windowDidBecomeKeyObserver: NSObjectProtocol?
     private var windowDidResignKeyObserver: NSObjectProtocol?
 
@@ -1226,7 +1231,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         editor.setSelectedRange(NSRange(location: length, length: 0))
     }
 
-    func update(rootView: AnyView, isVisible: Bool) {
+    func update(rootView: AnyView, isVisible: Bool, renderFingerprint: Int) {
         guard ensureInstalled() else { return }
         let shouldPromote = CommandPaletteOverlayPromotionPolicy.shouldPromote(
             previouslyVisible: isPaletteVisible,
@@ -1234,7 +1239,10 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         )
         isPaletteVisible = isVisible
         if isVisible {
-            hostingView.rootView = rootView
+            if currentRenderFingerprint != renderFingerprint {
+                hostingView.rootView = rootView
+                currentRenderFingerprint = renderFingerprint
+            }
             containerView.capturesMouseEvents = true
             containerView.isHidden = false
             containerView.alphaValue = 1
@@ -1248,6 +1256,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 _ = window.makeFirstResponder(nil)
             }
             hostingView.rootView = AnyView(EmptyView())
+            currentRenderFingerprint = nil
             containerView.capturesMouseEvents = false
             containerView.alphaValue = 0
             containerView.isHidden = true
@@ -1722,11 +1731,52 @@ struct ContentView: View {
         let shortcutHint: String?
         let kindLabel: String?
         let keywords: [String]
+        let liveTitleWorkspace: Workspace?
         let dismissOnRun: Bool
         let action: () -> Void
 
+        init(
+            id: String,
+            rank: Int,
+            title: String,
+            subtitle: String,
+            shortcutHint: String?,
+            kindLabel: String?,
+            keywords: [String],
+            liveTitleWorkspace: Workspace? = nil,
+            dismissOnRun: Bool,
+            action: @escaping () -> Void
+        ) {
+            self.id = id
+            self.rank = rank
+            self.title = title
+            self.subtitle = subtitle
+            self.shortcutHint = shortcutHint
+            self.kindLabel = kindLabel
+            self.keywords = keywords
+            self.liveTitleWorkspace = liveTitleWorkspace
+            self.dismissOnRun = dismissOnRun
+            self.action = action
+        }
+
         var searchableTexts: [String] {
             [title, subtitle] + keywords
+        }
+
+        func displayTitle() -> String {
+            guard let liveTitleWorkspace else { return title }
+            return ContentView.commandPaletteWorkspaceDisplayName(liveTitleWorkspace)
+        }
+
+        func displayTitleMatchIndices(
+            matchingQuery: String,
+            fallbackIndices: Set<Int>
+        ) -> Set<Int> {
+            guard liveTitleWorkspace != nil else { return fallbackIndices }
+            return CommandPaletteFuzzyMatcher.matchCharacterIndices(
+                query: matchingQuery,
+                candidate: displayTitle()
+            )
         }
     }
 
@@ -1981,6 +2031,39 @@ struct ContentView: View {
         var id: String { command.id }
     }
 
+    private struct CommandPaletteLiveWorkspaceResultLabel: View {
+        @ObservedObject private var workspace: Workspace
+        private let command: CommandPaletteCommand
+        private let matchingQuery: String
+        private let fallbackMatchIndices: Set<Int>
+        private let trailingLabel: CommandPaletteTrailingLabel?
+
+        init(
+            workspace: Workspace,
+            command: CommandPaletteCommand,
+            matchingQuery: String,
+            fallbackMatchIndices: Set<Int>,
+            trailingLabel: CommandPaletteTrailingLabel?
+        ) {
+            _workspace = ObservedObject(wrappedValue: workspace)
+            self.command = command
+            self.matchingQuery = matchingQuery
+            self.fallbackMatchIndices = fallbackMatchIndices
+            self.trailingLabel = trailingLabel
+        }
+
+        var body: some View {
+            ContentView.commandPaletteResultLabelContent(
+                title: command.displayTitle(),
+                matchedIndices: command.displayTitleMatchIndices(
+                    matchingQuery: matchingQuery,
+                    fallbackIndices: fallbackMatchIndices
+                ),
+                trailingLabel: trailingLabel
+            )
+        }
+    }
+
     private struct CommandPaletteResolvedSearchMatch: Sendable {
         let commandID: String
         let score: Int
@@ -1996,7 +2079,6 @@ struct ContentView: View {
 
     struct CommandPaletteSwitcherFingerprintWorkspace: Sendable {
         let id: UUID
-        let displayName: String
         let metadata: CommandPaletteSwitcherSearchMetadata
         let surfaces: [CommandPaletteSwitcherFingerprintSurface]
     }
@@ -2342,7 +2424,10 @@ struct ContentView: View {
     }
 
     private var effectiveTitlebarPadding: CGFloat {
-        isMinimalMode ? 0 : titlebarPadding
+        if isMinimalMode {
+            return isFullScreen ? 0 : -titlebarPadding
+        }
+        return titlebarPadding
     }
 
     private var terminalContent: some View {
@@ -2372,6 +2457,7 @@ struct ContentView: View {
                         workspace: tab,
                         isWorkspaceVisible: presentation.isPanelVisible,
                         isWorkspaceInputActive: isInputActive,
+                        isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
                             scheduleTitlebarThemeRefreshFromWorkspace(
@@ -2418,6 +2504,7 @@ struct ContentView: View {
     }
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
+    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
 
     // Background glass settings
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
@@ -2489,20 +2576,28 @@ struct ContentView: View {
         .contentShape(Rectangle())
         .background(TitlebarDoubleClickMonitorView())
         .background({
-            // The terminal area has two stacked semi-transparent layers: the Bonsplit
-            // container chrome background plus Ghostty's own Metal-rendered background.
-            // Compute the effective composited opacity so the titlebar matches visually.
+            // The terminal background is provided by a single CALayer
+            // (backgroundView in GhosttySurfaceScrollView), so the titlebar
+            // opacity matches the configured value directly.
             let alpha = CGFloat(GhosttyApp.shared.defaultBackgroundOpacity)
-            let effective = alpha >= 0.999 ? alpha : 1.0 - pow(1.0 - alpha, 2)
             return TitlebarLayerBackground(
                 backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
-                opacity: effective
+                opacity: alpha
             )
         }())
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color(nsColor: .separatorColor))
                 .frame(height: 1)
+        }
+    }
+
+    private func syncTrafficLightInset() {
+        let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen) ? 80 : 0
+        for tab in tabManager.tabs {
+            if tab.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
+                tab.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
+            }
         }
     }
 
@@ -2586,7 +2681,11 @@ struct ContentView: View {
 
     private var contentAndSidebarLayout: AnyView {
         let layout: AnyView
-        if sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue {
+        // When matching terminal background, use HStack so both sidebar and terminal
+        // sit directly on the window background with no intermediate layers.
+        let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
+            && !sidebarMatchTerminalBackground
+        if useWithinWindow {
             // Overlay mode: terminal extends full width, sidebar on top
             // This allows withinWindow blur to see the terminal content
             layout = AnyView(
@@ -2655,6 +2754,7 @@ struct ContentView: View {
             syncSidebarSelectedWorkspaceIds()
             applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
             updateTitlebarText()
+            syncTrafficLightInset()
 
             // Startup recovery (#399): if session restore or a race condition leaves the
             // view in a broken state (empty tabs, no selection, unmounted workspaces),
@@ -2996,9 +3096,28 @@ struct ContentView: View {
                 let tmuxOverlayController = tmuxWorkspacePaneWindowOverlayController(for: window)
                 tmuxOverlayController.update(state: tmuxWorkspacePaneWindowOverlayState(for: window))
                 let overlayController = commandPaletteWindowOverlayController(for: window)
-                overlayController.update(rootView: AnyView(commandPaletteOverlay), isVisible: isCommandPalettePresented)
+                overlayController.update(
+                    rootView: AnyView(commandPaletteOverlay),
+                    isVisible: isCommandPalettePresented,
+                    renderFingerprint: commandPaletteOverlayRenderFingerprint
+                )
             }
         }))
+
+        view = AnyView(view.onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
+            guard isCommandPalettePresented, case .commands = commandPaletteMode else { return }
+            Task { @MainActor in
+                // Let the query-state transition settle first so the forced corpus refresh
+                // cannot rebuild the old command list after deleting the ">" prefix.
+                await Task.yield()
+                scheduleCommandPaletteResultsRefresh(
+                    query: commandPaletteQuery,
+                    forceSearchCorpusRefresh: true
+                )
+                updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
+                syncCommandPaletteDebugStateForObservedWindow()
+            }
+        })
 
         view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
             updateWindowGlassTint()
@@ -3014,6 +3133,7 @@ struct ContentView: View {
             isFullScreen = true
             setTitlebarControlsHidden(true, in: window)
             AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
+            syncTrafficLightInset()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
@@ -3022,6 +3142,7 @@ struct ContentView: View {
             isFullScreen = false
             setTitlebarControlsHidden(false, in: window)
             AppDelegate.shared?.fullscreenControlsViewModel = nil
+            syncTrafficLightInset()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { notification in
@@ -3057,6 +3178,11 @@ struct ContentView: View {
                 TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
             }
             updateSidebarResizerBandState()
+            syncTrafficLightInset()
+        })
+
+        view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
+            syncTrafficLightInset()
         })
 
         view = AnyView(view.onChange(of: sidebarState.persistedWidth) { newValue in
@@ -3085,11 +3211,11 @@ struct ContentView: View {
         view = AnyView(view.background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
             window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
             window.titlebarAppearsTransparent = true
-            // Do not make the entire background draggable; it interferes with drag gestures
-            // like sidebar tab reordering in multi-window mode.
+            // Keep window immovable; the sidebar's WindowDragHandleView handles
+            // drag-to-move via performDrag with temporary movable override.
+            // isMovableByWindowBackground=true breaks tab reordering, and
+            // isMovable=true blocks clicks on sidebar buttons in minimal mode.
             window.isMovableByWindowBackground = false
-            // Keep the window immovable by default so titlebar controls (like the folder icon)
-            // cannot accidentally initiate native window drags.
             window.isMovable = false
             window.styleMask.insert(.fullSizeContentView)
 
@@ -3620,6 +3746,7 @@ struct ContentView: View {
                         ForEach(Array(visibleResults.enumerated()), id: \.element.id) { index, result in
                             let isSelected = index == selectedIndex
                             let isHovered = commandPaletteHoveredResultIndex == index
+                            let trailingLabel = commandPaletteTrailingLabel(for: result.command)
                             let rowBackground: Color = isSelected
                                 ? cmuxAccentColor().opacity(0.12)
                                 : (isHovered ? Color.primary.opacity(0.08) : .clear)
@@ -3627,37 +3754,28 @@ struct ContentView: View {
                             Button {
                                 runCommandPaletteResult(commandID: result.id)
                             } label: {
-                                HStack(spacing: 8) {
-                                    commandPaletteHighlightedTitleText(
-                                        result.command.title,
-                                        matchedIndices: result.titleMatchIndices
-                                    )
-                                        .font(.system(size: 13, weight: .regular))
-                                        .lineLimit(1)
-                                    Spacer()
-
-                                    if let trailingLabel = commandPaletteTrailingLabel(for: result.command) {
-                                        switch trailingLabel.style {
-                                        case .shortcut:
-                                            Text(trailingLabel.text)
-                                                .font(.system(size: 11, weight: .medium))
-                                                .foregroundStyle(.secondary)
-                                                .padding(.horizontal, 4)
-                                                .padding(.vertical, 1)
-                                                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                                        case .kind:
-                                            Text(trailingLabel.text)
-                                                .font(.system(size: 11, weight: .regular))
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(1)
-                                        }
+                                Group {
+                                    if let liveTitleWorkspace = result.command.liveTitleWorkspace {
+                                        CommandPaletteLiveWorkspaceResultLabel(
+                                            workspace: liveTitleWorkspace,
+                                            command: result.command,
+                                            matchingQuery: commandPaletteQueryForMatching,
+                                            fallbackMatchIndices: result.titleMatchIndices,
+                                            trailingLabel: trailingLabel
+                                        )
+                                    } else {
+                                        Self.commandPaletteResultLabelContent(
+                                            title: result.command.title,
+                                            matchedIndices: result.titleMatchIndices,
+                                            trailingLabel: trailingLabel
+                                        )
                                     }
                                 }
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 2)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(rowBackground)
-                                .contentShape(Rectangle())
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(rowBackground)
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("CommandPaletteResultRow.\(index)")
@@ -3723,19 +3841,6 @@ struct ContentView: View {
             scheduleCommandPaletteResultsRefresh(query: newValue)
             updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
             syncCommandPaletteDebugStateForObservedWindow()
-        }
-        .onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
-            Task { @MainActor in
-                // Let the query-state transition settle first so the forced corpus refresh
-                // cannot rebuild the old command list after deleting the ">" prefix.
-                await Task.yield()
-                scheduleCommandPaletteResultsRefresh(
-                    query: commandPaletteQuery,
-                    forceSearchCorpusRefresh: true
-                )
-                updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
-                syncCommandPaletteDebugStateForObservedWindow()
-            }
         }
         .onChange(of: commandPaletteResultsRevision) { _ in
             let resultIDs = cachedCommandPaletteResults.map(\.id)
@@ -4107,6 +4212,78 @@ struct ContentView: View {
             includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries,
             commandsContext: scope == .commands ? commandPaletteCachedCommandsContext() : nil
         )
+    }
+
+    private var commandPaletteOverlayRenderFingerprint: Int {
+        var hasher = Hasher()
+        switch commandPaletteMode {
+        case .commands:
+            hasher.combine("commands")
+        case .renameInput(let target):
+            hasher.combine("renameInput")
+            combineCommandPaletteRenameTarget(target, into: &hasher)
+        case .renameConfirm(let target, let proposedName):
+            hasher.combine("renameConfirm")
+            combineCommandPaletteRenameTarget(target, into: &hasher)
+            hasher.combine(proposedName)
+        }
+        hasher.combine(commandPaletteQuery)
+        hasher.combine(commandPaletteRenameDraft)
+        hasher.combine(commandPaletteListScope.rawValue)
+        hasher.combine(commandPaletteSearchAllSurfaces)
+        hasher.combine(commandPaletteSelectedResultIndex)
+        hasher.combine(commandPaletteSelectionAnchorCommandID)
+        hasher.combine(commandPaletteHoveredResultIndex)
+        hasher.combine(commandPaletteScrollTargetIndex)
+        hasher.combine(commandPaletteScrollTargetAnchor?.x)
+        hasher.combine(commandPaletteScrollTargetAnchor?.y)
+        hasher.combine(commandPaletteVisibleResultsScope?.rawValue)
+        hasher.combine(commandPaletteVisibleResultsFingerprint)
+        hasher.combine(cachedCommandPaletteScope?.rawValue)
+        hasher.combine(cachedCommandPaletteFingerprint)
+        hasher.combine(isCommandPaletteSearchPending)
+        hasher.combine(commandPaletteSearchRequestID)
+        hasher.combine(commandPaletteResolvedSearchRequestID)
+        hasher.combine(commandPaletteResolvedSearchScope?.rawValue)
+        hasher.combine(commandPaletteResolvedSearchFingerprint)
+        hasher.combine(commandPaletteResolvedMatchingQuery)
+        hasher.combine(commandPaletteResultsRevision)
+        combineCommandPalettePendingActivation(commandPalettePendingActivation, into: &hasher)
+        return hasher.finalize()
+    }
+
+    private func combineCommandPaletteRenameTarget(
+        _ target: CommandPaletteRenameTarget,
+        into hasher: inout Hasher
+    ) {
+        switch target.kind {
+        case .workspace(let workspaceId):
+            hasher.combine("workspace")
+            hasher.combine(workspaceId)
+        case .tab(let workspaceId, let panelId):
+            hasher.combine("tab")
+            hasher.combine(workspaceId)
+            hasher.combine(panelId)
+        }
+    }
+
+    private func combineCommandPalettePendingActivation(
+        _ activation: CommandPalettePendingActivation?,
+        into hasher: inout Hasher
+    ) {
+        switch activation {
+        case .selected(let requestID, let fallbackSelectedIndex, let preferredCommandID):
+            hasher.combine("selected")
+            hasher.combine(requestID)
+            hasher.combine(fallbackSelectedIndex)
+            hasher.combine(preferredCommandID)
+        case .command(let requestID, let commandID):
+            hasher.combine("command")
+            hasher.combine(requestID)
+            hasher.combine(commandID)
+        case nil:
+            hasher.combine("none")
+        }
     }
 
     nonisolated private static func commandPaletteListScope(for query: String) -> CommandPaletteListScope {
@@ -4488,7 +4665,6 @@ struct ContentView: View {
         }
 
         return currentMatchingQuery == resolvedMatchingQuery
-            || currentMatchingQuery.hasPrefix(resolvedMatchingQuery)
     }
 
     private func scheduleCommandPaletteResultsRefresh(
@@ -4656,7 +4832,6 @@ struct ContentView: View {
                 workspaces: commandPaletteOrderedSwitcherWorkspaces(for: context).map { workspace in
                     CommandPaletteSwitcherFingerprintWorkspace(
                         id: workspace.id,
-                        displayName: workspaceDisplayName(workspace),
                         metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
                         surfaces: includeSurfaces
                             ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
@@ -4683,7 +4858,7 @@ struct ContentView: View {
         return Self.commandPaletteSwitcherFingerprint(windowContexts: fingerprintContexts)
     }
 
-    private func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
+    private static func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
         guard !matchedIndices.isEmpty else {
             return Text(title).foregroundColor(.primary)
         }
@@ -4709,6 +4884,46 @@ struct ContentView: View {
         }
 
         return result
+    }
+
+    @ViewBuilder
+    private static func commandPaletteTrailingLabelView(_ trailingLabel: CommandPaletteTrailingLabel?) -> some View {
+        if let trailingLabel {
+            switch trailingLabel.style {
+            case .shortcut:
+                Text(trailingLabel.text)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(
+                        Color.primary.opacity(0.08),
+                        in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    )
+            case .kind:
+                Text(trailingLabel.text)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private static func commandPaletteResultLabelContent(
+        title: String,
+        matchedIndices: Set<Int>,
+        trailingLabel: CommandPaletteTrailingLabel?
+    ) -> some View {
+        HStack(spacing: 8) {
+            commandPaletteHighlightedTitleText(
+                title,
+                matchedIndices: matchedIndices
+            )
+                .font(.system(size: 13, weight: .regular))
+                .lineLimit(1)
+            Spacer()
+            commandPaletteTrailingLabelView(trailingLabel)
+        }
     }
 
     private func commandPaletteTrailingLabel(for command: CommandPaletteCommand) -> CommandPaletteTrailingLabel? {
@@ -4765,10 +4980,11 @@ struct ContentView: View {
                         id: workspaceCommandId,
                         rank: nextRank,
                         title: workspaceName,
-                        subtitle: commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
+                        subtitle: Self.commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
                         shortcutHint: nil,
                         kindLabel: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"),
                         keywords: workspaceKeywords,
+                        liveTitleWorkspace: workspace,
                         dismissOnRun: true,
                         action: {
                             focusCommandPaletteSwitcherTarget(
@@ -4810,7 +5026,7 @@ struct ContentView: View {
                             id: surfaceCommandId,
                             rank: nextRank,
                             title: surfaceName,
-                            subtitle: commandPaletteSwitcherSubtitle(base: workspaceName, windowLabel: context.windowLabel),
+                            subtitle: Self.commandPaletteSwitcherSubtitle(base: workspaceName, windowLabel: context.windowLabel),
                             shortcutHint: nil,
                             kindLabel: surfaceKindLabel,
                             keywords: surfaceKeywords,
@@ -4882,7 +5098,7 @@ struct ContentView: View {
         return contexts
     }
 
-    private func commandPaletteSwitcherSubtitle(base: String, windowLabel: String?) -> String {
+    private static func commandPaletteSwitcherSubtitle(base: String, windowLabel: String?) -> String {
         guard let windowLabel else { return base }
         return "\(base) • \(windowLabel)"
     }
@@ -5113,6 +5329,8 @@ struct ContentView: View {
             return .toggleBrowserDeveloperTools
         case "palette.browserConsole":
             return .showBrowserJavaScriptConsole
+        case "palette.browserReactGrab":
+            return .toggleReactGrab
         case "palette.browserSplitRight", "palette.terminalSplitBrowserRight":
             return .splitBrowserRight
         case "palette.browserSplitDown", "palette.terminalSplitBrowserDown":
@@ -5741,6 +5959,15 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.browserReactGrab",
+                title: constant(String(localized: "command.browserReactGrab.title", defaultValue: "Toggle React Grab")),
+                subtitle: browserPanelSubtitle,
+                keywords: ["browser", "react", "grab", "inspect", "element"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.browserZoomIn",
                 title: constant(String(localized: "command.browserZoomIn.title", defaultValue: "Zoom In")),
                 subtitle: browserPanelSubtitle,
@@ -6223,6 +6450,9 @@ struct ContentView: View {
                 NSSound.beep()
             }
         }
+        registry.register(commandId: "palette.browserReactGrab") {
+            tabManager.toggleReactGrabFocusedBrowser()
+        }
         registry.register(commandId: "palette.browserZoomIn") {
             if !tabManager.zoomInFocusedBrowser() {
                 NSSound.beep()
@@ -6335,13 +6565,17 @@ struct ContentView: View {
         return (workspace, panelId, panel)
     }
 
-    private func workspaceDisplayName(_ workspace: Workspace) -> String {
+    private static func commandPaletteWorkspaceDisplayName(_ workspace: Workspace) -> String {
         let custom = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !custom.isEmpty {
             return custom
         }
         let title = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
         return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
+    }
+
+    private func workspaceDisplayName(_ workspace: Workspace) -> String {
+        Self.commandPaletteWorkspaceDisplayName(workspace)
     }
 
     private func panelDisplayName(workspace: Workspace, panelId: UUID, fallback: String) -> String {
@@ -6443,7 +6677,7 @@ struct ContentView: View {
             hasher.combine(context.workspaces.count)
             for workspace in context.workspaces {
                 hasher.combine(workspace.id)
-                hasher.combine(workspace.displayName)
+                // Keep animated workspace titles from invalidating the live switcher corpus.
                 combineCommandPaletteSwitcherSearchMetadata(workspace.metadata, into: &hasher)
                 hasher.combine(workspace.surfaces.count)
                 for surface in workspace.surfaces {
@@ -6774,13 +7008,13 @@ struct ContentView: View {
         }
 
         let rows = Array(commandPaletteVisibleResults.prefix(20)).map { result in
-            CommandPaletteDebugResultRow(
-                commandId: result.command.id,
-                title: result.command.title,
-                shortcutHint: result.command.shortcutHint,
-                trailingLabel: commandPaletteTrailingLabel(for: result.command)?.text,
-                score: result.score
-            )
+                CommandPaletteDebugResultRow(
+                    commandId: result.command.id,
+                    title: result.command.displayTitle(),
+                    shortcutHint: result.command.shortcutHint,
+                    trailingLabel: commandPaletteTrailingLabel(for: result.command)?.text,
+                    score: result.score
+                )
         }
 
         return CommandPaletteDebugSnapshot(
@@ -8441,6 +8675,132 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
     }
 }
 
+private struct SidebarTabItemSettingsSnapshot: Equatable {
+    let sidebarShortcutHintXOffset: Double
+    let sidebarShortcutHintYOffset: Double
+    let alwaysShowShortcutHints: Bool
+    let showsGitBranch: Bool
+    let usesVerticalBranchLayout: Bool
+    let showsGitBranchIcon: Bool
+    let showsSSH: Bool
+    let openPullRequestLinksInCmuxBrowser: Bool
+    let openPortLinksInCmuxBrowser: Bool
+    let showsNotificationMessage: Bool
+    let activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle
+    let selectionColorHex: String?
+    let notificationBadgeColorHex: String?
+    let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+
+    init(defaults: UserDefaults = .standard) {
+        sidebarShortcutHintXOffset = Self.double(
+            defaults: defaults,
+            key: ShortcutHintDebugSettings.sidebarHintXKey,
+            defaultValue: ShortcutHintDebugSettings.defaultSidebarHintX
+        )
+        sidebarShortcutHintYOffset = Self.double(
+            defaults: defaults,
+            key: ShortcutHintDebugSettings.sidebarHintYKey,
+            defaultValue: ShortcutHintDebugSettings.defaultSidebarHintY
+        )
+        alwaysShowShortcutHints = Self.bool(
+            defaults: defaults,
+            key: ShortcutHintDebugSettings.alwaysShowHintsKey,
+            defaultValue: ShortcutHintDebugSettings.defaultAlwaysShowHints
+        )
+        showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
+        usesVerticalBranchLayout = SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults)
+        showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
+        showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: true)
+        openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
+            defaults: defaults
+        )
+        openPortLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowser(
+            defaults: defaults
+        )
+
+        let hidesAllDetails = SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+        let showsNotificationMessageSetting = SidebarWorkspaceDetailSettings.showsNotificationMessage(
+            defaults: defaults
+        )
+        showsNotificationMessage = SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
+            showNotificationMessage: showsNotificationMessageSetting,
+            hideAllDetails: hidesAllDetails
+        )
+
+        let showsMetadata = Self.bool(defaults: defaults, key: "sidebarShowStatusPills", defaultValue: true)
+        let showsLog = Self.bool(defaults: defaults, key: "sidebarShowLog", defaultValue: true)
+        let showsProgress = Self.bool(defaults: defaults, key: "sidebarShowProgress", defaultValue: true)
+        let showsBranchDirectory = Self.bool(defaults: defaults, key: "sidebarShowBranchDirectory", defaultValue: true)
+        let showsPullRequests = Self.bool(defaults: defaults, key: "sidebarShowPullRequest", defaultValue: true)
+        let showsPorts = Self.bool(defaults: defaults, key: "sidebarShowPorts", defaultValue: true)
+        visibleAuxiliaryDetails = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+            showMetadata: showsMetadata,
+            showLog: showsLog,
+            showProgress: showsProgress,
+            showBranchDirectory: showsBranchDirectory,
+            showPullRequests: showsPullRequests,
+            showPorts: showsPorts,
+            hideAllDetails: hidesAllDetails
+        )
+
+        activeTabIndicatorStyle = SidebarActiveTabIndicatorSettings.current(defaults: defaults)
+        selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
+        notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
+    }
+
+    private static func bool(
+        defaults: UserDefaults,
+        key: String,
+        defaultValue: Bool
+    ) -> Bool {
+        guard defaults.object(forKey: key) != nil else { return defaultValue }
+        return defaults.bool(forKey: key)
+    }
+
+    private static func double(
+        defaults: UserDefaults,
+        key: String,
+        defaultValue: Double
+    ) -> Double {
+        guard let value = defaults.object(forKey: key) as? NSNumber else { return defaultValue }
+        return value.doubleValue
+    }
+}
+
+@MainActor
+private final class SidebarTabItemSettingsStore: ObservableObject {
+    @Published private(set) var snapshot: SidebarTabItemSettingsSnapshot
+
+    private let defaults: UserDefaults
+    private var defaultsObserver: NSObjectProtocol?
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.snapshot = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshSnapshot()
+            }
+        }
+    }
+
+    deinit {
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+        }
+    }
+
+    private func refreshSnapshot() {
+        let nextSnapshot = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        guard nextSnapshot != snapshot else { return }
+        snapshot = nextSnapshot
+    }
+}
+
 struct VerticalTabsSidebar: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @EnvironmentObject var tabManager: TabManager
@@ -8451,12 +8811,9 @@ struct VerticalTabsSidebar: View {
     @StateObject private var modifierKeyMonitor = SidebarShortcutHintModifierMonitor()
     @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
+    @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore()
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
-    @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
-    private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
-    @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
-    private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultsKey)
@@ -8472,10 +8829,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private var showsSidebarNotificationMessage: Bool {
-        SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
-            showNotificationMessage: sidebarShowNotificationMessage,
-            hideAllDetails: sidebarHideAllDetails
-        )
+        tabItemSettingsStore.snapshot.showsNotificationMessage
     }
 
     private var workspaceNumberShortcut: StoredShortcut {
@@ -8494,9 +8848,22 @@ struct VerticalTabsSidebar: View {
     }
 
     var body: some View {
-        let workspaceCount = tabManager.tabs.count
+        let tabs = tabManager.tabs
+        let workspaceCount = tabs.count
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
+        let tabItemSettings = tabItemSettingsStore.snapshot
+        let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
+            ($0.element.id, $0.offset)
+        })
+        let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
+        let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
+        let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
+        let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
+        let allSelectedRemoteContextMenuTargetsConnecting = !selectedRemoteContextMenuTargets.isEmpty &&
+            selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting }
+        let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
+            selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
 
         VStack(spacing: 0) {
             GeometryReader { proxy in
@@ -8508,14 +8875,21 @@ struct VerticalTabsSidebar: View {
                             .frame(height: trafficLightPadding)
 
                         LazyVStack(spacing: tabRowSpacing) {
-                            ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
-                                let selectedContextIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]
-                                let contextTargetIds = tabManager.tabs.compactMap { workspace in
-                                    selectedContextIds.contains(workspace.id) ? workspace.id : nil
-                                }
-                                let remoteContextMenuTargets = tabManager.tabs.filter { workspace in
-                                    contextTargetIds.contains(workspace.id) && workspace.isRemoteWorkspace
-                                }
+                            ForEach(tabs, id: \.id) { tab in
+                                let index = tabIndexById[tab.id] ?? 0
+                                let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
+                                let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
+                                    ? selectedContextTargetIds
+                                    : [tab.id]
+                                let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
+                                    ? selectedRemoteContextMenuWorkspaceIds
+                                    : (tab.isRemoteWorkspace ? [tab.id] : [])
+                                let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
+                                    ? allSelectedRemoteContextMenuTargetsConnecting
+                                    : (tab.isRemoteWorkspace && tab.remoteConnectionState == .connecting)
+                                let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
+                                    ? allSelectedRemoteContextMenuTargetsDisconnected
+                                    : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
                                 TabItemView(
                                     tabManager: tabManager,
                                     notificationStore: notificationStore,
@@ -8547,9 +8921,11 @@ struct VerticalTabsSidebar: View {
                                     dragAutoScrollController: dragAutoScrollController,
                                     draggedTabId: $draggedTabId,
                                     dropIndicator: $dropIndicator,
-                                    remoteContextMenuWorkspaceIds: remoteContextMenuTargets.map(\.id),
-                                    allRemoteContextMenuTargetsConnecting: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting },
-                                    allRemoteContextMenuTargetsDisconnected: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
+                                    contextMenuWorkspaceIds: contextMenuWorkspaceIds,
+                                    remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
+                                    allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
+                                    allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
+                                    settings: tabItemSettings
                                 )
                                 .equatable()
                                 .id(tab.id)
@@ -8611,6 +8987,9 @@ struct VerticalTabsSidebar: View {
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .background(SidebarBackdrop().ignoresSafeArea())
+        .overlay(alignment: .trailing) {
+            SidebarTrailingBorder()
+        }
         .background(
             WindowAccessor { window in
                 modifierKeyMonitor.setHostWindow(window)
@@ -9866,9 +10245,11 @@ private struct TabItemView: View, Equatable {
         lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
+        lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
-        lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected
+        lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
+        lhs.settings == rhs.settings
     }
 
     // Use plain references instead of @EnvironmentObject to avoid subscribing
@@ -9894,33 +10275,14 @@ private struct TabItemView: View, Equatable {
     let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var draggedTabId: UUID?
     @Binding var dropIndicator: SidebarDropIndicator?
+    let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
+    let settings: SidebarTabItemSettingsSnapshot
     @State private var workspaceObservationGeneration: UInt64 = 0
     @State private var isHovering = false
     @State private var rowHeight: CGFloat = 1
-    @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
-    @AppStorage(ShortcutHintDebugSettings.sidebarHintYKey) private var sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
-    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
-    @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
-    @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
-    @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
-    @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
-    @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
-    @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
-    private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
-    @AppStorage(BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey)
-    private var openSidebarPortLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser
-    @AppStorage("sidebarShowSSH") private var sidebarShowSSH = true
-    @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
-    @AppStorage("sidebarShowLog") private var sidebarShowLog = true
-    @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
-    @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
-    @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
-    private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
-    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
-    private var activeTabIndicatorStyleRaw = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -9930,8 +10292,52 @@ private struct TabItemView: View, Equatable {
         draggedTabId == tab.id
     }
 
+    private var sidebarShortcutHintXOffset: Double {
+        settings.sidebarShortcutHintXOffset
+    }
+
+    private var sidebarShortcutHintYOffset: Double {
+        settings.sidebarShortcutHintYOffset
+    }
+
+    private var alwaysShowShortcutHints: Bool {
+        settings.alwaysShowShortcutHints
+    }
+
+    private var sidebarShowGitBranch: Bool {
+        settings.showsGitBranch
+    }
+
+    private var sidebarBranchVerticalLayout: Bool {
+        settings.usesVerticalBranchLayout
+    }
+
+    private var sidebarShowGitBranchIcon: Bool {
+        settings.showsGitBranchIcon
+    }
+
+    private var sidebarShowSSH: Bool {
+        settings.showsSSH
+    }
+
     private var activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
-        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: activeTabIndicatorStyleRaw)
+        settings.activeTabIndicatorStyle
+    }
+
+    private var sidebarSelectionColorHex: String? {
+        settings.selectionColorHex
+    }
+
+    private var sidebarNotificationBadgeColorHex: String? {
+        settings.notificationBadgeColorHex
+    }
+
+    private var openSidebarPullRequestLinksInCmuxBrowser: Bool {
+        settings.openPullRequestLinksInCmuxBrowser
+    }
+
+    private var openSidebarPortLinksInCmuxBrowser: Bool {
+        settings.openPortLinksInCmuxBrowser
     }
 
     private var titleFontWeight: Font.Weight {
@@ -9978,7 +10384,10 @@ private struct TabItemView: View, Equatable {
     }
 
     private var activeUnreadBadgeFillColor: Color {
-        usesInvertedActiveForeground ? Color.white.opacity(0.25) : cmuxAccentColor()
+        if let hex = sidebarNotificationBadgeColorHex, let nsColor = NSColor(hex: hex) {
+            return Color(nsColor: nsColor)
+        }
+        return usesInvertedActiveForeground ? Color.white.opacity(0.25) : cmuxAccentColor()
     }
 
     private var activeProgressTrackColor: Color {
@@ -10095,15 +10504,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
-        SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
-            showMetadata: sidebarShowMetadata,
-            showLog: sidebarShowLog,
-            showProgress: sidebarShowProgress,
-            showBranchDirectory: sidebarShowBranchDirectory,
-            showPullRequests: sidebarShowPullRequest,
-            showPorts: sidebarShowPorts,
-            hideAllDetails: sidebarHideAllDetails
-        )
+        settings.visibleAuxiliaryDetails
     }
 
     var body: some View {
@@ -10521,7 +10922,7 @@ private struct TabItemView: View, Equatable {
 
     @ViewBuilder
     private var workspaceContextMenu: some View {
-        let targetIds = contextTargetIds()
+        let targetIds = contextMenuWorkspaceIds
         let isMulti = targetIds.count > 1
         let tabColorPalette = WorkspaceTabColorSettings.palette()
         let shouldPin = !tab.isPinned
@@ -10723,14 +11124,21 @@ private struct TabItemView: View, Equatable {
         .disabled(!hasReadNotifications(in: targetIds))
     }
 
+    private var selectionBackgroundColor: NSColor {
+        if let hex = sidebarSelectionColorHex, let parsed = NSColor(hex: hex) {
+            return parsed
+        }
+        return cmuxAccentNSColor(for: colorScheme)
+    }
+
     private var backgroundColor: Color {
         switch activeTabIndicatorStyle {
         case .leftRail:
-            if isActive        { return Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme)) }
+            if isActive        { return Color(nsColor: selectionBackgroundColor) }
             if isMultiSelected { return cmuxAccentColor().opacity(0.25) }
             return Color.clear
         case .solidFill:
-            if isActive { return Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme)) }
+            if isActive { return Color(nsColor: selectionBackgroundColor) }
             if let custom = resolvedCustomTabColor {
                 if isMultiSelected { return custom.opacity(0.35) }
                 return custom.opacity(0.7)
@@ -10841,11 +11249,6 @@ private struct TabItemView: View, Equatable {
             )
         }
         setSelectionToTabs()
-    }
-
-    private func contextTargetIds() -> [UUID] {
-        let baseIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]
-        return tabManager.tabs.compactMap { baseIds.contains($0.id) ? $0.id : nil }
     }
 
     private func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {
@@ -12624,7 +13027,70 @@ private struct TitlebarLeadingInsetReader: NSViewRepresentable {
     }
 }
 
+/// 1px trailing border on the sidebar, derived from the terminal chrome background
+/// using the same logic as bonsplit's TabBarColors.nsColorSeparator:
+/// dark bg → lighten RGB by 0.16 at 0.36 alpha; light bg → darken by 0.12 at 0.26 alpha.
+private struct SidebarTrailingBorder: View {
+    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
+    @State private var separatorColor: NSColor = chromeSeparatorColor()
+
+    var body: some View {
+        if matchTerminalBackground {
+            Rectangle()
+                .fill(Color(nsColor: separatorColor))
+                .frame(width: 1)
+                .ignoresSafeArea()
+                .onAppear {
+                    separatorColor = Self.chromeSeparatorColor()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+                    separatorColor = Self.chromeSeparatorColor()
+                }
+        }
+    }
+
+    /// Replicates bonsplit TabBarColors.nsColorSeparator derivation from chrome background.
+    private static func chromeSeparatorColor() -> NSColor {
+        let chrome = GhosttyBackgroundTheme.currentColor()
+        let srgb = chrome.usingColorSpace(.sRGB) ?? chrome
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        srgb.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        let isLight = luminance > 0.5
+        let amount: CGFloat = isLight ? -0.12 : 0.16
+        let alpha: CGFloat = isLight ? 0.26 : 0.36
+        return NSColor(
+            red: min(1.0, max(0.0, r + amount)),
+            green: min(1.0, max(0.0, g + amount)),
+            blue: min(1.0, max(0.0, b + amount)),
+            alpha: alpha
+        )
+    }
+}
+
+/// Sidebar background that uses the same technique as TitlebarLayerBackground:
+/// fully opaque layer color + layer-level opacity. This matches how the terminal's
+/// Metal surface composites its background.
+private struct SidebarTerminalBackgroundView: NSViewRepresentable {
+    let backgroundColor: NSColor
+    let opacity: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
+        view.layer?.opacity = Float(opacity)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        nsView.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
+        nsView.layer?.opacity = Float(opacity)
+    }
+}
+
 private struct SidebarBackdrop: View {
+    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
@@ -12635,8 +13101,27 @@ private struct SidebarBackdrop: View {
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
     @Environment(\.colorScheme) private var colorScheme
+    @State private var terminalBackgroundColor: NSColor = GhosttyBackgroundTheme.currentColor()
 
     var body: some View {
+        let cornerRadius = CGFloat(max(0, sidebarCornerRadius))
+
+        if matchTerminalBackground {
+            // The terminal background is provided by a single CALayer, so
+            // the sidebar uses the configured opacity directly.
+            let alpha = CGFloat(GhosttyApp.shared.defaultBackgroundOpacity)
+            return AnyView(
+                SidebarTerminalBackgroundView(
+                    backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
+                    opacity: alpha
+                )
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+                    terminalBackgroundColor = GhosttyBackgroundTheme.currentColor()
+                }
+            )
+        }
+
         let materialOption = SidebarMaterialOption(rawValue: sidebarMaterial)
         let blendingMode = SidebarBlendModeOption(rawValue: sidebarBlendMode)?.mode ?? .behindWindow
         let state = SidebarStateOption(rawValue: sidebarState)?.state ?? .active
@@ -12649,33 +13134,34 @@ private struct SidebarBackdrop: View {
             return sidebarTintHex
         }()
         let tintColor = (NSColor(hex: resolvedHex) ?? NSColor(hex: sidebarTintHex) ?? .black).withAlphaComponent(sidebarTintOpacity)
-        let cornerRadius = CGFloat(max(0, sidebarCornerRadius))
         let useLiquidGlass = materialOption?.usesLiquidGlass ?? false
         let useWindowLevelGlass = useLiquidGlass && blendingMode == .behindWindow
 
-        return ZStack {
-            if let material = materialOption?.material {
-                // When using liquidGlass + behindWindow, window handles glass + tint
-                // Sidebar is fully transparent
-                if !useWindowLevelGlass {
-                    SidebarVisualEffectBackground(
-                        material: material,
-                        blendingMode: blendingMode,
-                        state: state,
-                        opacity: sidebarBlurOpacity,
-                        tintColor: tintColor,
-                        cornerRadius: cornerRadius,
-                        preferLiquidGlass: useLiquidGlass
-                    )
-                    // Tint overlay for NSVisualEffectView fallback
-                    if !useLiquidGlass {
-                        Color(nsColor: tintColor)
+        return AnyView(
+            ZStack {
+                if let material = materialOption?.material {
+                    // When using liquidGlass + behindWindow, window handles glass + tint
+                    // Sidebar is fully transparent
+                    if !useWindowLevelGlass {
+                        SidebarVisualEffectBackground(
+                            material: material,
+                            blendingMode: blendingMode,
+                            state: state,
+                            opacity: sidebarBlurOpacity,
+                            tintColor: tintColor,
+                            cornerRadius: cornerRadius,
+                            preferLiquidGlass: useLiquidGlass
+                        )
+                        // Tint overlay for NSVisualEffectView fallback
+                        if !useLiquidGlass {
+                            Color(nsColor: tintColor)
+                        }
                     }
                 }
+                // When material is none or useWindowLevelGlass, render nothing
             }
-            // When material is none or useWindowLevelGlass, render nothing
-        }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        )
     }
 }
 

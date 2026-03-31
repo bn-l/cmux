@@ -164,6 +164,8 @@ struct cmuxApp: App {
     private var toggleBrowserDeveloperToolsShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultsKey)
     private var showBrowserJavaScriptConsoleShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.toggleReactGrab.defaultsKey)
+    private var toggleReactGrabShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
@@ -474,14 +476,12 @@ struct cmuxApp: App {
 
                 Divider()
                 Menu("Debug Windows") {
-                    Button("Debug Window Controls…") {
-                        DebugWindowControlsWindowController.shared.show()
+                    Button("Background Debug…") {
+                        BackgroundDebugWindowController.shared.show()
                     }
-
                     Button("Browser Import Hint Debug…") {
                         BrowserImportHintDebugWindowController.shared.show()
                     }
-
                     Button(
                         String(
                             localized: "debug.menu.browserProfilePopoverDebug",
@@ -490,26 +490,21 @@ struct cmuxApp: App {
                     ) {
                         BrowserProfilePopoverDebugWindowController.shared.show()
                     }
-
-                    Button("Settings/About Titlebar Debug…") {
-                        SettingsAboutTitlebarDebugWindowController.shared.show()
+                    Button("Debug Window Controls…") {
+                        DebugWindowControlsWindowController.shared.show()
                     }
-
-                    Divider()
-                    Button("Sidebar Debug…") {
-                        SidebarDebugWindowController.shared.show()
-                    }
-
-                    Button("Background Debug…") {
-                        BackgroundDebugWindowController.shared.show()
-                    }
-
                     Button("Menu Bar Extra Debug…") {
                         MenuBarExtraDebugWindowController.shared.show()
                     }
-
-                    Divider()
-
+                    Button("Settings/About Titlebar Debug…") {
+                        SettingsAboutTitlebarDebugWindowController.shared.show()
+                    }
+                    Button("Sidebar Debug…") {
+                        SidebarDebugWindowController.shared.show()
+                    }
+                    Button("Split Button Layout Debug…") {
+                        SplitButtonLayoutDebugWindowController.shared.show()
+                    }
                     Button("Open All Debug Windows") {
                         openAllDebugWindows()
                     }
@@ -724,6 +719,10 @@ struct cmuxApp: App {
                     }
                 }
 
+                splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: toggleReactGrabMenuShortcut) {
+                    activeTabManager.toggleReactGrabFocusedBrowser()
+                }
+
                 Button(String(localized: "menu.view.zoomIn", defaultValue: "Zoom In")) {
                     _ = activeTabManager.zoomInFocusedBrowser()
                 }
@@ -929,6 +928,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: showBrowserJavaScriptConsoleShortcutData,
             fallback: KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultShortcut
+        )
+    }
+
+    private var toggleReactGrabMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: toggleReactGrabShortcutData,
+            fallback: KeyboardShortcutSettings.Action.toggleReactGrab.defaultShortcut
         )
     }
 
@@ -2858,6 +2864,7 @@ private struct AboutPanelView: View {
 }
 
 private struct SidebarDebugView: View {
+    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
@@ -2880,6 +2887,7 @@ private struct SidebarDebugView: View {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
 
     private var selectedSidebarIndicatorStyle: SidebarActiveTabIndicatorStyle {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
@@ -2892,11 +2900,28 @@ private struct SidebarDebugView: View {
         )
     }
 
+    private var selectionColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                if let hex = sidebarSelectionColorHex, let nsColor = NSColor(hex: hex) {
+                    return Color(nsColor: nsColor)
+                }
+                return cmuxAccentColor()
+            },
+            set: { newColor in
+                let nsColor = NSColor(newColor)
+                sidebarSelectionColorHex = nsColor.hexString()
+            }
+        )
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Sidebar Appearance")
                     .font(.headline)
+
+                Toggle(String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), isOn: $matchTerminalBackground)
 
                 GroupBox("Presets") {
                     Picker("Preset", selection: $sidebarPreset) {
@@ -2999,6 +3024,15 @@ private struct SidebarDebugView: View {
                                 Text(style.displayName).tag(style.rawValue)
                             }
                         }
+
+                        ColorPicker(String(localized: "sidebar.debug.selectionColor", defaultValue: "Selection Color"), selection: selectionColorBinding, supportsOpacity: false)
+
+                        if sidebarSelectionColorHex != nil {
+                            Button(String(localized: "sidebar.debug.resetSelectionColor", defaultValue: "Reset to Default")) {
+                                sidebarSelectionColorHex = nil
+                            }
+                            .font(.caption)
+                        }
                     }
                     .padding(.top, 2)
                 }
@@ -3034,6 +3068,7 @@ private struct SidebarDebugView: View {
                     }
                     Button("Reset Active Indicator") {
                         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+                        sidebarSelectionColorHex = nil
                     }
                 }
 
@@ -3300,6 +3335,76 @@ private struct MenuBarExtraDebugView: View {
 
     private func applyLiveUpdate() {
         AppDelegate.shared?.refreshMenuBarExtraForDebug()
+    }
+}
+
+// MARK: - Split Button Layout Debug Window
+
+private final class SplitButtonLayoutDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = SplitButtonLayoutDebugWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Split Button Layout"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.splitButtonLayoutDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: SplitButtonLayoutDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct SplitButtonLayoutDebugView: View {
+    @AppStorage("debugFadeColorStyle") private var backdropStyle = 0
+
+    private let options: [(Int, String)] = [
+        (0, "Pre-composited paneBackground"),
+        (1, "Raw paneBackground (opaque)"),
+        (2, "barBackground (tab chrome)"),
+        (3, "windowBackgroundColor"),
+        (4, "controlBackgroundColor"),
+        (5, "Pre-composited barBackground"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Button Backdrop Color")
+                .font(.headline)
+
+            ForEach(options, id: \.0) { id, label in
+                HStack {
+                    Image(systemName: backdropStyle == id ? "checkmark.circle.fill" : "circle")
+                        .foregroundColor(backdropStyle == id ? .accentColor : .secondary)
+                    Text(label)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { backdropStyle = id }
+            }
+
+            Text("Changes apply live.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 
@@ -3665,6 +3770,41 @@ enum AppIconMode: String, CaseIterable, Identifiable {
 enum AppIconSettings {
     static let modeKey = "appIconMode"
     static let defaultMode: AppIconMode = .automatic
+    private static let dockTileIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
+
+    struct Environment {
+        let imageForMode: (AppIconMode) -> NSImage?
+        let setApplicationIconImage: (NSImage) -> Void
+        let startAppearanceObservation: () -> Void
+        let stopAppearanceObservation: () -> Void
+        let notifyDockTilePlugin: () -> Void
+
+        static func live() -> Self {
+            Self(
+                imageForMode: { mode in
+                    guard let imageName = mode.imageName else { return nil }
+                    return NSImage(named: imageName)
+                },
+                setApplicationIconImage: { icon in
+                    NSApplication.shared.applicationIconImage = icon
+                },
+                startAppearanceObservation: {
+                    AppIconAppearanceObserver.shared.startObserving()
+                },
+                stopAppearanceObservation: {
+                    AppIconAppearanceObserver.shared.stopObserving()
+                },
+                notifyDockTilePlugin: {
+                    DistributedNotificationCenter.default().postNotificationName(
+                        AppIconSettings.dockTileIconDidChangeNotification,
+                        object: nil,
+                        userInfo: nil,
+                        deliverImmediately: true
+                    )
+                }
+            )
+        }
+    }
 
     static func resolvedMode(defaults: UserDefaults = .standard) -> AppIconMode {
         guard let raw = defaults.string(forKey: modeKey),
@@ -3674,21 +3814,21 @@ enum AppIconSettings {
         return mode
     }
 
-    static func applyIcon(_ mode: AppIconMode) {
+    static func applyIcon(_ mode: AppIconMode, environment: Environment = .live()) {
         switch mode {
         case .automatic:
-            AppIconAppearanceObserver.shared.startObserving()
+            environment.startAppearanceObservation()
         case .light:
-            AppIconAppearanceObserver.shared.stopObserving()
-            if let icon = NSImage(named: "AppIconLight") {
-                NSApplication.shared.applicationIconImage = icon
-            }
+            environment.stopAppearanceObservation()
+            guard let icon = environment.imageForMode(.light) else { return }
+            environment.setApplicationIconImage(icon)
         case .dark:
-            AppIconAppearanceObserver.shared.stopObserving()
-            if let icon = NSImage(named: "AppIconDark") {
-                NSApplication.shared.applicationIconImage = icon
-            }
+            environment.stopAppearanceObservation()
+            guard let icon = environment.imageForMode(.dark) else { return }
+            environment.setApplicationIconImage(icon)
         }
+
+        environment.notifyDockTilePlugin()
     }
 }
 
@@ -3751,6 +3891,22 @@ enum CommandPaletteRenameSelectionSettings {
     }
 }
 
+enum TerminalCopyOnSelectSettings {
+    static let enabledKey = "terminalCopyOnSelectEnabled"
+    static let defaultEnabled = false
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func overrideConfigLine(defaults: UserDefaults = .standard) -> String {
+        isEnabled(defaults: defaults) ? "copy-on-select = clipboard" : "copy-on-select = false"
+    }
+}
+
 enum CommandPaletteSwitcherSearchSettings {
     static let searchAllSurfacesKey = "commandPalette.switcherSearchAllSurfaces"
     static let defaultSearchAllSurfaces = false
@@ -3779,6 +3935,51 @@ enum WelcomeSettings {
     static let shownKey = "cmuxWelcomeShown"
 }
 
+enum PreferredEditorSettings {
+    static let key = "preferredEditorCommand"
+
+    /// Returns the configured editor command, or nil to use system default.
+    static func resolvedCommand(defaults: UserDefaults = .standard) -> String? {
+        guard let stored = defaults.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !stored.isEmpty else {
+            return nil
+        }
+        return stored
+    }
+
+    /// Open a file path with the user's preferred editor, falling back to system default.
+    static func open(_ url: URL) {
+        guard let command = resolvedCommand() else {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        let path = url.path
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "\(command) \(shellQuote(path))"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            // Check exit status on a background thread; fall back on failure
+            // (e.g. command not found exits 127 but /bin/sh itself succeeds)
+            DispatchQueue.global(qos: .userInitiated).async {
+                process.waitUntilExit()
+                if process.terminationStatus != 0 {
+                    DispatchQueue.main.async { NSWorkspace.shared.open(url) }
+                }
+            }
+        } catch {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private static func shellQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
@@ -3792,6 +3993,7 @@ struct SettingsView: View {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+    @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
     @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -3800,6 +4002,7 @@ struct SettingsView: View {
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
+    @AppStorage(ReactGrabSettings.versionKey) private var reactGrabVersion = ReactGrabSettings.defaultVersion
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
     @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
@@ -3818,6 +4021,8 @@ struct SettingsView: View {
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+    @AppStorage(TerminalCopyOnSelectSettings.enabledKey)
+    private var terminalCopyOnSelectEnabled = TerminalCopyOnSelectSettings.defaultEnabled
     @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
     private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
@@ -3835,6 +4040,8 @@ struct SettingsView: View {
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
+    @AppStorage("sidebarNotificationBadgeColorHex") private var sidebarNotificationBadgeColorHex: String?
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
@@ -3852,6 +4059,7 @@ struct SettingsView: View {
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
+    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @State private var shortcutResetToken = UUID()
@@ -3935,6 +4143,19 @@ struct SettingsView: View {
         )
     }
 
+    private var terminalCopyOnSelectSubtitle: String {
+        if terminalCopyOnSelectEnabled {
+            return String(
+                localized: "settings.app.copyOnSelect.subtitleOn",
+                defaultValue: "Automatically copy selected terminal text to the system clipboard."
+            )
+        }
+        return String(
+            localized: "settings.app.copyOnSelect.subtitleOff",
+            defaultValue: "Selecting terminal text does not copy it to the system clipboard."
+        )
+    }
+
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
     }
@@ -3943,6 +4164,36 @@ struct SettingsView: View {
         Binding(
             get: { selectedSidebarActiveTabIndicatorStyle.rawValue },
             set: { sidebarActiveTabIndicatorStyle = $0 }
+        )
+    }
+
+    private var selectionColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                if let hex = sidebarSelectionColorHex, let nsColor = NSColor(hex: hex) {
+                    return Color(nsColor: nsColor)
+                }
+                return cmuxAccentColor()
+            },
+            set: { newColor in
+                let nsColor = NSColor(newColor)
+                sidebarSelectionColorHex = nsColor.hexString()
+            }
+        )
+    }
+
+    private var notificationBadgeColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                if let hex = sidebarNotificationBadgeColorHex, let nsColor = NSColor(hex: hex) {
+                    return Color(nsColor: nsColor)
+                }
+                return cmuxAccentColor()
+            },
+            set: { newColor in
+                let nsColor = NSColor(newColor)
+                sidebarNotificationBadgeColorHex = nsColor.hexString()
+            }
         )
     }
 
@@ -4427,6 +4678,34 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            String(localized: "settings.app.copyOnSelect", defaultValue: "Copy on Select"),
+                            subtitle: terminalCopyOnSelectSubtitle
+                        ) {
+                            Toggle("", isOn: $terminalCopyOnSelectEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.copyOnSelect", defaultValue: "Copy on Select")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"),
+                            subtitle: String(localized: "settings.app.preferredEditor.subtitle", defaultValue: "Command to open files on Cmd-click. Leave empty for system default.")
+                        ) {
+                            TextField(
+                                String(localized: "settings.app.preferredEditor.placeholder", defaultValue: "e.g. code, zed, subl"),
+                                text: $preferredEditorCommand
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 200)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"),
                             subtitle: String(localized: "settings.app.reorderOnNotification.subtitle", defaultValue: "Move workspaces to the top when they receive a notification. Disable for stable shortcut positions.")
                         ) {
@@ -4800,6 +5079,66 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"),
+                            subtitle: String(localized: "settings.workspaceColors.selectionColor.subtitle", defaultValue: "Background color of the selected workspace in the sidebar.")
+                        ) {
+                            HStack(spacing: 8) {
+                                if sidebarSelectionColorHex != nil {
+                                    Button(String(localized: "settings.workspaceColors.selectionColor.reset", defaultValue: "Reset")) {
+                                        sidebarSelectionColorHex = nil
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+
+                                ColorPicker(
+                                    "",
+                                    selection: selectionColorBinding,
+                                    supportsOpacity: false
+                                )
+                                .labelsHidden()
+                                .frame(width: 38)
+
+                                Text(sidebarSelectionColorHex ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 76, alignment: .trailing)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"),
+                            subtitle: String(localized: "settings.workspaceColors.notificationBadgeColor.subtitle", defaultValue: "Color of the unread notification badge on workspace tabs.")
+                        ) {
+                            HStack(spacing: 8) {
+                                if sidebarNotificationBadgeColorHex != nil {
+                                    Button(String(localized: "settings.workspaceColors.notificationBadgeColor.reset", defaultValue: "Reset")) {
+                                        sidebarNotificationBadgeColorHex = nil
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+
+                                ColorPicker(
+                                    "",
+                                    selection: notificationBadgeColorBinding,
+                                    supportsOpacity: false
+                                )
+                                .labelsHidden()
+                                .frame(width: 38)
+
+                                Text(sidebarNotificationBadgeColorHex ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 76, alignment: .trailing)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardNote(String(localized: "settings.workspaceColors.paletteNote", defaultValue: "Customize the workspace color palette used by Sidebar > Workspace Color. \"Choose Custom Color...\" entries are persisted below."))
 
                         ForEach(Array(workspaceTabDefaultEntries.enumerated()), id: \.element.name) { index, entry in
@@ -4876,6 +5215,18 @@ struct SettingsView: View {
 
                     SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar Appearance"))
                     SettingsCard {
+                        SettingsCardRow(
+                            String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"),
+                            subtitle: String(localized: "settings.sidebarAppearance.matchTerminalBackground.subtitle", defaultValue: "Use the same background color and transparency as the terminal.")
+                        ) {
+                            Toggle("", isOn: $sidebarMatchTerminalBackground)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardRow(
                             String(localized: "settings.sidebarAppearance.tintColorLight", defaultValue: "Light Mode Tint"),
                             subtitle: String(localized: "settings.sidebarAppearance.tintColorLight.subtitle", defaultValue: "Sidebar tint color when using light appearance.")
@@ -5331,6 +5682,19 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            String(localized: "settings.browser.reactGrabVersion", defaultValue: "React Grab Version"),
+                            subtitle: String(localized: "settings.browser.reactGrabVersion.subtitle", defaultValue: "Pinned npm version of react-grab injected by the toolbar button (Cmd+Shift+G). Only versions with a known integrity hash are accepted.")
+                        ) {
+                            TextField("", text: $reactGrabVersion)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 100)
+                                .font(.system(.body, design: .monospaced))
+                                .accessibilityIdentifier("SettingsReactGrabVersionField")
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardRow(String(localized: "settings.browser.history", defaultValue: "Browsing History"), subtitle: browserHistorySubtitle) {
                             Button(String(localized: "settings.browser.history.clearButton", defaultValue: "Clear History…")) {
                                 showClearBrowserHistoryConfirmation = true
@@ -5484,6 +5848,9 @@ struct SettingsView: View {
         .onChange(of: notificationSoundCustomFilePath) { _, _ in
             refreshNotificationCustomSoundStatus()
         }
+        .onChange(of: terminalCopyOnSelectEnabled) { _, _ in
+            GhosttyApp.shared.reloadConfiguration(source: "settings.copy_on_select")
+        }
         .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
             if browserInsecureHTTPAllowlistDraft == oldValue {
@@ -5581,6 +5948,7 @@ struct SettingsView: View {
         AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+        preferredEditorCommand = ""
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
@@ -5606,6 +5974,7 @@ struct SettingsView: View {
         showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+        terminalCopyOnSelectEnabled = TerminalCopyOnSelectSettings.defaultEnabled
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         ShortcutHintDebugSettings.resetVisibilityDefaults()
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
@@ -5623,6 +5992,8 @@ struct SettingsView: View {
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+        sidebarSelectionColorHex = nil
+        sidebarNotificationBadgeColorHex = nil
         sidebarShowBranchDirectory = true
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
@@ -5637,6 +6008,7 @@ struct SettingsView: View {
         sidebarTintHexLight = nil
         sidebarTintHexDark = nil
         sidebarTintOpacity = SidebarTintDefaults.opacity
+        sidebarMatchTerminalBackground = false
         showOpenAccessConfirmation = false
         pendingOpenAccessMode = nil
         socketPasswordDraft = ""

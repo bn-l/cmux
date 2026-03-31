@@ -523,6 +523,45 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
     }
 
+    func testTerminalCopyOnSelectDefaultsToDisabledWhenUnset() {
+        let suiteName = "cmux.tests.copy-on-select.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.removeObject(forKey: TerminalCopyOnSelectSettings.enabledKey)
+
+        XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.overrideConfigLine(defaults: defaults),
+            "copy-on-select = false"
+        )
+    }
+
+    func testTerminalCopyOnSelectUsesClipboardOverrideWhenEnabled() {
+        let suiteName = "cmux.tests.copy-on-select.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(true, forKey: TerminalCopyOnSelectSettings.enabledKey)
+
+        XCTAssertTrue(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.overrideConfigLine(defaults: defaults),
+            "copy-on-select = clipboard"
+        )
+    }
+
+
     private func rgb255(_ color: NSColor) -> RGB {
         let srgb = color.usingColorSpace(.sRGB)!
         var red: CGFloat = 0
@@ -1994,6 +2033,54 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertFalse(hiraginoRanges.contains("U+AC00-U+D7AF"), "Hangul NOT in Hiragino")
     }
 
+    // MARK: autoInjectedCJKFontMappings
+
+    func testAutoInjectedCJKFontMappingsSkipsRangesCoveredByConfiguredPrimaryFont() throws {
+        let coveredRanges: Set<String> = [
+            "U+3000-U+303F",
+            "U+4E00-U+9FFF",
+            "U+F900-U+FAFF",
+            "U+FF00-U+FFEF",
+            "U+3400-U+4DBF",
+        ]
+
+        try withTempConfig("font-family = Sarasa Mono K\n") { path in
+            XCTAssertNil(
+                GhosttyApp.autoInjectedCJKFontMappings(
+                    preferredLanguages: ["zh-Hans-CN"],
+                    configPaths: [path],
+                    rangeCoverageProbe: { fontFamily, range in
+                        XCTAssertEqual(fontFamily, "Sarasa Mono K")
+                        return coveredRanges.contains(range)
+                    }
+                )
+            )
+        }
+    }
+
+    func testAutoInjectedCJKFontMappingsKeepsOnlyUncoveredRanges() throws {
+        let coveredRanges: Set<String> = [
+            "U+3000-U+303F",
+            "U+4E00-U+9FFF",
+            "U+F900-U+FAFF",
+            "U+FF00-U+FFEF",
+            "U+3400-U+4DBF",
+        ]
+
+        try withTempConfig("font-family = Example CJK Mono\n") { path in
+            let mappings = GhosttyApp.autoInjectedCJKFontMappings(
+                preferredLanguages: ["ja-JP"],
+                configPaths: [path],
+                rangeCoverageProbe: { _, range in
+                    coveredRanges.contains(range)
+                }
+            )!
+
+            XCTAssertEqual(Set(mappings.map(\.0)), Set(["U+3040-U+309F", "U+30A0-U+30FF"]))
+            XCTAssertEqual(Set(mappings.map(\.1)), Set(["Hiragino Sans"]))
+        }
+    }
+
     // MARK: userConfigContainsCJKCodepointMap
 
     func testUserConfigContainsCJKCodepointMapDetectsPresence() throws {
@@ -2237,6 +2324,29 @@ final class GhosttyMouseFocusTests: XCTestCase {
                 GhosttyApp.shouldInjectCJKFontFallback(
                     preferredLanguages: ["zh-Hans-CN"],
                     configPaths: [path]
+                )
+            )
+        }
+    }
+
+    func testShouldInjectCJKFontFallbackSkipsConfiguredFontThatAlreadyCoversMappedRanges() throws {
+        let coveredRanges: Set<String> = [
+            "U+3000-U+303F",
+            "U+4E00-U+9FFF",
+            "U+F900-U+FAFF",
+            "U+FF00-U+FFEF",
+            "U+3400-U+4DBF",
+        ]
+
+        try withTempConfig("font-family = Sarasa Mono K\n") { path in
+            XCTAssertFalse(
+                GhosttyApp.shouldInjectCJKFontFallback(
+                    preferredLanguages: ["zh-Hans-CN"],
+                    configPaths: [path],
+                    rangeCoverageProbe: { fontFamily, range in
+                        XCTAssertEqual(fontFamily, "Sarasa Mono K")
+                        return coveredRanges.contains(range)
+                    }
                 )
             )
         }
