@@ -1059,22 +1059,28 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let hasTitlebarAccessory: () -> Bool = {
-            window.titlebarAccessoryViewControllers.contains {
+        let titlebarAccessory: () -> NSTitlebarAccessoryViewController? = {
+            window.titlebarAccessoryViewControllers.first {
                 $0.view.identifier?.rawValue == "cmux.titlebarControls"
             }
         }
 
-        XCTAssertTrue(hasTitlebarAccessory(), "Expected visible-titlebar mode to attach the titlebar accessory")
+        let accessoryInStandard = titlebarAccessory()
+        XCTAssertNotNil(accessoryInStandard, "Expected visible-titlebar mode to attach the titlebar accessory")
 
         defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
         appDelegate.attachUpdateAccessory(to: window)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertFalse(
-            hasTitlebarAccessory(),
-            "Minimal mode should remove the titlebar accessory instead of keeping a hidden controller attached"
-        )
+        // The accessory stays attached but hides itself in minimal mode to avoid
+        // fragile remove/re-add cycles on mode toggle. Verify it is invisible.
+        let accessoryInMinimal = titlebarAccessory()
+        XCTAssertNotNil(accessoryInMinimal, "Accessory should remain attached in minimal mode (hidden, not removed)")
+        if let accessory = accessoryInMinimal {
+            XCTAssertTrue(accessory.isHidden, "Accessory should be hidden in minimal mode")
+            XCTAssertEqual(accessory.view.alphaValue, 0, "Accessory view alpha should be zero in minimal mode")
+            XCTAssertEqual(accessory.preferredContentSize, .zero, "Accessory preferredContentSize should be zero in minimal mode")
+        }
     }
 
     func testWorkspaceButtonFadeModeDefaultsOffWhenTitlebarVisible() {

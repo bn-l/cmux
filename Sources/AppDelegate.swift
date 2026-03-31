@@ -12876,13 +12876,24 @@ private extension NSWindow {
             if result {
                 dlog("  → browser find command resolved before window menu path")
             } else {
-                dlog("  → browser find command preflight left unclaimed; suppressing replay")
+                dlog("  → browser find command preflight unclaimed; trying menu fallback")
             }
 #endif
-            // The focused web view has already received this Find-family shortcut once.
-            // Do not fall through into the original NSWindow.performKeyEquivalent path,
-            // or WebKit can observe the same key equivalent a second time before AppKit
-            // reaches keyDown/menu fallback.
+            if result {
+                return true
+            }
+            // Web content did not claim this Find-family shortcut. Route to the
+            // main menu so cmux's browser find bar can handle it. Skip the full
+            // NSWindow.performKeyEquivalent path to avoid delivering the event to
+            // the web view a second time.
+            if let mainMenu = NSApp.mainMenu, mainMenu.performKeyEquivalent(with: event) {
+#if DEBUG
+                dlog("  → browser find command resolved by menu fallback")
+#endif
+                return true
+            }
+            // Neither web content nor the menu claimed this shortcut. Suppress
+            // to prevent double-delivery through the view hierarchy.
             return true
         }
 

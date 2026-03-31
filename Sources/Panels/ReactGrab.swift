@@ -64,13 +64,15 @@ enum ReactGrabScriptLoader {
         let url = ReactGrabSettings.scriptURL(for: version)
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
-            if let expectedHash = ReactGrabSettings.knownHashes[version] {
-                let hash = SHA256.hash(data: data)
-                let hex = hash.compactMap { String(format: "%02x", $0) }.joined()
-                guard hex == expectedHash else {
-                    NSLog("ReactGrab: integrity mismatch for v%@ (got %@)", version, hex)
-                    return nil
-                }
+            guard let expectedHash = ReactGrabSettings.knownHashes[version] else {
+                NSLog("ReactGrab: version %@ has no known integrity hash; refusing to load", version)
+                return nil
+            }
+            let hash = SHA256.hash(data: data)
+            let hex = hash.compactMap { String(format: "%02x", $0) }.joined()
+            guard hex == expectedHash else {
+                NSLog("ReactGrab: integrity mismatch for v%@ (got %@)", version, hex)
+                return nil
             }
             guard let script = String(data: data, encoding: .utf8) else { return nil }
             await MainActor.run {
@@ -201,5 +203,21 @@ extension BrowserPanel {
 
     func resetReactGrabState() {
         isReactGrabActive = false
+    }
+
+    /// Check whether the injected script survived a navigation. For full page
+    /// loads the script is destroyed and the state resets to inactive. For SPA
+    /// (pushState/replaceState) navigations the script persists and the state
+    /// is left unchanged so the toolbar button stays in sync.
+    func probeReactGrabState() {
+        webView.evaluateJavaScript("!!window.__REACT_GRAB__") { [weak self] result, _ in
+            guard let self else { return }
+            let scriptPresent = (result as? Bool) ?? false
+            Task { @MainActor in
+                if !scriptPresent {
+                    self.isReactGrabActive = false
+                }
+            }
+        }
     }
 }

@@ -588,7 +588,7 @@ struct BrowserPanelView: View {
             if isWebViewBlank() {
                 refreshEmptyStateImportBrowsers()
             }
-            panel.resetReactGrabState()
+            panel.probeReactGrabState()
         }
         .onChange(of: browserThemeModeRaw) { _ in
             let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
