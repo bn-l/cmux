@@ -1010,8 +1010,11 @@ class TerminalController {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
             let validSurfaceIds = Set(workspace.panels.keys)
             guard validSurfaceIds.contains(panelId) else { return }
-            workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
-            workspace.recomputeListeningPorts()
+            let newValue: [Int]? = ports.isEmpty ? nil : ports
+            if workspace.surfaceListeningPorts[panelId] != newValue {
+                workspace.surfaceListeningPorts[panelId] = newValue
+                workspace.recomputeListeningPorts()
+            }
         }
 
         // Accept connections in background thread
@@ -14717,7 +14720,10 @@ class TerminalController {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
-            tab.gitBranch = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+            let newState = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+            if tab.gitBranch != newState {
+                tab.gitBranch = newState
+            }
         }
         return result
     }
@@ -14883,8 +14889,10 @@ class TerminalController {
                 return
             }
 
-            tab.surfaceListeningPorts[surfaceId] = ports
-            tab.recomputeListeningPorts()
+            if tab.surfaceListeningPorts[surfaceId] != ports {
+                tab.surfaceListeningPorts[surfaceId] = ports
+                tab.recomputeListeningPorts()
+            }
         }
         return result
     }

@@ -4903,12 +4903,12 @@ struct SidebarLogEntry {
     let timestamp: Date
 }
 
-struct SidebarProgressState {
+struct SidebarProgressState: Equatable {
     let value: Double
     let label: String?
 }
 
-struct SidebarGitBranchState {
+struct SidebarGitBranchState: Equatable {
     let branch: String
     let isDirty: Bool
 }
@@ -5537,10 +5537,37 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
     @Published var logEntries: [SidebarLogEntry] = []
-    @Published var progress: SidebarProgressState?
-    @Published var gitBranch: SidebarGitBranchState?
+    // These three are high-frequency telemetry targets. Manual storage with
+    // change guards prevents redundant objectWillChange notifications — same
+    // pattern as the preferredDeveloperToolsVisible fix (2026-03-27).
+    private var _progress: SidebarProgressState?
+    var progress: SidebarProgressState? {
+        get { _progress }
+        set {
+            guard newValue != _progress else { return }
+            objectWillChange.send()
+            _progress = newValue
+        }
+    }
+    private var _gitBranch: SidebarGitBranchState?
+    var gitBranch: SidebarGitBranchState? {
+        get { _gitBranch }
+        set {
+            guard newValue != _gitBranch else { return }
+            objectWillChange.send()
+            _gitBranch = newValue
+        }
+    }
     @Published var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
-    @Published var pullRequest: SidebarPullRequestState?
+    private var _pullRequest: SidebarPullRequestState?
+    var pullRequest: SidebarPullRequestState? {
+        get { _pullRequest }
+        set {
+            guard newValue != _pullRequest else { return }
+            objectWillChange.send()
+            _pullRequest = newValue
+        }
+    }
     @Published var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
@@ -6454,7 +6481,7 @@ final class Workspace: Identifiable, ObservableObject {
                 pullRequest = nil
             }
         }
-        if panelId == focusedPanelId {
+        if panelId == focusedPanelId, gitBranch != state {
             gitBranch = state
         }
     }
@@ -6623,17 +6650,40 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
-        panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
-        panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
-        panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
-        pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
-        manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
-        panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
+        // Guard each @Published collection against no-op reassignment. The
+        // unconditional .filter() pattern fires objectWillChange even when
+        // nothing is removed — with 86 panels sending telemetry, that produced
+        // hundreds of spurious publishes per second.
+        let hasStaleKey: (UUID) -> Bool = { !validSurfaceIds.contains($0) }
+
+        if panelDirectories.keys.contains(where: hasStaleKey) {
+            panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
+        }
+        if panelTitles.keys.contains(where: hasStaleKey) {
+            panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
+        }
+        if panelCustomTitles.keys.contains(where: hasStaleKey) {
+            panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
+        }
+        if pinnedPanelIds.contains(where: hasStaleKey) {
+            pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
+        }
+        if manualUnreadPanelIds.contains(where: hasStaleKey) {
+            manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
+        }
+        if panelGitBranches.keys.contains(where: hasStaleKey) {
+            panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
+        }
+        if surfaceListeningPorts.keys.contains(where: hasStaleKey) {
+            surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
+        }
+        if panelPullRequests.keys.contains(where: hasStaleKey) {
+            panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
+        }
+        // Non-@Published — no objectWillChange concern, prune unconditionally.
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
-        surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
-        panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
     }
 

@@ -222,7 +222,13 @@ struct TmuxWorkspacePaneOverlayView: View {
 
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
-    @ObservedObject var workspace: Workspace
+    private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
+
+    // Plain reference instead of @ObservedObject: avoids subscribing to every
+    // workspace objectWillChange, which caused unthrottled body re-evaluations
+    // across all 19 mounted workspaces. Workspace state is observed via the
+    // throttled .onReceive below (same pattern as TabItemView).
+    let workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     let isFullScreen: Bool
@@ -234,6 +240,7 @@ struct WorkspaceContentView: View {
         _ notificationPayloadHex: String?
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
+    @State private var workspaceObservationGeneration: UInt64 = 0
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @Environment(\.colorScheme) private var colorScheme
@@ -255,6 +262,8 @@ struct WorkspaceContentView: View {
     }
 
     var body: some View {
+        // Force body re-evaluation when throttled workspace observation fires.
+        let _ = workspaceObservationGeneration
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
@@ -384,6 +393,16 @@ struct WorkspaceContentView: View {
             } else {
                 bonsplitView
             }
+        }
+        .onReceive(
+            workspace.objectWillChange
+                .receive(on: RunLoop.main)
+                // Throttle (not debounce) so workspace state refreshes at least
+                // once per interval even under sustained telemetry. Debounce would
+                // starve if publishes never pause for the full interval.
+                .throttle(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main, latest: true)
+        ) { _ in
+            workspaceObservationGeneration &+= 1
         }
     }
 
