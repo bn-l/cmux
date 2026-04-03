@@ -4976,6 +4976,16 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
                         .disabled(sidebarHideAllDetails)
+                        .onChange(of: sidebarShowPullRequest) { newValue in
+                            Task.detached(priority: .utility) {
+                                let value = newValue ? "1" : "0"
+                                let process = Process()
+                                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                                process.arguments = ["tmux", "set-environment", "-g", "CMUX_SIDEBAR_SHOW_PR", value]
+                                try? process.run()
+                                process.waitUntilExit()
+                            }
+                        }
 
                         SettingsCardDivider()
 

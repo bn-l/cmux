@@ -84,6 +84,7 @@ _CMUX_TMUX_SYNC_KEYS=(
     CMUX_TAB_ID
     CMUX_TAG
     CMUX_WORKSPACE_ID
+    CMUX_SIDEBAR_SHOW_PR
 )
 _CMUX_TMUX_SURFACE_SCOPED_KEYS=(
     CMUX_PANEL_ID
@@ -467,6 +468,7 @@ _cmux_start_pr_poll_loop() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    [[ "${CMUX_SIDEBAR_SHOW_PR:-1}" != "0" ]] || return 0
 
     local watch_pwd="${1:-$PWD}"
     local force_restart="${2:-0}"
@@ -484,6 +486,12 @@ _cmux_start_pr_poll_loop() {
     {
         while :; do
             kill -0 "$watch_shell_pid" 2>/dev/null || break
+            # Respect runtime preference changes.
+            if [[ -n "$CMUX_BUNDLE_ID" ]] \
+                && [[ "$(defaults read "$CMUX_BUNDLE_ID" sidebarShowPullRequest 2>/dev/null)" == "0" ]]; then
+                _cmux_clear_pr_for_panel
+                break
+            fi
             _cmux_run_pr_probe_with_timeout "$watch_pwd" || true
             sleep "$interval"
         done
@@ -639,7 +647,7 @@ _cmux_prompt_command() {
         should_restart_pr_poll=1
     fi
 
-    if (( should_restart_pr_poll )); then
+    if (( should_restart_pr_poll )) && [[ "${CMUX_SIDEBAR_SHOW_PR:-1}" != "0" ]]; then
         _CMUX_PR_FORCE=0
         if (( pr_context_changed )); then
             _cmux_clear_pr_for_panel

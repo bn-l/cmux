@@ -3709,6 +3709,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
 
+        // Sidebar PR polling: seed the preference so new shells know whether to poll.
+        // UserDefaults.bool(forKey:) returns false when the key is absent, but the
+        // @AppStorage default is true, so we must distinguish absent from explicit-false.
+        do {
+            let showPRValue: String
+            if UserDefaults.standard.object(forKey: "sidebarShowPullRequest") == nil {
+                showPRValue = "1"
+            } else {
+                showPRValue = UserDefaults.standard.bool(forKey: "sidebarShowPullRequest") ? "1" : "0"
+            }
+            setManagedEnvironmentValue("CMUX_SIDEBAR_SHOW_PR", showPRValue)
+        }
+
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]
                 ?? getenv("PATH").map { String(cString: $0) }
