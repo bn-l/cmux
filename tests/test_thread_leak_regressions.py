@@ -631,19 +631,37 @@ class TestAppearanceChunkedSweepRegression(unittest.TestCase):
 
         final = self.client.debug_reload_counters()
         app_delta = final["app"] - baseline["app"]
+        surface_delta = final["surface"] - baseline["surface"]
         self.assertEqual(
             app_delta, 0,
             "surface-target reload path regressed back to app-wide "
             f"ghostty_app_update_config: baseline={baseline} final={final}",
         )
+        # If surface_delta is 0 the test is vacuous — either
+        # debug_force_appearance no-opped, KVO didn't fire, or the surface
+        # reload path was accidentally skipped. Each appearance change
+        # emits a surface-target RELOAD_CONFIG per live surface, so with
+        # the MIN_SURFACES forced layout a full light→dark→reset cycle
+        # MUST drive several surface_update_config calls.
+        self.assertGreaterEqual(
+            surface_delta, self.MIN_SURFACES,
+            "surface reload path did not run — test is vacuous: "
+            f"baseline={baseline} final={final} min_surfaces={self.MIN_SURFACES}",
+        )
 
     def test_main_loop_responsive_during_chunked_sweep(self) -> None:
         """Phase 5 main-loop liveness: while a chunked sweep with a slow
         applicator is running, the main run loop must continue to service
-        unrelated short commands (here: ``ping``) with small inter-reply
-        gaps. A regression to a synchronous fan-out (or a long tight
-        prequeue loop) would starve ``ping`` replies behind the whole
-        sweep."""
+        unrelated main-queue work with small inter-reply gaps. A regression
+        to a synchronous fan-out (or a long tight prequeue loop) would
+        starve that work behind the whole sweep.
+
+        The probe is ``debug_notification_drain`` — its handler does
+        ``DispatchQueue.main.sync { /* no-op */ }``, so each reply requires
+        the MAIN queue to service an item. ``ping`` would not work here
+        because it returns ``PONG`` directly from the socket handler
+        thread without ever hopping to main.
+        """
         # Pick a slow applicator that guarantees multiple chunks each take
         # meaningful time, but keep total sweep short so the test finishes
         # quickly.
@@ -653,15 +671,18 @@ class TestAppearanceChunkedSweepRegression(unittest.TestCase):
         gap_samples: list[float] = []
         stop = threading.Event()
 
-        def ping_loop() -> None:
-            # Use an independent client so ping doesn't share a socket
-            # with the sweep's driver.
-            pinger = cmux()
-            pinger.connect()
+        def probe_loop() -> None:
+            # Independent client so the probe doesn't share a socket with
+            # the sweep's driver.
+            probe = cmux()
+            probe.connect()
             try:
                 prev = time.monotonic()
                 while not stop.is_set():
-                    pinger.ping()
+                    # debug_notification_drain forces a main-queue sync on
+                    # the server side — the reply is released only after
+                    # main has serviced something.
+                    probe.debug_notification_drain()
                     now = time.monotonic()
                     gap_samples.append((now - prev) * 1000.0)
                     prev = now
@@ -671,12 +692,12 @@ class TestAppearanceChunkedSweepRegression(unittest.TestCase):
             except cmuxError:
                 pass
             finally:
-                pinger.close()
+                probe.close()
 
-        pinger_thread = threading.Thread(target=ping_loop, daemon=True)
-        pinger_thread.start()
+        probe_thread = threading.Thread(target=probe_loop, daemon=True)
+        probe_thread.start()
         try:
-            # Warm-up: let the pinger capture a few baseline samples.
+            # Warm-up: let the probe capture a few baseline samples.
             time.sleep(0.1)
             self.assertEqual(
                 self.client._send_command("debug_force_appearance dark"), "OK",
@@ -684,19 +705,20 @@ class TestAppearanceChunkedSweepRegression(unittest.TestCase):
             self._wait_for_sweep_completion("dark", timeout_s=5.0)
         finally:
             stop.set()
-            pinger_thread.join(timeout=2.0)
+            probe_thread.join(timeout=2.0)
 
-        # We must have at least enough samples to be statistically
-        # meaningful — if the pinger only got one response the sweep
-        # starved it.
+        # We must have enough samples to be statistically meaningful — if
+        # the probe only got one response the sweep starved main entirely.
         self.assertGreater(
             len(gap_samples), 5,
-            f"main loop starved pinger: only {len(gap_samples)} samples",
+            f"main loop starved probe: only {len(gap_samples)} samples",
         )
-        # No single gap should be anywhere near the theoretical
-        # whole-sweep duration. With chunkSize=1 and MIN_SURFACES=3 and
-        # slow_ms=40, a prequeue regression would show a gap >= 120ms;
-        # the cascade implementation yields gaps close to slow_ms.
+        # No single gap should approach the theoretical whole-sweep
+        # duration. With chunkSize=1 and MIN_SURFACES=3 and slow_ms=40, a
+        # prequeue regression would show a gap >= MIN_SURFACES*slow_ms
+        # because the drain's main.sync block would sit behind every
+        # queued chunk. The cascade implementation yields gaps close to
+        # slow_ms (main services the drain between chunks).
         max_gap = max(gap_samples)
         self.assertLess(
             max_gap,
