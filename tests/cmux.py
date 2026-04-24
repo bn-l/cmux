@@ -454,6 +454,15 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def debug_set_sweep_chunk_size(self, n: int) -> None:
+        """DEBUG-only: force the color-scheme sweep's chunk size. Used by the
+        Phase 6.2 regression test to guarantee multi-chunk dispatch without
+        needing >8 live surfaces. debug_reset_appearance_log restores the
+        default (8)."""
+        response = self._send_command(f"debug_set_sweep_chunk_size {int(n)}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def debug_reset_appearance_log(self) -> None:
         """DEBUG-only: clear the appearance sweep event log and reset the
         applicator slow-ms knob."""

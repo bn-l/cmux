@@ -4918,8 +4918,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Chunk size is intentionally small so the main run loop has a chance to
     // service unrelated work (typing, scrolling, other dispatches) between
-    // chunks. 8 matches the Phase 6.2 test bound calculation.
+    // chunks. 8 matches the Phase 6.2 test bound calculation. Exposed as a
+    // var in DEBUG so the Phase 6.2 regression harness can force a tiny
+    // chunk size and reliably exercise multi-chunk + generation-abort paths
+    // without first growing the surface count past 8.
+#if DEBUG
+    nonisolated(unsafe) static var colorSchemeSweepChunkSize: Int = 8
+#else
     private static let colorSchemeSweepChunkSize: Int = 8
+#endif
 
     /// Update every live surface's color scheme so that per-surface conditional
     /// state (`Surface.config_conditional_state.theme`) matches the current

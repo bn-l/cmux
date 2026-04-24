@@ -2076,6 +2076,13 @@ class TerminalController {
                 // lastAppliedColorScheme convergence across all surfaces.
                 return debugSetApplicatorSlowMs(args)
 
+            case "debug_set_sweep_chunk_size":
+                // PLAN_thread_leak.md Phase 6.2 harness. Forces a small chunk
+                // size so the regression test reliably exercises multi-chunk
+                // and generation-abort paths without needing to create >8
+                // surfaces first. Production builds keep the fixed default.
+                return debugSetSweepChunkSize(args)
+
             case "debug_dump_appearance_log":
                 // PLAN_thread_leak.md Phase 6.2 harness. Returns the chunk
                 // event log (gen/index/aborted/applied/scheme) followed by
@@ -2086,6 +2093,7 @@ class TerminalController {
 
             case "debug_reset_appearance_log":
                 AppearanceSweepRecorder.shared.reset()
+                AppDelegate.colorSchemeSweepChunkSize = 8
                 return "OK"
 
             case "debug_pid":
@@ -15398,6 +15406,15 @@ class TerminalController {
             return "ERROR: Usage: debug_set_applicator_slow_ms <ms>"
         }
         AppearanceSweepRecorder.shared.setApplicatorSleepMs(ms)
+        return "OK"
+    }
+
+    private func debugSetSweepChunkSize(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let n = Int(trimmed), n >= 1 else {
+            return "ERROR: Usage: debug_set_sweep_chunk_size <n>=1"
+        }
+        AppDelegate.colorSchemeSweepChunkSize = n
         return "OK"
     }
 

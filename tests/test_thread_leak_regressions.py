@@ -10,8 +10,8 @@ harness commands used here (`debug_notification_drain`, `debug_block_main_ms`,
 TerminalController.swift and will fail with "ERROR: Unknown command" on
 production builds.
 
-Per cmux/CLAUDE.md "Testing policy": tests never run locally. This file is
-wired into CI two ways:
+Per cmux/CLAUDE.md "Testing policy": tests never run locally. CI/VM entry
+points that pick this file up:
   - ``.github/workflows/ci.yml`` ``tests-build-and-lag`` job adds a
     "Run thread-leak regressions" step that launches a tagged cmux DEV and
     invokes ``python3 tests/test_thread_leak_regressions.py``.
@@ -84,10 +84,14 @@ def _parse_socket_health(line: str) -> dict:
 class TestFireAndForgetNotifications(unittest.TestCase):
     def setUp(self) -> None:
         self.client = cmux()
+        self.client.connect()
         self.client.clear_notifications()
 
     def tearDown(self) -> None:
-        self.client.clear_notifications()
+        try:
+            self.client.clear_notifications()
+        finally:
+            self.client.close()
 
     def test_list_after_clear_drain_reads_empty(self) -> None:
         """Even under fire-and-forget, helper-based read-after-write works."""
@@ -112,12 +116,12 @@ class TestSocketHealth(unittest.TestCase):
     """Phase 4: socket_health reports metrics without blocking main."""
 
     def test_socket_health_returns_metrics_line(self) -> None:
-        client = cmux()
-        response = client._send_command("socket_health")
-        self.assertFalse(response.startswith("ERROR"))
-        # Shape: "cap=N current=N peak=N rejected=N"
-        for key in ("cap=", "current=", "peak=", "rejected="):
-            self.assertIn(key, response)
+        with cmux() as client:
+            response = client._send_command("socket_health")
+            self.assertFalse(response.startswith("ERROR"))
+            # Shape: "cap=N current=N peak=N rejected=N"
+            for key in ("cap=", "current=", "peak=", "rejected="):
+                self.assertIn(key, response)
 
 
 class TestNotificationBurstUnderMainBlock(unittest.TestCase):
@@ -130,34 +134,34 @@ class TestNotificationBurstUnderMainBlock(unittest.TestCase):
     """
 
     def test_notify_target_burst_under_main_block(self) -> None:
-        client = cmux()
-        block_ms = 500
-        # Kick a main block that lasts 500ms.
-        self.assertEqual(
-            client._send_command(f"debug_block_main_ms {block_ms}"),
-            "OK",
-        )
+        with cmux() as client:
+            block_ms = 500
+            # Kick a main block that lasts 500ms.
+            self.assertEqual(
+                client._send_command(f"debug_block_main_ms {block_ms}"),
+                "OK",
+            )
 
-        start = time.monotonic()
-        # Fire 50 clear_notifications while main is blocked. Each should
-        # return quickly because the clear is now fire-and-forget.
-        for _ in range(50):
-            # We don't care about the result, just the latency.
-            client._send_command("clear_notifications")
-        elapsed_ms = (time.monotonic() - start) * 1000
+            start = time.monotonic()
+            # Fire 50 clear_notifications while main is blocked. Each should
+            # return quickly because the clear is now fire-and-forget.
+            for _ in range(50):
+                # We don't care about the result, just the latency.
+                client._send_command("clear_notifications")
+            elapsed_ms = (time.monotonic() - start) * 1000
 
-        # With the old .sync contract these would block ~= block_ms each.
-        # With fire-and-forget each returns in well under the block duration,
-        # so the whole batch completes comfortably within one block-duration
-        # window plus slack.
-        self.assertLess(
-            elapsed_ms, block_ms + 1500,
-            f"burst took {elapsed_ms:.0f}ms — fire-and-forget regressed?",
-        )
+            # With the old .sync contract these would block ~= block_ms each.
+            # With fire-and-forget each returns in well under the block duration,
+            # so the whole batch completes comfortably within one block-duration
+            # window plus slack.
+            self.assertLess(
+                elapsed_ms, block_ms + 1500,
+                f"burst took {elapsed_ms:.0f}ms — fire-and-forget regressed?",
+            )
 
-        # Let the main block drain.
-        time.sleep((block_ms / 1000.0) + 0.5)
-        client.debug_notification_drain()
+            # Let the main block drain.
+            time.sleep((block_ms / 1000.0) + 0.5)
+            client.debug_notification_drain()
 
 
 class TestSocketHandlerLimiterUnderConcurrentConnections(unittest.TestCase):
@@ -167,7 +171,11 @@ class TestSocketHandlerLimiterUnderConcurrentConnections(unittest.TestCase):
       - peak_inflight never exceeds cap (the limiter is not leaky).
       - rejected increases OR every over-cap client sees ``server_busy`` (the
         reject path fires when the cap is saturated).
-      - After all clients disconnect, current returns to 0 (no permit leak).
+      - After all clients disconnect, ``current`` returns to the pre-burst
+        baseline (NOT zero — the admin socket still holds its own permit
+        for the entire handler-thread lifetime; see
+        ``TerminalController.swift`` ``handlerLimiter.tryAcquire`` /
+        ``defer { limiter.release() }``).
       - Process FD/thread counts (best-effort) stay bounded and return close
         to baseline.
     """
@@ -202,10 +210,28 @@ class TestSocketHandlerLimiterUnderConcurrentConnections(unittest.TestCase):
 
     def test_concurrent_connection_burst_respects_limiter(self) -> None:
         admin = cmux()
+        admin.connect()
+        try:
+            self._run_concurrent_burst(admin)
+        finally:
+            admin.close()
 
+    def _run_concurrent_burst(self, admin: cmux) -> None:
         baseline_metrics = _parse_socket_health(admin._send_command("socket_health"))
         cap = baseline_metrics["cap"]
         self.assertGreater(cap, 0)
+
+        # The admin connection itself holds exactly one permit for the entire
+        # session (see TerminalController.swift: handlerLimiter.tryAcquire is
+        # paired with `defer { limiter.release() }` scoped to the handler
+        # thread). So `baseline_current` is the floor we expect the limiter
+        # to return to after the burst drains — not zero.
+        baseline_current = baseline_metrics["current"]
+        self.assertGreaterEqual(
+            baseline_current, 1,
+            "admin socket should occupy at least its own permit: "
+            f"{baseline_metrics}",
+        )
 
         # Reset peak/rejected. There's no explicit reset command — capture
         # deltas instead.
@@ -295,16 +321,22 @@ class TestSocketHandlerLimiterUnderConcurrentConnections(unittest.TestCase):
             f"mid={mid} final={final}",
         )
 
-        # No permit leak after drain.
+        # No permit leak after drain. Admin still holds its own permit, so
+        # `current` should return to the pre-burst baseline, NOT to zero.
         self.assertEqual(
-            final["current"], 0,
-            f"permits not released: final={final}",
+            final["current"], baseline_current,
+            f"permits leaked after drain: baseline_current={baseline_current} "
+            f"final={final}",
         )
 
-        # Accepted count must not exceed cap.
+        # Accepted count must not exceed cap minus the admin's permit. There
+        # are only `cap - baseline_current` slots available for new clients
+        # while admin is connected.
+        available_cap = cap - baseline_current
         self.assertLessEqual(
-            accepted_count, cap,
-            f"accepted {accepted_count} exceeds cap {cap}",
+            accepted_count, available_cap,
+            f"accepted {accepted_count} exceeds available cap "
+            f"{available_cap} (cap={cap} baseline={baseline_current})",
         )
 
         # --- FD / thread bounds (best-effort, skip if sampling failed) ---
@@ -356,6 +388,7 @@ class TestAppearanceForceReset(unittest.TestCase):
 
     def test_force_light_then_reset(self) -> None:
         client = cmux()
+        client.connect()
         try:
             self.assertEqual(
                 client._send_command("debug_force_appearance light"), "OK",
@@ -367,9 +400,12 @@ class TestAppearanceForceReset(unittest.TestCase):
             client.debug_notification_drain()
         finally:
             # MUST reset or the app stays stuck forcing an appearance.
-            self.assertEqual(
-                client._send_command("debug_force_appearance reset"), "OK",
-            )
+            try:
+                self.assertEqual(
+                    client._send_command("debug_force_appearance reset"), "OK",
+                )
+            finally:
+                client.close()
 
 
 class TestAppearanceChunkedSweepRegression(unittest.TestCase):
@@ -389,13 +425,21 @@ class TestAppearanceChunkedSweepRegression(unittest.TestCase):
     token breaks, the older gen's chunks won't be marked aborted=1.
     """
 
+    MIN_SURFACES = 3
+
     def setUp(self) -> None:
         self.client = cmux()
+        self.client.connect()
         # Make sure nothing is left over from a prior run.
         self.client.debug_reset_appearance_log()
+        # Force tiny chunks so the test exercises multi-chunk dispatch and
+        # the generation-abort path without needing >8 live surfaces. The
+        # debug_reset_appearance_log call in tearDown restores the default.
+        self.client.debug_set_sweep_chunk_size(1)
+        self._ensure_min_surfaces(self.MIN_SURFACES)
 
     def tearDown(self) -> None:
-        # MUST reset both knobs so we do not break subsequent tests.
+        # MUST reset every knob we touched so we do not break subsequent tests.
         try:
             self.client.debug_set_applicator_slow_ms(0)
         except Exception:
@@ -405,9 +449,39 @@ class TestAppearanceChunkedSweepRegression(unittest.TestCase):
         except Exception:
             pass
         try:
+            # This also restores chunk size to the production default.
             self.client.debug_reset_appearance_log()
         except Exception:
             pass
+        self.client.close()
+
+    def _ensure_min_surfaces(self, min_count: int) -> None:
+        """Grow the current workspace to at least ``min_count`` terminal
+        surfaces via ``new_split``. Must be enough to observe multi-chunk
+        dispatch with chunk size forced to 1.
+
+        Hard-fails (per cmux/CLAUDE.md testing policy) if growth stalls — the
+        rest of the suite depends on this count.
+        """
+        def count() -> int:
+            return len(self.client.list_surfaces())
+
+        current = count()
+        attempts = 0
+        while current < min_count and attempts < min_count * 2:
+            try:
+                self.client.new_split("right" if attempts % 2 == 0 else "down")
+            except cmuxError as e:
+                self.fail(
+                    f"could not grow to {min_count} surfaces (have {current}): {e}"
+                )
+            time.sleep(0.15)
+            current = count()
+            attempts += 1
+        if current < min_count:
+            self.fail(
+                f"could not grow to {min_count} surfaces; plateaued at {current}"
+            )
 
     def _wait_for_sweep_completion(self, expected_scheme: str, timeout_s: float = 3.0) -> dict:
         """Poll until every live surface reports ``expected_scheme`` or timeout."""
@@ -424,62 +498,98 @@ class TestAppearanceChunkedSweepRegression(unittest.TestCase):
         return last
 
     def test_chunked_sweep_records_multiple_chunks(self) -> None:
-        """A single appearance flip fans out as >=1 chunks and every surface
-        ends up on the target scheme."""
-        # 20ms per applicator call is enough to exceed the run-loop yield
-        # between chunks without making the test crawl.
+        """A single appearance flip fans out as >=MIN_SURFACES chunks (one per
+        surface, with chunk size forced to 1) and every surface converges on
+        the target scheme. A regression to a single synchronous fan-out would
+        collapse this to 1 chunk."""
         self.client.debug_set_applicator_slow_ms(20)
         self.assertEqual(
             self.client._send_command("debug_force_appearance dark"), "OK",
         )
         final = self._wait_for_sweep_completion("dark")
-        self.assertTrue(final["surfaces"], "no live surfaces discovered")
+        self.assertGreaterEqual(
+            len(final["surfaces"]), self.MIN_SURFACES,
+            f"setup did not hold {self.MIN_SURFACES} surfaces: {final}",
+        )
         for surface in final["surfaces"]:
             self.assertEqual(
                 surface["scheme"], "dark",
                 f"surface {surface['id']} did not reach dark: {final}",
             )
-        # chunks is >=1. For environments with <=chunk-size surfaces it is 1,
-        # which still proves the dispatch shape. Do not over-assert here.
-        self.assertGreaterEqual(len(final["chunks"]), 1, final)
-        for chunk in final["chunks"]:
-            self.assertEqual(chunk["scheme"], "dark")
+        # With chunk size 1 and MIN_SURFACES live surfaces, the dark sweep
+        # MUST produce at least MIN_SURFACES chunks. A regression to a
+        # synchronous fan-out would yield exactly 1 chunk even with many
+        # surfaces.
+        dark_chunks = [c for c in final["chunks"] if c["scheme"] == "dark"]
+        self.assertGreaterEqual(
+            len(dark_chunks), self.MIN_SURFACES,
+            f"expected >= {self.MIN_SURFACES} dark chunks (chunk size forced "
+            f"to 1), got {len(dark_chunks)}: {final}",
+        )
+        # Every dark chunk must belong to the same generation — a single
+        # sweep cannot spawn multiple generations.
+        dark_gens = {c["gen"] for c in dark_chunks}
+        self.assertEqual(
+            len(dark_gens), 1,
+            f"single sweep must stay on one generation, got {dark_gens}: {final}",
+        )
 
     def test_rapid_flip_supersedes_older_generation(self) -> None:
         """Firing two appearance flips in quick succession must retire the
-        older sweep via generation abort, not double-apply."""
-        # Slow applicator so the first sweep cannot finish before we enqueue
-        # the second.
-        self.client.debug_set_applicator_slow_ms(40)
+        older sweep via generation abort — not double-apply. With chunk size
+        1, the first flip enqueues MIN_SURFACES chunks; the second flip bumps
+        the generation after the first chunk runs, so at least one older
+        chunk MUST be recorded with aborted=1."""
+        # 60ms per applicator call so the first sweep cannot drain all of its
+        # chunks before we enqueue the second.
+        self.client.debug_set_applicator_slow_ms(60)
         self.assertEqual(
             self.client._send_command("debug_force_appearance light"), "OK",
         )
-        # Give the first sweep just enough time to enqueue chunks but not to
-        # drain them all.
-        time.sleep(0.01)
+        # Sleep short enough that the first sweep has only drained chunk 0
+        # by the time we fire dark.
+        time.sleep(0.02)
         self.assertEqual(
             self.client._send_command("debug_force_appearance dark"), "OK",
         )
-        final = self._wait_for_sweep_completion("dark")
+        final = self._wait_for_sweep_completion("dark", timeout_s=5.0)
 
         # Final state must be dark (the newer sweep wins) across every
         # surface.
-        self.assertTrue(final["surfaces"])
+        self.assertGreaterEqual(len(final["surfaces"]), self.MIN_SURFACES, final)
         for surface in final["surfaces"]:
             self.assertEqual(
                 surface["scheme"], "dark",
                 f"surface {surface['id']} stuck on {surface['scheme']}: {final}",
             )
 
-        # At least two generations appear in the log: the older one must have
-        # either completed before the new one (fine) OR been aborted. If
-        # neither generation aborted AND both fully applied, that's still
-        # correct — but we need to at least see the gen token advance.
+        # Generation token must advance — two distinct sweeps = two gens.
         gens = sorted({c["gen"] for c in final["chunks"]})
         self.assertGreaterEqual(
             len(gens), 2,
             f"expected >=2 generations in chunk log, got {gens}: {final}",
         )
+
+        # The older generation's later chunks must be marked aborted=1.
+        # Without the generation-token abort, every chunk would run to
+        # completion, so this assertion is the real regression fence.
+        older_gen = gens[0]
+        older_chunks = [c for c in final["chunks"] if c["gen"] == older_gen]
+        older_aborted = [c for c in older_chunks if c["aborted"]]
+        self.assertGreaterEqual(
+            len(older_aborted), 1,
+            "generation-abort regressed: older gen "
+            f"{older_gen} has no aborted chunks. older_chunks={older_chunks} "
+            f"final={final}",
+        )
+        # And every aborted chunk should belong to that older generation
+        # (the newer sweep has nothing to abort against).
+        for chunk in final["chunks"]:
+            if chunk["aborted"]:
+                self.assertEqual(
+                    chunk["gen"], older_gen,
+                    f"newer gen chunk should not be aborted: {chunk} in {final}",
+                )
 
     def test_sweep_log_reset_clears_events(self) -> None:
         """debug_reset_appearance_log drains the ring buffer so tests don't
