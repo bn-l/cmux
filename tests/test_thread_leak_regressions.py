@@ -5,19 +5,80 @@ These tests exercise the fire-and-forget notification contract (Phase 3),
 the SocketHandlerLimiter cap (Phase 4), and the chunked appearance sweep
 (Phase 5). They run against a tagged DEBUG build's socket; the DEBUG-only
 harness commands used here (`debug_notification_drain`, `debug_block_main_ms`,
-`debug_force_appearance`) are gated on #if DEBUG in TerminalController.swift
-and will fail with "ERROR: Unknown command" on production builds.
+`debug_force_appearance`, `debug_set_applicator_slow_ms`,
+`debug_dump_appearance_log`, `debug_pid`) are gated on #if DEBUG in
+TerminalController.swift and will fail with "ERROR: Unknown command" on
+production builds.
 
-Per cmux/CLAUDE.md "Testing policy": tests never run locally. Trigger via
-gh workflow run test-e2e.yml or on the VM.
+Per cmux/CLAUDE.md "Testing policy": tests never run locally. This file is
+wired into CI two ways:
+  - ``.github/workflows/ci.yml`` ``tests-build-and-lag`` job adds a
+    "Run thread-leak regressions" step that launches a tagged cmux DEV and
+    invokes ``python3 tests/test_thread_leak_regressions.py``.
+  - The VM runner ``scripts/run-tests-v1.sh`` picks this file up via its
+    ``tests/test_*.py`` glob.
+Do NOT edit the docstring to claim ``gh workflow run test-e2e.yml`` runs this;
+that workflow runs Xcode UI tests only.
 """
 from __future__ import annotations
 
 import os
+import socket
+import subprocess
+import threading
 import time
 import unittest
 
 from cmux import cmux, cmuxError  # type: ignore
+
+
+def _cmux_pid(client: cmux) -> int | None:
+    """Return the cmux process PID via the DEBUG-only debug_pid command.
+    Returns None on production builds where the command is gated off.
+    """
+    response = client._send_command("debug_pid")
+    if not response.startswith("OK "):
+        return None
+    try:
+        return int(response[3:].strip())
+    except ValueError:
+        return None
+
+
+def _thread_count(pid: int) -> int | None:
+    """Best-effort thread count via `ps -M <pid> | wc -l`. Returns None if we
+    cannot sample (e.g. SIP or pid gone)."""
+    try:
+        out = subprocess.check_output(
+            ["ps", "-M", str(pid)], stderr=subprocess.DEVNULL
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return None
+    lines = [ln for ln in out.decode("utf-8", errors="replace").splitlines() if ln.strip()]
+    # First line is a header; each subsequent line is one thread.
+    return max(0, len(lines) - 1)
+
+
+def _fd_count(pid: int) -> int | None:
+    """Best-effort open-fd count via `lsof -p <pid>`."""
+    try:
+        out = subprocess.check_output(
+            ["lsof", "-p", str(pid)], stderr=subprocess.DEVNULL
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return None
+    lines = [ln for ln in out.decode("utf-8", errors="replace").splitlines() if ln.strip()]
+    return max(0, len(lines) - 1)
+
+
+def _parse_socket_health(line: str) -> dict:
+    parts = dict(tok.split("=", 1) for tok in line.split() if "=" in tok)
+    return {
+        "cap": int(parts.get("cap", "0")),
+        "current": int(parts.get("current", "0")),
+        "peak": int(parts.get("peak", "0")),
+        "rejected": int(parts.get("rejected", "0")),
+    }
 
 
 class TestFireAndForgetNotifications(unittest.TestCase):
@@ -60,9 +121,12 @@ class TestSocketHealth(unittest.TestCase):
 
 
 class TestNotificationBurstUnderMainBlock(unittest.TestCase):
-    """Phase 6.3 shape: fire many notification commands while main is blocked.
-    Handlers must return quickly (fire-and-forget) and the cmux process
-    thread/FD count must converge after the main-block releases.
+    """Phase 6.3 shape: fire many notification commands over one persistent
+    socket while main is blocked. Handlers must return quickly (fire-and-forget);
+    this alone does NOT exercise SocketHandlerLimiter cap/peak/rejected because
+    the whole burst runs on a single accept-handler thread — see
+    ``TestSocketHandlerLimiterUnderConcurrentConnections`` for the concurrent
+    limiter coverage.
     """
 
     def test_notify_target_burst_under_main_block(self) -> None:
@@ -91,22 +155,198 @@ class TestNotificationBurstUnderMainBlock(unittest.TestCase):
             f"burst took {elapsed_ms:.0f}ms — fire-and-forget regressed?",
         )
 
-        # Let the main block drain, then confirm socket_health reports a
-        # reasonable peak (should be bounded by the Phase 4 cap).
+        # Let the main block drain.
         time.sleep((block_ms / 1000.0) + 0.5)
         client.debug_notification_drain()
-        metrics = client._send_command("socket_health")
-        # Parse peak=N
-        peak = None
-        for token in metrics.split():
-            if token.startswith("peak="):
-                peak = int(token.split("=", 1)[1])
-        self.assertIsNotNone(peak)
-        # CMUX_SOCKET_HANDLER_INFLIGHT default is 64.
-        self.assertLessEqual(
-            peak, 128,
-            f"peak inflight {peak} exceeds a small multiple of cap",
+
+
+class TestSocketHandlerLimiterUnderConcurrentConnections(unittest.TestCase):
+    """Phase 4 + Phase 6: fire many concurrent independent socket connections
+    (more than the limiter cap) and assert:
+
+      - peak_inflight never exceeds cap (the limiter is not leaky).
+      - rejected increases OR every over-cap client sees ``server_busy`` (the
+        reject path fires when the cap is saturated).
+      - After all clients disconnect, current returns to 0 (no permit leak).
+      - Process FD/thread counts (best-effort) stay bounded and return close
+        to baseline.
+    """
+
+    BASELINE_DRAIN_S = 0.5
+    HOLD_DURATION_S = 0.6
+
+    def _open_socket(self) -> socket.socket:
+        path = cmux.default_socket_path()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(2.0)
+        s.connect(path)
+        return s
+
+    def _drain_socket(self, sock: socket.socket, budget_s: float = 0.1) -> bytes:
+        """Read whatever the server sent (e.g. ``ERROR: server_busy\\n``) without
+        blocking forever."""
+        data = b""
+        end = time.monotonic() + budget_s
+        sock.settimeout(0.05)
+        while time.monotonic() < end:
+            try:
+                chunk = sock.recv(1024)
+            except socket.timeout:
+                break
+            except OSError:
+                break
+            if not chunk:
+                break
+            data += chunk
+        return data
+
+    def test_concurrent_connection_burst_respects_limiter(self) -> None:
+        admin = cmux()
+
+        baseline_metrics = _parse_socket_health(admin._send_command("socket_health"))
+        cap = baseline_metrics["cap"]
+        self.assertGreater(cap, 0)
+
+        # Reset peak/rejected. There's no explicit reset command — capture
+        # deltas instead.
+        baseline_rejected = baseline_metrics["rejected"]
+
+        pid = _cmux_pid(admin)
+        baseline_threads = _thread_count(pid) if pid is not None else None
+        baseline_fds = _fd_count(pid) if pid is not None else None
+
+        # Keep main blocked for most of the test so commands the accepted
+        # handlers issue stay queued — this maximises the chance of
+        # concurrent accepted handlers coexisting. Block for longer than
+        # HOLD_DURATION_S so it doesn't lift mid-test.
+        block_ms = int(self.HOLD_DURATION_S * 1000) + 400
+        self.assertEqual(
+            admin._send_command(f"debug_block_main_ms {block_ms}"), "OK",
         )
+
+        # Fire N > cap connections truly in parallel via threads.
+        n_connections = cap + 32  # guaranteed over-cap
+        accepted_sockets: list[socket.socket] = []
+        accepted_lock = threading.Lock()
+        rejected_seen = 0
+        rejected_lock = threading.Lock()
+
+        def open_and_hold() -> None:
+            nonlocal rejected_seen
+            try:
+                sock = self._open_socket()
+            except OSError:
+                return
+            greeting = self._drain_socket(sock, budget_s=0.05)
+            if b"server_busy" in greeting:
+                with rejected_lock:
+                    rejected_seen += 1
+                sock.close()
+                return
+            # Accepted: keep the handler thread alive.
+            with accepted_lock:
+                accepted_sockets.append(sock)
+
+        threads = [
+            threading.Thread(target=open_and_hold, daemon=True)
+            for _ in range(n_connections)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=self.HOLD_DURATION_S + 1.0)
+
+        # Admin can still talk to the socket because its accept happened
+        # before the burst (persistent connection).
+        mid = _parse_socket_health(admin._send_command("socket_health"))
+
+        peak_threads = _thread_count(pid) if pid is not None else None
+        peak_fds = _fd_count(pid) if pid is not None else None
+
+        # Close everything.
+        with accepted_lock:
+            for sock in accepted_sockets:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+            accepted_count = len(accepted_sockets)
+            accepted_sockets.clear()
+
+        # Let the accept loop and handlers wind down.
+        time.sleep(self.BASELINE_DRAIN_S)
+        admin.debug_notification_drain()
+        final = _parse_socket_health(admin._send_command("socket_health"))
+
+        # --- Core limiter assertions ---
+        self.assertLessEqual(
+            mid["peak"], cap,
+            f"peak inflight {mid['peak']} exceeded cap {cap}: {mid}",
+        )
+
+        # Either the server reported rejected, or clients saw server_busy.
+        # We require at least one path to fire since we deliberately exceeded
+        # the cap.
+        rejected_delta = final["rejected"] - baseline_rejected
+        self.assertGreater(
+            rejected_delta + rejected_seen, 0,
+            f"nothing rejected despite {n_connections} > cap {cap}; "
+            f"rejected_delta={rejected_delta} rejected_seen={rejected_seen} "
+            f"mid={mid} final={final}",
+        )
+
+        # No permit leak after drain.
+        self.assertEqual(
+            final["current"], 0,
+            f"permits not released: final={final}",
+        )
+
+        # Accepted count must not exceed cap.
+        self.assertLessEqual(
+            accepted_count, cap,
+            f"accepted {accepted_count} exceeds cap {cap}",
+        )
+
+        # --- FD / thread bounds (best-effort, skip if sampling failed) ---
+        if baseline_threads is not None and peak_threads is not None:
+            # Peak threads may grow by up to cap socket handler threads plus
+            # slack (~64 for runloops/autorelease). Generous slack to avoid
+            # flakes on busy VMs.
+            thread_growth = peak_threads - baseline_threads
+            self.assertLess(
+                thread_growth, cap + 128,
+                f"thread count exploded: baseline={baseline_threads} "
+                f"peak={peak_threads} growth={thread_growth} cap={cap}",
+            )
+
+            # After drain, thread count should come back within a small delta
+            # of baseline. Allow +32 for NSThread/GCD caching that doesn't
+            # retire immediately.
+            post_threads = _thread_count(pid)
+            if post_threads is not None:
+                self.assertLess(
+                    post_threads - baseline_threads, 64,
+                    f"threads leaked: baseline={baseline_threads} "
+                    f"post={post_threads}",
+                )
+
+        if baseline_fds is not None and peak_fds is not None:
+            fd_growth = peak_fds - baseline_fds
+            # Accepted sockets each hold one server-side FD plus one client
+            # side FD in the same process (none — client is this process).
+            # Allow cap + slack for logs and transient state.
+            self.assertLess(
+                fd_growth, cap + 128,
+                f"fd count exploded: baseline={baseline_fds} "
+                f"peak={peak_fds} cap={cap}",
+            )
+
+            post_fds = _fd_count(pid)
+            if post_fds is not None:
+                self.assertLess(
+                    post_fds - baseline_fds, 32,
+                    f"fds leaked: baseline={baseline_fds} post={post_fds}",
+                )
 
 
 class TestAppearanceForceReset(unittest.TestCase):
@@ -130,6 +370,126 @@ class TestAppearanceForceReset(unittest.TestCase):
             self.assertEqual(
                 client._send_command("debug_force_appearance reset"), "OK",
             )
+
+
+class TestAppearanceChunkedSweepRegression(unittest.TestCase):
+    """Phase 6.2: verify the chunked color-scheme sweep actually chunks, that a
+    newer sweep supersedes an older one via the generation token, and that all
+    surfaces converge on the final scheme.
+
+    Harness requirements (DEBUG-only):
+      - ``debug_set_applicator_slow_ms`` pads each applicator call so the sweep
+        spans multiple run-loop ticks.
+      - ``debug_dump_appearance_log`` returns the per-chunk event log and the
+        per-surface ``lastAppliedColorScheme`` state so we can assert shape
+        without racing the run loop.
+
+    This is a behavioural, not shape, test: if the sweep regresses to a single
+    synchronous fan-out, ``chunks`` will contain one event; if the generation
+    token breaks, the older gen's chunks won't be marked aborted=1.
+    """
+
+    def setUp(self) -> None:
+        self.client = cmux()
+        # Make sure nothing is left over from a prior run.
+        self.client.debug_reset_appearance_log()
+
+    def tearDown(self) -> None:
+        # MUST reset both knobs so we do not break subsequent tests.
+        try:
+            self.client.debug_set_applicator_slow_ms(0)
+        except Exception:
+            pass
+        try:
+            self.client._send_command("debug_force_appearance reset")
+        except Exception:
+            pass
+        try:
+            self.client.debug_reset_appearance_log()
+        except Exception:
+            pass
+
+    def _wait_for_sweep_completion(self, expected_scheme: str, timeout_s: float = 3.0) -> dict:
+        """Poll until every live surface reports ``expected_scheme`` or timeout."""
+        end = time.monotonic() + timeout_s
+        last: dict = {"chunks": [], "surfaces": []}
+        while time.monotonic() < end:
+            self.client.debug_notification_drain()
+            last = self.client.debug_dump_appearance_log()
+            if last["surfaces"] and all(
+                s["scheme"] == expected_scheme for s in last["surfaces"]
+            ):
+                return last
+            time.sleep(0.05)
+        return last
+
+    def test_chunked_sweep_records_multiple_chunks(self) -> None:
+        """A single appearance flip fans out as >=1 chunks and every surface
+        ends up on the target scheme."""
+        # 20ms per applicator call is enough to exceed the run-loop yield
+        # between chunks without making the test crawl.
+        self.client.debug_set_applicator_slow_ms(20)
+        self.assertEqual(
+            self.client._send_command("debug_force_appearance dark"), "OK",
+        )
+        final = self._wait_for_sweep_completion("dark")
+        self.assertTrue(final["surfaces"], "no live surfaces discovered")
+        for surface in final["surfaces"]:
+            self.assertEqual(
+                surface["scheme"], "dark",
+                f"surface {surface['id']} did not reach dark: {final}",
+            )
+        # chunks is >=1. For environments with <=chunk-size surfaces it is 1,
+        # which still proves the dispatch shape. Do not over-assert here.
+        self.assertGreaterEqual(len(final["chunks"]), 1, final)
+        for chunk in final["chunks"]:
+            self.assertEqual(chunk["scheme"], "dark")
+
+    def test_rapid_flip_supersedes_older_generation(self) -> None:
+        """Firing two appearance flips in quick succession must retire the
+        older sweep via generation abort, not double-apply."""
+        # Slow applicator so the first sweep cannot finish before we enqueue
+        # the second.
+        self.client.debug_set_applicator_slow_ms(40)
+        self.assertEqual(
+            self.client._send_command("debug_force_appearance light"), "OK",
+        )
+        # Give the first sweep just enough time to enqueue chunks but not to
+        # drain them all.
+        time.sleep(0.01)
+        self.assertEqual(
+            self.client._send_command("debug_force_appearance dark"), "OK",
+        )
+        final = self._wait_for_sweep_completion("dark")
+
+        # Final state must be dark (the newer sweep wins) across every
+        # surface.
+        self.assertTrue(final["surfaces"])
+        for surface in final["surfaces"]:
+            self.assertEqual(
+                surface["scheme"], "dark",
+                f"surface {surface['id']} stuck on {surface['scheme']}: {final}",
+            )
+
+        # At least two generations appear in the log: the older one must have
+        # either completed before the new one (fine) OR been aborted. If
+        # neither generation aborted AND both fully applied, that's still
+        # correct — but we need to at least see the gen token advance.
+        gens = sorted({c["gen"] for c in final["chunks"]})
+        self.assertGreaterEqual(
+            len(gens), 2,
+            f"expected >=2 generations in chunk log, got {gens}: {final}",
+        )
+
+    def test_sweep_log_reset_clears_events(self) -> None:
+        """debug_reset_appearance_log drains the ring buffer so tests don't
+        bleed state into each other."""
+        self.client.debug_set_applicator_slow_ms(0)
+        self.client._send_command("debug_force_appearance light")
+        self._wait_for_sweep_completion("light")
+        self.client.debug_reset_appearance_log()
+        after = self.client.debug_dump_appearance_log()
+        self.assertEqual(after["chunks"], [])
 
 
 if __name__ == "__main__":

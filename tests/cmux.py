@@ -447,6 +447,56 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def debug_set_applicator_slow_ms(self, ms: int) -> None:
+        """DEBUG-only: inject a sleep into the color-scheme applicator so the
+        Phase 6.2 appearance test can observe chunk interleaving."""
+        response = self._send_command(f"debug_set_applicator_slow_ms {int(ms)}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def debug_reset_appearance_log(self) -> None:
+        """DEBUG-only: clear the appearance sweep event log and reset the
+        applicator slow-ms knob."""
+        response = self._send_command("debug_reset_appearance_log")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def debug_dump_appearance_log(self) -> dict:
+        """DEBUG-only: return the appearance sweep event log plus per-surface
+        last-applied scheme.
+
+        Returns a dict:
+          {
+            "chunks": [{"gen": int, "index": int, "aborted": bool,
+                        "applied": int, "scheme": "light"|"dark"}, ...],
+            "surfaces": [{"id": str, "scheme": "light"|"dark"}, ...],
+          }
+        """
+        response = self._send_command("debug_dump_appearance_log")
+        if response.startswith("ERROR"):
+            raise cmuxError(response)
+        chunks: list[dict] = []
+        surfaces: list[dict] = []
+        for line in response.split("\n"):
+            if not line.strip():
+                continue
+            if line.startswith("chunk "):
+                parts = dict(tok.split("=", 1) for tok in line[len("chunk "):].split() if "=" in tok)
+                chunks.append({
+                    "gen": int(parts.get("gen", "0")),
+                    "index": int(parts.get("index", "0")),
+                    "aborted": parts.get("aborted", "0") == "1",
+                    "applied": int(parts.get("applied", "0")),
+                    "scheme": parts.get("scheme", "light"),
+                })
+            elif line.startswith("surface "):
+                parts = dict(tok.split("=", 1) for tok in line[len("surface "):].split() if "=" in tok)
+                surfaces.append({
+                    "id": parts.get("id", ""),
+                    "scheme": parts.get("scheme", "light"),
+                })
+        return {"chunks": chunks, "surfaces": surfaces}
+
     def notify(self, title: str, subtitle: str = "", body: str = "") -> None:
         """Create a notification for the focused surface.
 
