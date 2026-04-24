@@ -2006,6 +2006,9 @@ class GhosttyApp {
         logThemeAction("reload begin source=\(source) soft=\(soft)")
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
+#if DEBUG
+            GhosttyReloadCounters.shared.incrementApp()
+#endif
             ghostty_app_update_config(app, config)
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
             scheduleSurfaceRefreshAfterConfigurationReload(source: source)
@@ -2018,6 +2021,9 @@ class GhosttyApp {
             return
         }
         loadDefaultConfigFilesWithLegacyFallback(newConfig)
+#if DEBUG
+        GhosttyReloadCounters.shared.incrementApp()
+#endif
         ghostty_app_update_config(app, newConfig)
         updateDefaultBackground(
             from: newConfig,
@@ -2704,11 +2710,17 @@ class GhosttyApp {
                 guard let surfaceHandle else { return true }
                 if soft {
                     if let cachedConfig = GhosttyApp.shared.config {
+#if DEBUG
+                        GhosttyReloadCounters.shared.incrementSurface()
+#endif
                         ghostty_surface_update_config(surfaceHandle, cachedConfig)
                     }
                 } else {
                     if let newConfig = ghostty_config_new() {
                         GhosttyApp.shared.loadDefaultConfigFilesWithLegacyFallback(newConfig)
+#if DEBUG
+                        GhosttyReloadCounters.shared.incrementSurface()
+#endif
                         ghostty_surface_update_config(surfaceHandle, newConfig)
                         // Do NOT swap GhosttyApp.shared.config — hard surface
                         // reloads are per-surface and must not mutate app-global

@@ -463,6 +463,27 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def debug_reload_counters(self) -> dict:
+        """DEBUG-only: return cumulative ghostty_app_update_config /
+        ghostty_surface_update_config call counts as {"app": N, "surface": N}.
+        Used by the Phase 1 regression test that guards the surface-target
+        reload path from being upgraded back into an app-wide reload."""
+        response = self._send_command("debug_reload_counters")
+        if response.startswith("ERROR"):
+            raise cmuxError(response)
+        parts = dict(tok.split("=", 1) for tok in response.split() if "=" in tok)
+        return {
+            "app": int(parts.get("app", "0")),
+            "surface": int(parts.get("surface", "0")),
+        }
+
+    def debug_reset_reload_counters(self) -> None:
+        """DEBUG-only: zero the ghostty reload counters so subsequent reads
+        report deltas scoped to the calling test."""
+        response = self._send_command("debug_reset_reload_counters")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def debug_reset_appearance_log(self) -> None:
         """DEBUG-only: clear the appearance sweep event log and reset the
         applicator slow-ms knob."""

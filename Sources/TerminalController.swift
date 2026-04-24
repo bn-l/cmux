@@ -2100,6 +2100,19 @@ class TerminalController {
                 // DEBUG-only: return the cmux process PID so test harnesses
                 // can sample FD / thread counts via lsof/ps.
                 return "OK \(ProcessInfo.processInfo.processIdentifier)"
+
+            case "debug_reload_counters":
+                // DEBUG-only: report cumulative ghostty_app_update_config /
+                // ghostty_surface_update_config call counts. Used by the
+                // regression test that guards the surface-target reload path
+                // from being upgraded back into an app-wide reload — see
+                // PLAN_thread_leak.md Phase 1.
+                let snap = GhosttyReloadCounters.shared.snapshot()
+                return "app=\(snap.app) surface=\(snap.surface)"
+
+            case "debug_reset_reload_counters":
+                GhosttyReloadCounters.shared.reset()
+                return "OK"
 #endif
 
             default:
@@ -3205,6 +3218,28 @@ class TerminalController {
             return uuid
         }
         return v2ResolveHandleRef(s)
+    }
+
+    /// Distinguish "field absent / empty" from "field present but malformed or
+    /// unresolvable" so callers can return synchronous invalid_params errors
+    /// for bad ids instead of silently falling back to the focused workspace /
+    /// surface. Backs the strict-validation path used by fire-and-forget V2
+    /// notification handlers.
+    enum V2UUIDField {
+        case absent
+        case value(UUID)
+        case invalid(String)
+    }
+
+    private func v2UUIDField(_ params: [String: Any], _ key: String) -> V2UUIDField {
+        guard let raw = params[key] else { return .absent }
+        if raw is NSNull { return .absent }
+        guard let s = raw as? String else { return .invalid(String(describing: raw)) }
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return .absent }
+        if let uuid = UUID(uuidString: trimmed) { return .value(uuid) }
+        if let resolved = v2ResolveHandleRef(trimmed) { return .value(resolved) }
+        return .invalid(trimmed)
     }
 
     private func v2UUIDAny(_ raw: Any?) -> UUID? {
@@ -6594,8 +6629,32 @@ class TerminalController {
     // intentionally dropped. See PLAN_thread_leak.md Phase 3.
 
     private func v2NotificationCreate(params: [String: Any]) -> V2CallResult {
-        let explicitSurfaceId = v2UUID(params, "surface_id")
-        let workspaceIdParam = v2UUID(params, "workspace_id")
+        let explicitSurfaceId: UUID?
+        switch v2UUIDField(params, "surface_id") {
+        case .absent:
+            explicitSurfaceId = nil
+        case .value(let uuid):
+            explicitSurfaceId = uuid
+        case .invalid(let raw):
+            return .err(
+                code: "invalid_params",
+                message: "Malformed surface_id: \(raw)",
+                data: nil
+            )
+        }
+        let workspaceIdParam: UUID?
+        switch v2UUIDField(params, "workspace_id") {
+        case .absent:
+            workspaceIdParam = nil
+        case .value(let uuid):
+            workspaceIdParam = uuid
+        case .invalid(let raw):
+            return .err(
+                code: "invalid_params",
+                message: "Malformed workspace_id: \(raw)",
+                data: nil
+            )
+        }
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
@@ -6636,10 +6695,32 @@ class TerminalController {
     }
 
     private func v2NotificationCreateForSurface(params: [String: Any]) -> V2CallResult {
-        guard let surfaceId = v2UUID(params, "surface_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        let surfaceId: UUID
+        switch v2UUIDField(params, "surface_id") {
+        case .absent:
+            return .err(code: "invalid_params", message: "Missing surface_id", data: nil)
+        case .invalid(let raw):
+            return .err(
+                code: "invalid_params",
+                message: "Malformed surface_id: \(raw)",
+                data: nil
+            )
+        case .value(let uuid):
+            surfaceId = uuid
         }
-        let workspaceIdParam = v2UUID(params, "workspace_id")
+        let workspaceIdParam: UUID?
+        switch v2UUIDField(params, "workspace_id") {
+        case .absent:
+            workspaceIdParam = nil
+        case .value(let uuid):
+            workspaceIdParam = uuid
+        case .invalid(let raw):
+            return .err(
+                code: "invalid_params",
+                message: "Malformed workspace_id: \(raw)",
+                data: nil
+            )
+        }
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""

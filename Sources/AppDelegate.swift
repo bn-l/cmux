@@ -4940,6 +4940,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `TerminalSurface.liveSurfaceForGhosttyAccess(reason:)` — we do NOT
     /// snapshot raw C pointers, because the surface may be torn down between
     /// chunks.
+    ///
+    /// Chunks are scheduled one-at-a-time (the next chunk is enqueued from
+    /// the tail of the previous one) rather than all up-front. If a newer
+    /// appearance change arrives while an older sweep is running, its
+    /// matching `propagateColorSchemeToAllSurfaces` call lands on main
+    /// BETWEEN chunks — it bumps `colorSchemeSweepGeneration` before the next
+    /// chunk runs, so that chunk observes the new generation and aborts.
+    /// An up-front loop would block the newer call behind all queued chunks
+    /// and make the generation-token abort path unreachable (and starve
+    /// unrelated main-queue work behind the whole sweep).
     func propagateColorSchemeToAllSurfaces(_ scheme: ghostty_color_scheme_e) {
         colorSchemeSweepGeneration &+= 1
         let gen = colorSchemeSweepGeneration
@@ -4963,52 +4973,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard total > 0 else { return }
 
+        scheduleColorSchemeSweepChunk(
+            gen: gen,
+            chunkIndex: 0,
+            chunkCount: chunkCount,
+            chunkSize: chunkSize,
+            owners: owners,
+            scheme: scheme
+        )
+    }
+
+    private func scheduleColorSchemeSweepChunk(
+        gen: UInt64,
+        chunkIndex: Int,
+        chunkCount: Int,
+        chunkSize: Int,
+        owners: [TerminalSurface],
+        scheme: ghostty_color_scheme_e
+    ) {
+        let start = chunkIndex * chunkSize
+        let end = min(start + chunkSize, owners.count)
+        let chunkOwners = Array(owners[start..<end])
         let applicator = AppDelegate.colorSchemeApplicator
 
-        for chunkIndex in 0..<chunkCount {
-            let start = chunkIndex * chunkSize
-            let end = min(start + chunkSize, total)
-            let chunkOwners = Array(owners[start..<end])
-
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                if gen != self.colorSchemeSweepGeneration {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if gen != self.colorSchemeSweepGeneration {
 #if DEBUG
-                    dlog("appearance.propagateColorScheme.chunk gen=\(gen) index=\(chunkIndex) aborted=1")
-                    AppearanceSweepRecorder.shared.record(.init(
-                        gen: gen,
-                        chunkIndex: chunkIndex,
-                        aborted: true,
-                        applied: 0,
-                        schemeRawValue: scheme.rawValue,
-                        timestamp: CACurrentMediaTime()
-                    ))
-#endif
-                    return
-                }
-                var applied = 0
-                for owner in chunkOwners {
-                    if let liveSurface = owner.liveSurfaceForGhosttyAccess(reason: "appearance.sweep") {
-                        applicator(liveSurface, scheme)
-                        applied += 1
-#if DEBUG
-                        owner.lastAppliedColorScheme = scheme
-#endif
-                    }
-                }
-#if DEBUG
-                dlog("appearance.propagateColorScheme.chunk gen=\(gen) index=\(chunkIndex) aborted=0")
+                dlog("appearance.propagateColorScheme.chunk gen=\(gen) index=\(chunkIndex) aborted=1")
                 AppearanceSweepRecorder.shared.record(.init(
                     gen: gen,
                     chunkIndex: chunkIndex,
-                    aborted: false,
-                    applied: applied,
+                    aborted: true,
+                    applied: 0,
                     schemeRawValue: scheme.rawValue,
                     timestamp: CACurrentMediaTime()
                 ))
-                if chunkIndex == chunkCount - 1 {
-                    dlog("appearance.propagateColorScheme.end gen=\(gen)")
+#endif
+                // Do NOT schedule the next chunk — a newer sweep has
+                // superseded this one and will drive its own cascade.
+                return
+            }
+            var applied = 0
+            for owner in chunkOwners {
+                if let liveSurface = owner.liveSurfaceForGhosttyAccess(reason: "appearance.sweep") {
+                    applicator(liveSurface, scheme)
+                    applied += 1
+#if DEBUG
+                    owner.lastAppliedColorScheme = scheme
+#endif
                 }
+            }
+#if DEBUG
+            dlog("appearance.propagateColorScheme.chunk gen=\(gen) index=\(chunkIndex) aborted=0")
+            AppearanceSweepRecorder.shared.record(.init(
+                gen: gen,
+                chunkIndex: chunkIndex,
+                aborted: false,
+                applied: applied,
+                schemeRawValue: scheme.rawValue,
+                timestamp: CACurrentMediaTime()
+            ))
+#endif
+            let next = chunkIndex + 1
+            if next < chunkCount {
+                self.scheduleColorSchemeSweepChunk(
+                    gen: gen,
+                    chunkIndex: next,
+                    chunkCount: chunkCount,
+                    chunkSize: chunkSize,
+                    owners: owners,
+                    scheme: scheme
+                )
+            } else {
+#if DEBUG
+                dlog("appearance.propagateColorScheme.end gen=\(gen)")
 #endif
             }
         }
@@ -13373,6 +13412,41 @@ final class AppearanceSweepRecorder: @unchecked Sendable {
     func applicatorSleepMs() -> Int {
         lock.lock(); defer { lock.unlock() }
         return slowMs
+    }
+}
+
+/// DEBUG-only counters that catch regressions back to the
+/// PLAN_thread_leak.md bug where a surface-target RELOAD_CONFIG was upgraded
+/// into an app-wide `ghostty_app_update_config`. A surface-target reload
+/// (appearance change fan-out, per-surface config reload) MUST increment
+/// ``surfaceUpdateConfigCalls`` and leave ``appUpdateConfigCalls`` alone.
+/// Both counters are incremented at the four call sites in
+/// GhosttyTerminalView.swift and read via ``debug_reload_counters``.
+final class GhosttyReloadCounters: @unchecked Sendable {
+    static let shared = GhosttyReloadCounters()
+    private let lock = NSLock()
+    private var _appUpdateConfigCalls: Int = 0
+    private var _surfaceUpdateConfigCalls: Int = 0
+
+    func incrementApp() {
+        lock.lock(); defer { lock.unlock() }
+        _appUpdateConfigCalls &+= 1
+    }
+
+    func incrementSurface() {
+        lock.lock(); defer { lock.unlock() }
+        _surfaceUpdateConfigCalls &+= 1
+    }
+
+    func snapshot() -> (app: Int, surface: Int) {
+        lock.lock(); defer { lock.unlock() }
+        return (_appUpdateConfigCalls, _surfaceUpdateConfigCalls)
+    }
+
+    func reset() {
+        lock.lock(); defer { lock.unlock() }
+        _appUpdateConfigCalls = 0
+        _surfaceUpdateConfigCalls = 0
     }
 }
 #endif

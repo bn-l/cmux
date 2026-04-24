@@ -601,6 +601,109 @@ class TestAppearanceChunkedSweepRegression(unittest.TestCase):
         after = self.client.debug_dump_appearance_log()
         self.assertEqual(after["chunks"], [])
 
+    def test_appearance_sweep_does_not_fan_out_to_app_update_config(self) -> None:
+        """PLAN_thread_leak.md Phase 1 regression: a surface-scoped reload
+        MUST NOT be upgraded back into an app-wide
+        ``ghostty_app_update_config`` call. That was the O(N^2) renderer
+        mailbox amplifier that caused the documented main-thread hang.
+
+        Fires a full appearance cycle (light → dark → reset) and asserts
+        the ``app_update_config`` delta is zero while the sweep/reload
+        path ran. Surface-level calls are allowed and expected: the test
+        simply asserts app-level reloads do not leak into this path.
+        """
+        self.client.debug_set_applicator_slow_ms(0)
+        self.client.debug_reset_reload_counters()
+        baseline = self.client.debug_reload_counters()
+
+        self.assertEqual(
+            self.client._send_command("debug_force_appearance light"), "OK",
+        )
+        self._wait_for_sweep_completion("light")
+        self.assertEqual(
+            self.client._send_command("debug_force_appearance dark"), "OK",
+        )
+        self._wait_for_sweep_completion("dark")
+        self.assertEqual(
+            self.client._send_command("debug_force_appearance reset"), "OK",
+        )
+        self.client.debug_notification_drain()
+
+        final = self.client.debug_reload_counters()
+        app_delta = final["app"] - baseline["app"]
+        self.assertEqual(
+            app_delta, 0,
+            "surface-target reload path regressed back to app-wide "
+            f"ghostty_app_update_config: baseline={baseline} final={final}",
+        )
+
+    def test_main_loop_responsive_during_chunked_sweep(self) -> None:
+        """Phase 5 main-loop liveness: while a chunked sweep with a slow
+        applicator is running, the main run loop must continue to service
+        unrelated short commands (here: ``ping``) with small inter-reply
+        gaps. A regression to a synchronous fan-out (or a long tight
+        prequeue loop) would starve ``ping`` replies behind the whole
+        sweep."""
+        # Pick a slow applicator that guarantees multiple chunks each take
+        # meaningful time, but keep total sweep short so the test finishes
+        # quickly.
+        slow_ms = 40
+        self.client.debug_set_applicator_slow_ms(slow_ms)
+
+        gap_samples: list[float] = []
+        stop = threading.Event()
+
+        def ping_loop() -> None:
+            # Use an independent client so ping doesn't share a socket
+            # with the sweep's driver.
+            pinger = cmux()
+            pinger.connect()
+            try:
+                prev = time.monotonic()
+                while not stop.is_set():
+                    pinger.ping()
+                    now = time.monotonic()
+                    gap_samples.append((now - prev) * 1000.0)
+                    prev = now
+                    # Small pause so we're measuring main-queue interleave,
+                    # not CPU burn.
+                    time.sleep(0.005)
+            except cmuxError:
+                pass
+            finally:
+                pinger.close()
+
+        pinger_thread = threading.Thread(target=ping_loop, daemon=True)
+        pinger_thread.start()
+        try:
+            # Warm-up: let the pinger capture a few baseline samples.
+            time.sleep(0.1)
+            self.assertEqual(
+                self.client._send_command("debug_force_appearance dark"), "OK",
+            )
+            self._wait_for_sweep_completion("dark", timeout_s=5.0)
+        finally:
+            stop.set()
+            pinger_thread.join(timeout=2.0)
+
+        # We must have at least enough samples to be statistically
+        # meaningful — if the pinger only got one response the sweep
+        # starved it.
+        self.assertGreater(
+            len(gap_samples), 5,
+            f"main loop starved pinger: only {len(gap_samples)} samples",
+        )
+        # No single gap should be anywhere near the theoretical
+        # whole-sweep duration. With chunkSize=1 and MIN_SURFACES=3 and
+        # slow_ms=40, a prequeue regression would show a gap >= 120ms;
+        # the cascade implementation yields gaps close to slow_ms.
+        max_gap = max(gap_samples)
+        self.assertLess(
+            max_gap,
+            slow_ms * self.MIN_SURFACES,
+            f"main loop starved: max_gap_ms={max_gap:.0f} samples={gap_samples}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
