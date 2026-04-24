@@ -103,6 +103,36 @@ Notifications:
 - [x] set_app_focus -> `app.focus_override.set`
 - [x] simulate_app_active -> `app.simulate_active`
 
+### Notification commands are fire-and-forget (post PLAN_thread_leak.md Phase 3)
+
+The V1 and V2 notification commands reply after syntax-only validation and
+apply the UI mutation on a later run-loop turn. Callers that require
+synchronous read-after-write must issue `debug_notification_drain` (DEBUG
+builds only) between the mutation and the subsequent read. Production
+callers that need strict semantics should send explicit ids rather than
+relying on "current" selection at command-arrival time.
+
+V1 commands (`notify`, `notify_surface`, `notify_target`, `clear_notifications`)
+return `OK` once queued. Syntax errors (invalid UUID, invalid `--tab` value)
+still return `ERROR: ...` synchronously. `list_notifications` is served
+from a nonisolated snapshot cache — the shape is unchanged; reads may
+observe a mutation one run-loop turn later than before.
+
+V2 commands:
+- `notification.create`, `notification.create_for_surface`,
+  `notification.create_for_target` reply `.ok` with a shape limited to
+  ids the caller passed in:
+    `{"accepted": true, "workspace_id": <echo or null>, "surface_id": <echo or null>}`.
+  `*_ref` and `window_id` fields are no longer returned (they required a
+  main-hop resolution incompatible with fire-and-forget). Semantic
+  failures (missing workspace / surface) are logged to the debug event
+  log and dropped; V2 does not return `not_found` synchronously for these
+  commands. Syntax failures still return `.err(code: "invalid_params")`
+  synchronously.
+- `notification.clear` returns `.ok({"accepted": true})` instead of
+  `.ok({})`.
+- `notification.list` shape is unchanged; served from the snapshot cache.
+
 Browser:
 - [x] open_browser -> `browser.open_split`
 - [x] navigate -> `browser.navigate`

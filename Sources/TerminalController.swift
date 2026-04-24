@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import Foundation
+import QuartzCore
 import Bonsplit
 import WebKit
 
@@ -10,6 +11,81 @@ extension Notification.Name {
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
+}
+
+/// Bounded dispatch limiter for socket accept-handler threads.
+/// Replaces unbounded `Thread.detachNewThread` at the accept site so one stuck
+/// `.sync` main-hop cannot produce thread/FD runaway. See PLAN_thread_leak.md
+/// Phase 4.
+///
+/// Marked `@unchecked Sendable` because the instance is used from a
+/// nonisolated accept loop and from worker blocks; internal state is either
+/// immutable (`cap`, `queue`, `inflight`) or guarded by `metricsLock`.
+final class SocketHandlerLimiter: @unchecked Sendable {
+    let cap: Int
+    private let inflight: DispatchSemaphore
+
+    private let metricsLock = NSLock()
+    private var _currentInflight: Int = 0
+    private var _peakInflight: Int = 0
+    private var _rejectedCount: UInt64 = 0
+
+    struct Metrics {
+        let cap: Int
+        let currentInflight: Int
+        let peakInflight: Int
+        let rejectedCount: UInt64
+    }
+
+    init(cap: Int) {
+        self.cap = cap
+        self.inflight = DispatchSemaphore(value: cap)
+    }
+
+    /// Non-blocking permit acquire. Returns false if all permits are in use
+    /// (and increments the rejected counter as a side effect).
+    func tryAcquire() -> Bool {
+        guard inflight.wait(timeout: .now()) != .timedOut else {
+            metricsLock.lock()
+            _rejectedCount &+= 1
+            metricsLock.unlock()
+            return false
+        }
+        metricsLock.lock()
+        _currentInflight += 1
+        if _currentInflight > _peakInflight { _peakInflight = _currentInflight }
+        metricsLock.unlock()
+        return true
+    }
+
+    /// Return a permit previously granted by `tryAcquire()`. Must be called
+    /// exactly once per successful acquire; leaking a permit silently shrinks
+    /// the cap. Caller pattern:
+    /// ```swift
+    /// guard limiter.tryAcquire() else { reject(); continue }
+    /// Thread.detachNewThread {
+    ///     defer { limiter.release() }   // captures limiter strongly
+    ///     // ...
+    /// }
+    /// ```
+    func release() {
+        metricsLock.lock()
+        _currentInflight -= 1
+        metricsLock.unlock()
+        inflight.signal()
+    }
+
+    /// Snapshot metrics for `cmux socket_health`. Safe from any thread.
+    func metricsSnapshot() -> Metrics {
+        metricsLock.lock()
+        defer { metricsLock.unlock() }
+        return Metrics(
+            cap: cap,
+            currentInflight: _currentInflight,
+            peakInflight: _peakInflight,
+            rejectedCount: _rejectedCount
+        )
+    }
 }
 
 /// Unix socket-based controller for programmatic terminal control
@@ -48,6 +124,18 @@ class TerminalController {
     private nonisolated(unsafe) var pendingAcceptLoopResumeGeneration: UInt64?
     private nonisolated(unsafe) var listenerStartInProgress = false
     private nonisolated let listenerStateLock = NSLock()
+    // Bounded handler limiter replacing per-connection Thread.detachNewThread.
+    // Accessed from the nonisolated accept loop and from handler blocks, so
+    // declared nonisolated. Cap matches the old informal design; override via
+    // env `CMUX_SOCKET_HANDLER_INFLIGHT` for production tuning.
+    nonisolated static let defaultHandlerInflightCap: Int = {
+        if let env = ProcessInfo.processInfo.environment["CMUX_SOCKET_HANDLER_INFLIGHT"],
+           let n = Int(env), n > 0 {
+            return n
+        }
+        return 64
+    }()
+    nonisolated let handlerLimiter = SocketHandlerLimiter(cap: TerminalController.defaultHandlerInflightCap)
     private var clientHandlers: [Int32: Thread] = [:]
     private var tabManager: TabManager?
     private var accessMode: SocketControlMode = .cmuxOnly
@@ -1436,9 +1524,45 @@ class TerminalController {
             // the time a new thread starts the peer may already be gone.
             let peerPid = getPeerPid(clientSocket)
 
-            // Handle client in new thread
+            // Bounded-concurrency dispatch replacing Thread.detachNewThread.
+            // See PLAN_thread_leak.md Phase 4. Non-blocking acquire: if all
+            // permits are in use we reject the connection rather than spawn
+            // unbounded threads.
+            guard handlerLimiter.tryAcquire() else {
+#if DEBUG
+                let metrics = handlerLimiter.metricsSnapshot()
+                dlog("socket.handler.rejected cap=\(metrics.cap) peak=\(metrics.peakInflight) rejected=\(metrics.rejectedCount)")
+#endif
+                let msg = "ERROR: server_busy\n"
+                msg.withCString { ptr in _ = write(clientSocket, ptr, strlen(ptr)) }
+                close(clientSocket)
+                continue
+            }
+            // The limiter captures itself strongly so the permit is always
+            // released, even if self is deallocated before the block runs.
+            // `handleClient` is the single place that closes the socket on the
+            // live-self path; the dead-self branch is the only other close.
+            // Spawn a dedicated handler thread (matching the pre-fix code
+            // shape so @MainActor inference of `handleClient` stays
+            // compatible). The permit is released exactly once via `defer`,
+            // and the limiter is captured strongly so a drop of `self` does
+            // not leak permits. handleClient closes the socket in its own
+            // `defer`; the dead-self branch must close explicitly.
+            let limiter = handlerLimiter
             Thread.detachNewThread { [weak self] in
-                self?.handleClient(clientSocket, peerPid: peerPid)
+                defer { limiter.release() }
+                guard let self else {
+                    close(clientSocket)
+                    return
+                }
+                let start = CACurrentMediaTime()
+                self.handleClient(clientSocket, peerPid: peerPid)
+                let elapsedMs = Int((CACurrentMediaTime() - start) * 1000)
+                if elapsedMs > 500 {
+#if DEBUG
+                    dlog("socket.handler.slow elapsed_ms=\(elapsedMs)")
+#endif
+                }
             }
         }
     }
@@ -1912,6 +2036,19 @@ class TerminalController {
 
             case "surface_health":
                 return surfaceHealth(args)
+
+            case "socket_health":
+                return socketHealth()
+
+#if DEBUG
+            case "debug_notification_drain":
+                // DEBUG-only fire-and-forget barrier: block until the main run
+                // loop has drained everything queued up to now. Enables tests
+                // that used to rely on synchronous read-after-write on
+                // notification commands. See PLAN_thread_leak.md Phase 3.
+                DispatchQueue.main.sync { /* no-op */ }
+                return "OK"
+#endif
 
             default:
                 return "ERROR: Unknown command '\(cmd)'. Use 'help' for available commands."
@@ -6398,28 +6535,36 @@ class TerminalController {
 
     // MARK: - V2 Notification Methods
 
-    private func v2NotificationCreate(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
+    // Fire-and-forget V2 notification handlers: reply after syntax-only
+    // validation; semantic failures (missing workspace / surface) are
+    // logged and dropped. Response shape is limited to ids the caller
+    // passed in — *_ref and window_id required main-hop resolution and are
+    // intentionally dropped. See PLAN_thread_leak.md Phase 3.
 
+    private func v2NotificationCreate(params: [String: Any]) -> V2CallResult {
         let explicitSurfaceId = v2UUID(params, "surface_id")
+        let workspaceIdParam = v2UUID(params, "workspace_id")
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
 
-        var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
-        v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+        DispatchQueue.main.async {
+            guard let tabManager = self.v2ResolveTabManager(params: params) else {
+                #if DEBUG
+                dlog("socket.v2_notification.create.unavailable reason=no_tab_manager")
+                #endif
+                return
+            }
+            guard let ws = self.v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                #if DEBUG
+                dlog("socket.v2_notification.create.unresolved workspace=\(workspaceIdParam?.uuidString ?? "nil")")
+                #endif
                 return
             }
             if let explicitSurfaceId, ws.panels[explicitSurfaceId] == nil {
-                result = .err(
-                    code: "not_found",
-                    message: "Surface not found",
-                    data: ["surface_id": explicitSurfaceId.uuidString]
-                )
+                #if DEBUG
+                dlog("socket.v2_notification.create.unresolved surface=\(explicitSurfaceId.uuidString)")
+                #endif
                 return
             }
             let surfaceId = explicitSurfaceId ?? ws.focusedPanelId
@@ -6430,31 +6575,40 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body
             )
-            result = .ok(["workspace_id": ws.id.uuidString, "surface_id": v2OrNull(surfaceId?.uuidString)])
         }
-        return result
+        return .ok([
+            "accepted": true,
+            "workspace_id": v2OrNull(workspaceIdParam?.uuidString),
+            "surface_id": v2OrNull(explicitSurfaceId?.uuidString),
+        ])
     }
 
     private func v2NotificationCreateForSurface(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
         guard let surfaceId = v2UUID(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
-
+        let workspaceIdParam = v2UUID(params, "workspace_id")
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
 
-        var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
-        v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+        DispatchQueue.main.async {
+            guard let tabManager = self.v2ResolveTabManager(params: params) else {
+                #if DEBUG
+                dlog("socket.v2_notification.create_for_surface.unavailable reason=no_tab_manager")
+                #endif
+                return
+            }
+            guard let ws = self.v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                #if DEBUG
+                dlog("socket.v2_notification.create_for_surface.unresolved workspace=\(workspaceIdParam?.uuidString ?? "nil")")
+                #endif
                 return
             }
             guard ws.panels[surfaceId] != nil else {
-                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
+                #if DEBUG
+                dlog("socket.v2_notification.create_for_surface.unresolved surface=\(surfaceId.uuidString)")
+                #endif
                 return
             }
             TerminalNotificationStore.shared.addNotification(
@@ -6464,34 +6618,42 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body
             )
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
-        return result
+        return .ok([
+            "accepted": true,
+            "workspace_id": v2OrNull(workspaceIdParam?.uuidString),
+            "surface_id": surfaceId.uuidString,
+        ])
     }
 
     private func v2NotificationCreateForTarget(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
         guard let wsId = v2UUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
         guard let surfaceId = v2UUID(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
-
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
 
-        var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
-        v2MainSync {
+        DispatchQueue.main.async {
+            guard let tabManager = self.v2ResolveTabManager(params: params) else {
+                #if DEBUG
+                dlog("socket.v2_notification.create_for_target.unavailable reason=no_tab_manager")
+                #endif
+                return
+            }
             guard let ws = tabManager.tabs.first(where: { $0.id == wsId }) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
+                #if DEBUG
+                dlog("socket.v2_notification.create_for_target.unresolved workspace=\(wsId.uuidString)")
+                #endif
                 return
             }
             guard ws.panels[surfaceId] != nil else {
-                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
+                #if DEBUG
+                dlog("socket.v2_notification.create_for_target.unresolved surface=\(surfaceId.uuidString)")
+                #endif
                 return
             }
             TerminalNotificationStore.shared.addNotification(
@@ -6501,34 +6663,36 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body
             )
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
-        return result
+        return .ok([
+            "accepted": true,
+            "workspace_id": wsId.uuidString,
+            "surface_id": surfaceId.uuidString,
+        ])
     }
 
     private func v2NotificationList() -> [String: Any] {
-        var items: [[String: Any]] = []
-        DispatchQueue.main.sync {
-            items = TerminalNotificationStore.shared.notifications.map { n in
-                return [
-                    "id": n.id.uuidString,
-                    "workspace_id": n.tabId.uuidString,
-                    "surface_id": v2OrNull(n.surfaceId?.uuidString),
-                    "is_read": n.isRead,
-                    "title": n.title,
-                    "subtitle": n.subtitle,
-                    "body": n.body
-                ]
-            }
+        // Served from the nonisolated snapshot cache — no main hop needed.
+        let snapshot = TerminalNotificationSnapshotCache.shared.snapshot()
+        let items: [[String: Any]] = snapshot.map { n in
+            return [
+                "id": n.id.uuidString,
+                "workspace_id": n.tabId.uuidString,
+                "surface_id": v2OrNull(n.surfaceId?.uuidString),
+                "is_read": n.isRead,
+                "title": n.title,
+                "subtitle": n.subtitle,
+                "body": n.body,
+            ]
         }
         return ["notifications": items]
     }
 
     private func v2NotificationClear() -> V2CallResult {
-        DispatchQueue.main.sync {
+        DispatchQueue.main.async {
             TerminalNotificationStore.shared.clearAll()
         }
-        return .ok([:])
+        return .ok(["accepted": true])
     }
 
     private func v2SettingsOpen(params: [String: Any]) -> V2CallResult {
@@ -12141,61 +12305,71 @@ class TerminalController {
     }
 
     private func notifyCurrent(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-
-        var result = "OK"
-        DispatchQueue.main.sync {
+        // Fire-and-forget: reply before main-actor mutation. Rationale: per
+        // cmux/CLAUDE.md "Socket command threading policy"; callers are
+        // telemetry hooks, not synchronous clients. See PLAN_thread_leak.md
+        // Phase 3 API-contract decision. "current" is resolved when the
+        // main-async block runs (not at command-arrival time).
+        let payload = parseNotificationPayload(args)
+        DispatchQueue.main.async {
+            guard let tabManager = self.tabManager else { return }
             guard let tabId = tabManager.selectedTabId else {
-                result = "ERROR: No tab selected"
+                #if DEBUG
+                dlog("socket.notify_current.unresolved reason=no_tab_selected")
+                #endif
                 return
             }
             let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-            let (title, subtitle, body) = parseNotificationPayload(args)
             TerminalNotificationStore.shared.addNotification(
                 tabId: tabId,
                 surfaceId: surfaceId,
-                title: title,
-                subtitle: subtitle,
-                body: body
+                title: payload.0,
+                subtitle: payload.1,
+                body: payload.2
             )
         }
-        return result
+        return "OK"
     }
 
     private func notifySurface(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+        // Fire-and-forget: reply before main-actor mutation. See
+        // PLAN_thread_leak.md Phase 3 API-contract decision.
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "ERROR: Missing surface id or index" }
 
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
         let surfaceArg = parts[0]
-        let payload = parts.count > 1 ? parts[1] : ""
-
-        var result = "OK"
-        DispatchQueue.main.sync {
+        let payloadString = parts.count > 1 ? parts[1] : ""
+        let payload = parseNotificationPayload(payloadString)
+        DispatchQueue.main.async {
+            guard let tabManager = self.tabManager else { return }
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
-                result = "ERROR: No tab selected"
+                #if DEBUG
+                dlog("socket.notify_surface.unresolved reason=no_tab_selected")
+                #endif
                 return
             }
-            guard let surfaceId = resolveSurfaceId(from: surfaceArg, tab: tab) else {
-                result = "ERROR: Surface not found"
+            guard let surfaceId = self.resolveSurfaceId(from: surfaceArg, tab: tab) else {
+                #if DEBUG
+                dlog("socket.notify_surface.unresolved surface=\(surfaceArg)")
+                #endif
                 return
             }
-            let (title, subtitle, body) = parseNotificationPayload(payload)
             TerminalNotificationStore.shared.addNotification(
                 tabId: tabId,
                 surfaceId: surfaceId,
-                title: title,
-                subtitle: subtitle,
-                body: body
+                title: payload.0,
+                subtitle: payload.1,
+                body: payload.2
             )
         }
-        return result
+        return "OK"
     }
 
     private func notifyTarget(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+        // Fire-and-forget: reply before main-actor mutation. See
+        // PLAN_thread_leak.md Phase 3 API-contract decision.
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
 
@@ -12204,54 +12378,70 @@ class TerminalController {
 
         let tabArg = parts[0]
         let panelArg = parts[1]
-        let payload = parts.count > 2 ? parts[2] : ""
+        let payloadString = parts.count > 2 ? parts[2] : ""
 
-        var result = "OK"
-        DispatchQueue.main.sync {
+        // Syntax-only off-main validation: tab = UUID-or-non-negative-integer,
+        // panel = UUID. Semantic validation happens on main below.
+        let tabArgTrimmed = tabArg.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tabSyntaxOk = UUID(uuidString: tabArgTrimmed) != nil ||
+            (Int(tabArgTrimmed).map { $0 >= 0 } ?? false)
+        guard tabSyntaxOk else { return "ERROR: Invalid tab id" }
+        guard let panelId = UUID(uuidString: panelArg) else {
+            return "ERROR: Invalid panel id"
+        }
+        let payload = parseNotificationPayload(payloadString)
+
+        DispatchQueue.main.async {
+            guard let tabManager = self.tabManager else { return }
             let tab: Tab?
-            if let tabId = UUID(uuidString: tabArg) {
-                tab = tabForSidebarMutation(id: tabId)
+            if let tabId = UUID(uuidString: tabArgTrimmed) {
+                tab = self.tabForSidebarMutation(id: tabId)
             } else {
-                tab = resolveTab(from: tabArg, tabManager: tabManager)
+                tab = self.resolveTab(from: tabArgTrimmed, tabManager: tabManager)
             }
             guard let tab else {
-                result = "ERROR: Tab not found"
+                #if DEBUG
+                dlog("socket.notify_target.unknown tab=\(tabArgTrimmed) panel=\(panelArg)")
+                #endif
                 return
             }
-            guard let panelId = UUID(uuidString: panelArg),
-                  tab.panels[panelId] != nil else {
-                result = "ERROR: Panel not found"
+            guard tab.panels[panelId] != nil else {
+                #if DEBUG
+                dlog("socket.notify_target.unknown tab=\(tab.id.uuidString) panel=\(panelId.uuidString) reason=panel_not_found")
+                #endif
                 return
             }
-            let (title, subtitle, body) = parseNotificationPayload(payload)
             TerminalNotificationStore.shared.addNotification(
                 tabId: tab.id,
                 surfaceId: panelId,
-                title: title,
-                subtitle: subtitle,
-                body: body
+                title: payload.0,
+                subtitle: payload.1,
+                body: payload.2
             )
         }
-        return result
+        return "OK"
     }
 
     private func listNotifications() -> String {
-        var result = ""
-        DispatchQueue.main.sync {
-            let lines = TerminalNotificationStore.shared.notifications.enumerated().map { index, notification in
-                let surfaceText = notification.surfaceId?.uuidString ?? "none"
-                let readText = notification.isRead ? "read" : "unread"
-                return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.subtitle)|\(notification.body)"
-            }
-            result = lines.joined(separator: "\n")
+        // Served from the nonisolated snapshot cache — no main hop needed.
+        // Under fire-and-forget, a caller may observe a mutation one run-loop
+        // turn later than before. See PLAN_thread_leak.md Phase 3.
+        let snapshot = TerminalNotificationSnapshotCache.shared.snapshot()
+        let lines = snapshot.enumerated().map { index, notification in
+            let surfaceText = notification.surfaceId?.uuidString ?? "none"
+            let readText = notification.isRead ? "read" : "unread"
+            return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.subtitle)|\(notification.body)"
         }
+        let result = lines.joined(separator: "\n")
         return result.isEmpty ? "No notifications" : result
     }
 
     private func clearNotifications(_ args: String) -> String {
+        // Fire-and-forget: reply before main-actor mutation. See
+        // PLAN_thread_leak.md Phase 3 API-contract decision.
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            DispatchQueue.main.sync {
+            DispatchQueue.main.async {
                 TerminalNotificationStore.shared.clearAll()
             }
             return "OK"
@@ -12261,17 +12451,21 @@ class TerminalController {
               !tabOption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return "ERROR: Usage: clear_notifications [--tab=X]"
         }
-        var tabId: UUID?
-        DispatchQueue.main.sync {
-            if let tab = resolveTabForReport(trimmed) {
-                tabId = tab.id
+        // Off-main syntax check on --tab=: UUID or non-negative integer.
+        let tabArgTrimmed = tabOption.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tabSyntaxOk = UUID(uuidString: tabArgTrimmed) != nil ||
+            (Int(tabArgTrimmed).map { $0 >= 0 } ?? false)
+        guard tabSyntaxOk else {
+            return "ERROR: Invalid --tab value"
+        }
+        DispatchQueue.main.async {
+            guard let tab = self.resolveTabForReport(trimmed) else {
+                #if DEBUG
+                dlog("socket.clear_notifications.unresolved tab=\(tabArgTrimmed)")
+                #endif
+                return
             }
-        }
-        guard let tabId else {
-            return "ERROR: Tab not found"
-        }
-        DispatchQueue.main.sync {
-            TerminalNotificationStore.shared.clearNotifications(forTabId: tabId)
+            TerminalNotificationStore.shared.clearNotifications(forTabId: tab.id)
         }
         return "OK"
     }
@@ -14175,6 +14369,33 @@ class TerminalController {
         return (nil, error)
     }
 
+    /// Fire-and-forget sidebar mutation. Dispatches a single main-async hop that
+    /// resolves the tab via `resolveTabForReport` and then runs `body(tab)` on
+    /// main. Unresolved tabs are logged via `dlog` and dropped (no socket
+    /// error), matching the notification-handler contract. Callers return their
+    /// socket reply before the main-async block runs. See PLAN_thread_leak.md
+    /// Phase 3 API-contract decision.
+    private func scheduleSidebarMutation(
+        reportArgs: String,
+        _ body: @escaping (Tab) -> Void
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let tab = self.resolveTabForReport(reportArgs) else {
+                #if DEBUG
+                dlog("socket.sidebar.unresolved args=\(reportArgs)")
+                #endif
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            // Reuse the existing guarded mutation path so we do not regress
+            // the 2026-04-03 layout-death-spiral fix documented in
+            // DEVLOG.md:15 — pruneSurfaceMetadata is already change-guarded.
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+            body(tab)
+        }
+    }
+
     private func tabForSidebarMutation(id: UUID) -> Tab? {
         if let tab = tabManager?.tabs.first(where: { $0.id == id }) {
             return tab
@@ -14293,11 +14514,6 @@ class TerminalController {
             parsedURL = nil
         }
 
-        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
-        guard let targetTabId = tabResolution.tabId else {
-            return tabResolution.error ?? "ERROR: No tab selected"
-        }
-
         let pidValue: pid_t? = {
             if let rawPid = normalizedOptionValue(parsed.options["pid"]),
                let p = Int32(rawPid), p > 0 {
@@ -14306,8 +14522,10 @@ class TerminalController {
             return nil
         }()
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+        // Fire-and-forget: tab resolution now happens inside the main-async
+        // block so the socket handler does not main-sync. See
+        // PLAN_thread_leak.md Phase 3 scheduleSidebarMutation pattern.
+        scheduleSidebarMutation(reportArgs: args) { tab in
             guard Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
@@ -14370,12 +14588,7 @@ class TerminalController {
             return "ERROR: Usage: set_agent_pid <key> <pid> [--tab=<id>]"
         }
         let key = parsed.positional[0]
-        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
-        guard let targetTabId = tabResolution.tabId else {
-            return tabResolution.error ?? "ERROR: No tab selected"
-        }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+        scheduleSidebarMutation(reportArgs: args) { tab in
             tab.agentPIDs[key] = pid
         }
         return "OK"
@@ -14387,14 +14600,7 @@ class TerminalController {
         guard let key = parsed.positional.first else {
             return "ERROR: Usage: clear_agent_pid <key> [--tab=<id>]"
         }
-        // Resolve tab ID synchronously before dispatching to avoid
-        // racing against selection changes on the main queue.
-        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
-        guard let targetTabId = tabResolution.tabId else {
-            return tabResolution.error ?? "ERROR: No tab selected"
-        }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+        scheduleSidebarMutation(reportArgs: args) { tab in
             tab.agentPIDs.removeValue(forKey: key)
         }
         return "OK"
@@ -14510,13 +14716,7 @@ class TerminalController {
             priority = 0
         }
 
-        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: parts.optionsPart, options: parsed.options)
-        guard let targetTabId = tabResolution.tabId else {
-            return tabResolution.error ?? "ERROR: No tab selected"
-        }
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+        scheduleSidebarMutation(reportArgs: parts.optionsPart) { tab in
             guard Self.shouldReplaceMetadataBlock(
                 current: tab.metadataBlocks[key],
                 key: key,
@@ -15309,6 +15509,12 @@ class TerminalController {
             current = v.superview
         }
         return false
+    }
+
+    private func socketHealth() -> String {
+        // Nonisolated — no main hop needed. See PLAN_thread_leak.md Phase 4.
+        let m = handlerLimiter.metricsSnapshot()
+        return "cap=\(m.cap) current=\(m.currentInflight) peak=\(m.peakInflight) rejected=\(m.rejectedCount)"
     }
 
     private func surfaceHealth(_ tabArg: String) -> String {

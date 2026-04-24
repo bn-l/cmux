@@ -436,8 +436,25 @@ class cmux:
         """Get help text from server"""
         return self._send_command("help")
 
+    def debug_notification_drain(self) -> None:
+        """
+        DEBUG-only barrier: block until the main run loop has serviced
+        everything queued before this call. Used to test fire-and-forget
+        notification commands (per PLAN_thread_leak.md Phase 3). Calling on
+        a production build will raise cmuxError.
+        """
+        response = self._send_command("debug_notification_drain")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def notify(self, title: str, subtitle: str = "", body: str = "") -> None:
-        """Create a notification for the focused surface."""
+        """Create a notification for the focused surface.
+
+        Fire-and-forget: reply returns OK after the command is queued, not
+        after the UI has applied it. If you need synchronous read-after-write
+        (e.g., in a test that calls list_notifications() immediately after),
+        call debug_notification_drain() in between.
+        """
         if subtitle or body:
             payload = f"{title}|{subtitle}|{body}"
         else:
@@ -447,7 +464,10 @@ class cmux:
             raise cmuxError(response)
 
     def notify_surface(self, surface: Union[str, int], title: str, subtitle: str = "", body: str = "") -> None:
-        """Create a notification for a specific surface by ID or index."""
+        """Create a notification for a specific surface by ID or index.
+
+        Fire-and-forget — see notify() for read-after-write notes.
+        """
         if subtitle or body:
             payload = f"{title}|{subtitle}|{body}"
         else:
@@ -456,11 +476,17 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def list_notifications(self) -> list[dict]:
+    def list_notifications(self, drain: bool = True) -> list[dict]:
         """
         List notifications.
         Returns list of dicts with keys: id, tab_id/workspace_id, surface_id, is_read, title, subtitle, body.
+
+        When drain=True (default) a debug_notification_drain is issued first
+        so callers observe read-after-write of preceding notify/clear calls.
+        Set drain=False for genuine eventual-state observation.
         """
+        if drain:
+            self.debug_notification_drain()
         response = self._send_command("list_notifications")
         if response == "No notifications":
             return []
@@ -486,11 +512,39 @@ class cmux:
             })
         return items
 
-    def clear_notifications(self) -> None:
-        """Clear all notifications."""
+    def clear_notifications(self, drain: bool = True) -> None:
+        """Clear all notifications.
+
+        Fire-and-forget. When drain=True (default) the helper issues a
+        debug_notification_drain after the clear so subsequent reads observe
+        the post-clear state. Set drain=False if the test is measuring
+        eventual state rather than read-after-write.
+        """
         response = self._send_command("clear_notifications")
         if not response.startswith("OK"):
             raise cmuxError(response)
+        if drain:
+            self.debug_notification_drain()
+
+    def wait_for_notifications_eventually(
+        self,
+        predicate,
+        timeout: float = 2.0,
+        interval: float = 0.05,
+    ) -> list[dict]:
+        """Poll list_notifications(drain=False) until predicate(items) is true
+        or timeout fires. Useful for tests that are genuinely about eventual
+        state rather than a synchronous barrier.
+        """
+        import time
+        end = time.monotonic() + timeout
+        last: list[dict] = []
+        while time.monotonic() < end:
+            last = self.list_notifications(drain=False)
+            if predicate(last):
+                return last
+            time.sleep(interval)
+        return last
 
     def set_app_focus(self, active: Union[bool, None]) -> None:
         """Override app focus state. Use None to clear override."""

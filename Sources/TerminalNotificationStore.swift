@@ -655,7 +655,7 @@ enum NotificationAuthorizationState: Equatable {
     }
 }
 
-struct TerminalNotification: Identifiable, Hashable {
+struct TerminalNotification: Identifiable, Hashable, Sendable {
     let id: UUID
     let tabId: UUID
     let surfaceId: UUID?
@@ -664,6 +664,34 @@ struct TerminalNotification: Identifiable, Hashable {
     let body: String
     let createdAt: Date
     var isRead: Bool
+}
+
+/// Nonisolated-safe snapshot of the @MainActor notification store, updated from
+/// main on every mutation and readable from any thread without a main hop.
+/// Used by fire-and-forget socket handlers (`list_notifications`, V2 list)
+/// to format replies without blocking main. See PLAN_thread_leak.md Phase 3.
+///
+/// Kept as a separate object (not static state on TerminalNotificationStore)
+/// so the @MainActor ownership story of the store is unchanged and the cache
+/// can never re-enter main-actor mutators from a nonisolated read.
+final class TerminalNotificationSnapshotCache: @unchecked Sendable {
+    static let shared = TerminalNotificationSnapshotCache()
+    private let lock = NSLock()
+    private var storage: [TerminalNotification] = []
+
+    /// Called from @MainActor contexts only (via the `notifications` didSet).
+    func update(_ snapshot: [TerminalNotification]) {
+        lock.lock()
+        storage = snapshot
+        lock.unlock()
+    }
+
+    /// Safe from any thread.
+    func snapshot() -> [TerminalNotification] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
 }
 
 @MainActor
@@ -695,6 +723,12 @@ final class TerminalNotificationStore: ObservableObject {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
             refreshDockBadge()
+            // Keep the nonisolated snapshot cache in lockstep with main-actor
+            // state so off-main socket handlers can read without a main hop.
+            // Do NOT emit any extra objectWillChange here — @Published already
+            // fires it once per mutation, and duplicate emissions are exactly
+            // the DEVLOG.md:15 layout-death-spiral shape.
+            TerminalNotificationSnapshotCache.shared.update(notifications)
         }
     }
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
