@@ -2366,7 +2366,11 @@ class GhosttyApp {
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG {
                 let soft = action.action.reload_config.soft
                 logThemeAction("reload request target=app soft=\(soft)")
-                performOnMain {
+                // Defer past the apprt callback stack. Never run
+                // reloadConfiguration synchronously from inside
+                // apprt.embedded.App.performAction — see PLAN_thread_leak.md
+                // Phase 2.
+                DispatchQueue.main.async {
                     GhosttyApp.shared.reloadConfiguration(soft: soft, source: "action.reload_config.app")
                 }
                 return true
@@ -2681,15 +2685,55 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_RELOAD_CONFIG:
             let soft = action.action.reload_config.soft
+            let surfaceHandle: ghostty_surface_t? = target.target.surface
             logThemeAction(
                 "reload request target=surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") soft=\(soft)"
             )
             return performOnMain {
-                // Keep all runtime theme/default-background state in the same path.
-                GhosttyApp.shared.reloadConfiguration(
-                    soft: soft,
-                    source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")"
-                )
+                // Surface-scoped reload only: do NOT call ghostty_app_update_config
+                // here. Fanning out the reload to every surface's bounded 64-slot
+                // renderer mailbox is what caused the main-thread hang documented
+                // in PLAN_thread_leak.md. Upstream macOS apprt uses
+                // ghostty_surface_update_config for this exact path (see
+                // cmux/ghostty/macos/Sources/Ghostty/Ghostty.App.swift:159).
+                //
+                // App-wide coverage for hidden tabs / detached bonsplit panels
+                // (DEVLOG.md:12) still happens via the KVO sweep
+                // `propagateColorSchemeToAllSurfaces`, which is called on the
+                // appearance change, not per-surface.
+                guard let surfaceHandle else { return true }
+                if soft {
+                    if let cachedConfig = GhosttyApp.shared.config {
+                        ghostty_surface_update_config(surfaceHandle, cachedConfig)
+                    }
+                } else {
+                    if let newConfig = ghostty_config_new() {
+                        GhosttyApp.shared.loadDefaultConfigFilesWithLegacyFallback(newConfig)
+                        ghostty_surface_update_config(surfaceHandle, newConfig)
+                        // Do NOT swap GhosttyApp.shared.config — hard surface
+                        // reloads are per-surface and must not mutate app-global
+                        // config.
+                        ghostty_config_free(newConfig)
+                    }
+                }
+                // Defer per-surface refresh past the apprt callback stack.
+                DispatchQueue.main.async {
+                    if let terminalSurface = surfaceView.terminalSurface {
+                        _ = terminalSurface.hostedView.reconcileGeometryNow()
+                        terminalSurface.forceRefresh(reason: "action.reload_config.surface")
+                    }
+                    // Background apply only if the changing surface is actually
+                    // in the key window; skip otherwise to avoid unrelated
+                    // window chrome flicker.
+                    if surfaceView.window?.isKeyWindow == true {
+                        GhosttyApp.shared.applyBackgroundToKeyWindow()
+                    }
+                }
+                // Intentionally NOT posting .ghosttyConfigDidReload: observer
+                // audit (see PLAN_thread_leak.md Phase 1) shows the two
+                // observers handle config-file reloads, not per-surface theme
+                // transitions; SwiftUI's .onChange(of: colorScheme) at
+                // WorkspaceContentView.swift:367 already covers the latter.
                 return true
             }
         case GHOSTTY_ACTION_KEY_SEQUENCE:
