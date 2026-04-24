@@ -391,6 +391,42 @@ jobs:
           CMUX_LAG_KEY_EVENTS=180 \
           python3 tests/test_workspace_churn_up_arrow_lag.py
 
+      - name: Run thread-leak regressions
+        run: |
+          set -euo pipefail
+
+          APP="$(find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -print -quit)"
+          if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
+            echo "cmux DEV.app not found in DerivedData" >&2
+            exit 1
+          fi
+
+          TAG="ci-thread-leak"
+          SOCK="/tmp/cmux-debug-${TAG}.sock"
+          BUNDLE_ID="$(
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist" 2>/dev/null \
+              || echo 'com.cmuxterm.app.debug'
+          )"
+
+          # Ensure no stale instance from the lag job is holding the socket.
+          pkill -x "cmux DEV" || true
+          sleep 1
+          rm -f "$SOCK" "/tmp/cmux-${TAG}.sock" || true
+          defaults write "$BUNDLE_ID" socketControlMode -string full >/dev/null 2>&1 || true
+
+          CMUX_TAG="$TAG" CMUX_SOCKET_PATH="$SOCK" CMUX_UI_TEST_MODE=1 \
+            "$APP/Contents/MacOS/cmux DEV" >/tmp/cmux-ci-thread-leak.log 2>&1 &
+          APP_PID=$!
+          trap 'kill "$APP_PID" >/dev/null 2>&1 || true' EXIT
+
+          for _ in {1..240}; do
+            [ -S "$SOCK" ] && break
+            sleep 0.25
+          done
+          [ -S "$SOCK" ] || { echo "Socket not ready at $SOCK" >&2; exit 1; }
+
+          CMUX_SOCKET_PATH="$SOCK" python3 tests/test_thread_leak_regressions.py -v
+
       - name: Cleanup virtual display
         if: always()
         run: |
