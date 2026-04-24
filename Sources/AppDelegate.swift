@@ -4912,6 +4912,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// cleanly. See PLAN_thread_leak.md Phase 5.
     private var colorSchemeSweepGeneration: UInt64 = 0
 
+#if DEBUG
+    private static let appearanceRecorderEnvKey = "CMUX_APPEARANCE_DEBUG"
+#endif
+
     // Chunk size is intentionally small so the main run loop has a chance to
     // service unrelated work (typing, scrolling, other dispatches) between
     // chunks. 8 matches the Phase 6.2 test bound calculation.
@@ -4964,12 +4968,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if gen != self.colorSchemeSweepGeneration {
 #if DEBUG
                     dlog("appearance.propagateColorScheme.chunk gen=\(gen) index=\(chunkIndex) aborted=1")
+                    AppearanceSweepRecorder.shared.record(.init(
+                        gen: gen,
+                        chunkIndex: chunkIndex,
+                        aborted: true,
+                        applied: 0,
+                        schemeRawValue: scheme.rawValue,
+                        timestamp: CACurrentMediaTime()
+                    ))
 #endif
                     return
                 }
+                var applied = 0
                 for owner in chunkOwners {
                     if let liveSurface = owner.liveSurfaceForGhosttyAccess(reason: "appearance.sweep") {
                         applicator(liveSurface, scheme)
+                        applied += 1
 #if DEBUG
                         owner.lastAppliedColorScheme = scheme
 #endif
@@ -4977,6 +4991,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
 #if DEBUG
                 dlog("appearance.propagateColorScheme.chunk gen=\(gen) index=\(chunkIndex) aborted=0")
+                AppearanceSweepRecorder.shared.record(.init(
+                    gen: gen,
+                    chunkIndex: chunkIndex,
+                    aborted: false,
+                    applied: applied,
+                    schemeRawValue: scheme.rawValue,
+                    timestamp: CACurrentMediaTime()
+                ))
                 if chunkIndex == chunkCount - 1 {
                     dlog("appearance.propagateColorScheme.end gen=\(gen)")
                 }
@@ -4990,8 +5012,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // (gen, ownerId, scheme) calls.
     nonisolated(unsafe) static var colorSchemeApplicator: (ghostty_surface_t, ghostty_color_scheme_e) -> Void = {
         surface, scheme in
+#if DEBUG
+        let sleepMs = AppearanceSweepRecorder.shared.applicatorSleepMs()
+        if sleepMs > 0 {
+            Thread.sleep(forTimeInterval: Double(sleepMs) / 1000.0)
+        }
+#endif
         ghostty_surface_set_color_scheme(surface, scheme)
     }
+
+#if DEBUG
+    /// Collect per-surface `lastAppliedColorScheme` for the appearance regression
+    /// harness. Safe to call on the main actor; surfaces outside the live tree
+    /// are skipped.
+    @MainActor
+    func debugAppearanceSurfaceStates() -> [(UUID, ghostty_color_scheme_e)] {
+        var out: [(UUID, ghostty_color_scheme_e)] = []
+        forEachTerminalPanel { panel in
+            out.append((panel.surface.id, panel.surface.lastAppliedColorScheme))
+        }
+        return out
+    }
+#endif
 
     func refreshTerminalSurfacesAfterGhosttyConfigReload(source: String) {
         var refreshedCount = 0
@@ -13273,3 +13315,57 @@ private extension NSWindow {
     }
 
 }
+
+#if DEBUG
+/// DEBUG-only recorder for the chunked color-scheme sweep (PLAN_thread_leak.md
+/// Phase 5). Captures per-chunk (gen, index, aborted, applied, scheme) events
+/// and the applicator-slow-ms knob used by the Phase 6.2 harness. The recorder
+/// is thread-safe because chunks and the applicator closure both run off the
+/// main actor with respect to this state.
+final class AppearanceSweepRecorder: @unchecked Sendable {
+    static let shared = AppearanceSweepRecorder()
+
+    struct Event {
+        let gen: UInt64
+        let chunkIndex: Int
+        let aborted: Bool
+        let applied: Int
+        let schemeRawValue: UInt32
+        let timestamp: CFTimeInterval
+    }
+
+    private let lock = NSLock()
+    private var events: [Event] = []
+    private var slowMs: Int = 0
+    private static let maxEvents = 500
+
+    func record(_ event: Event) {
+        lock.lock(); defer { lock.unlock() }
+        events.append(event)
+        if events.count > Self.maxEvents {
+            events.removeFirst(events.count - Self.maxEvents)
+        }
+    }
+
+    func snapshot() -> [Event] {
+        lock.lock(); defer { lock.unlock() }
+        return events
+    }
+
+    func reset() {
+        lock.lock(); defer { lock.unlock() }
+        events.removeAll()
+        slowMs = 0
+    }
+
+    func setApplicatorSleepMs(_ ms: Int) {
+        lock.lock(); defer { lock.unlock() }
+        slowMs = max(0, ms)
+    }
+
+    func applicatorSleepMs() -> Int {
+        lock.lock(); defer { lock.unlock() }
+        return slowMs
+    }
+}
+#endif

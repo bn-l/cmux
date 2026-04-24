@@ -2068,6 +2068,30 @@ class TerminalController {
                 // tests that want the same shape as socket_health but labeled
                 // explicitly as DEBUG-only.
                 return socketHealth()
+
+            case "debug_set_applicator_slow_ms":
+                // PLAN_thread_leak.md Phase 6.2 harness. Injects an artificial
+                // delay into the color-scheme applicator so tests can observe
+                // chunk interleaving, generation-token abort, and final
+                // lastAppliedColorScheme convergence across all surfaces.
+                return debugSetApplicatorSlowMs(args)
+
+            case "debug_dump_appearance_log":
+                // PLAN_thread_leak.md Phase 6.2 harness. Returns the chunk
+                // event log (gen/index/aborted/applied/scheme) followed by
+                // per-surface lastAppliedColorScheme snapshots so the test can
+                // assert chunk interleaving, supersede behaviour, and final
+                // convergence.
+                return debugDumpAppearanceLog()
+
+            case "debug_reset_appearance_log":
+                AppearanceSweepRecorder.shared.reset()
+                return "OK"
+
+            case "debug_pid":
+                // DEBUG-only: return the cmux process PID so test harnesses
+                // can sample FD / thread counts via lsof/ps.
+                return "OK \(ProcessInfo.processInfo.processIdentifier)"
 #endif
 
             default:
@@ -14584,19 +14608,11 @@ class TerminalController {
         guard let key = parsed.positional.first, parsed.positional.count == 1 else {
             return "ERROR: Missing metadata key — usage: \(usage)"
         }
-
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
-            if tab.statusEntries.removeValue(forKey: key) == nil {
-                result = "OK (key not found)"
-            }
+        scheduleSidebarMutation(reportArgs: args) { tab in
+            tab.statusEntries.removeValue(forKey: key)
             tab.agentPIDs.removeValue(forKey: key)
         }
-        return result
+        return "OK"
     }
 
     /// Register an agent PID for stale-session detection without setting a visible status entry.
@@ -14760,18 +14776,10 @@ class TerminalController {
         guard let key = parsed.positional.first, parsed.positional.count == 1 else {
             return "ERROR: Missing metadata block key — usage: clear_meta_block <key> [--tab=X]"
         }
-
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
-            if tab.metadataBlocks.removeValue(forKey: key) == nil {
-                result = "OK (key not found)"
-            }
+        scheduleSidebarMutation(reportArgs: args) { tab in
+            tab.metadataBlocks.removeValue(forKey: key)
         }
-        return result
+        return "OK"
     }
 
     private func listMetaBlocks(_ args: String) -> String {
@@ -14802,33 +14810,23 @@ class TerminalController {
             return "ERROR: Unknown log level '\(levelStr)' — use: info, progress, success, warning, error"
         }
         let source = parsed.options["source"]
+        let configuredLimit = UserDefaults.standard.object(forKey: "sidebarMaxLogEntries") as? Int ?? 50
+        let limit = max(1, min(500, configuredLimit))
 
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
+        scheduleSidebarMutation(reportArgs: args) { tab in
             tab.logEntries.append(SidebarLogEntry(message: message, level: level, source: source, timestamp: Date()))
-            let configuredLimit = UserDefaults.standard.object(forKey: "sidebarMaxLogEntries") as? Int ?? 50
-            let limit = max(1, min(500, configuredLimit))
             if tab.logEntries.count > limit {
                 tab.logEntries.removeFirst(tab.logEntries.count - limit)
             }
         }
-        return result
+        return "OK"
     }
 
     private func clearLog(_ args: String) -> String {
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = "ERROR: Tab not found"
-                return
-            }
+        scheduleSidebarMutation(reportArgs: args) { tab in
             tab.logEntries.removeAll()
         }
-        return result
+        return "OK"
     }
 
     private func listLog(_ args: String) -> String {
@@ -14882,27 +14880,17 @@ class TerminalController {
         let clamped = min(1.0, max(0.0, value))
         let label = parsed.options["label"]
 
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
+        scheduleSidebarMutation(reportArgs: args) { tab in
             tab.progress = SidebarProgressState(value: clamped, label: label)
         }
-        return result
+        return "OK"
     }
 
     private func clearProgress(_ args: String) -> String {
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = "ERROR: Tab not found"
-                return
-            }
+        scheduleSidebarMutation(reportArgs: args) { tab in
             tab.progress = nil
         }
-        return result
+        return "OK"
     }
 
     private func reportGitBranch(_ args: String) -> String {
@@ -14934,18 +14922,13 @@ class TerminalController {
             return "OK"
         }
 
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
+        scheduleSidebarMutation(reportArgs: args) { tab in
             let newState = SidebarGitBranchState(branch: branch, isDirty: isDirty)
             if tab.gitBranch != newState {
                 tab.gitBranch = newState
             }
         }
-        return result
+        return "OK"
     }
 
     private func clearGitBranch(_ args: String) -> String {
@@ -14967,15 +14950,10 @@ class TerminalController {
             }
             return "OK"
         }
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = "ERROR: Tab not found"
-                return
-            }
+        scheduleSidebarMutation(reportArgs: args) { tab in
             tab.gitBranch = nil
         }
-        return result
+        return "OK"
     }
 
     private func reportPullRequest(_ args: String) -> String {
@@ -15074,51 +15052,19 @@ class TerminalController {
             ports.append(port)
         }
 
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
-
-            let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-
-            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
-            let surfaceId: UUID
-            if let panelArg {
-                if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: report_ports <port1> [port2...] [--tab=X] [--panel=Y]"
-                    return
-                }
-                guard let parsedId = UUID(uuidString: panelArg) else {
-                    result = "ERROR: Invalid panel id '\(panelArg)'"
-                    return
-                }
-                surfaceId = parsedId
-            } else {
-                guard let focused = tab.focusedPanelId else {
-                    result = "ERROR: Missing panel id (no focused surface)"
-                    return
-                }
-                surfaceId = focused
-            }
-
-            guard validSurfaceIds.contains(surfaceId) else {
-                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
-                return
-            }
-
+        return schedulePanelMetadataMutation(
+            args: args,
+            options: parsed.options,
+            missingPanelUsage: "report_ports <port1> [port2...] [--tab=X] [--panel=Y]"
+        ) { tab, surfaceId in
             if tab.surfaceListeningPorts[surfaceId] != ports {
                 tab.surfaceListeningPorts[surfaceId] = ports
                 tab.recomputeListeningPorts()
             }
         }
-        return result
     }
 
     private func reportPwd(_ args: String) -> String {
-        guard let tabManager else { return "ERROR: TabManager not available" }
         let parsed = parseOptions(args)
         guard !parsed.positional.isEmpty else {
             return "ERROR: Missing path — usage: report_pwd <path> [--tab=X] [--panel=Y]"
@@ -15138,44 +15084,15 @@ class TerminalController {
             }
             return "OK"
         }
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
 
-            let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-
-            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
-            let surfaceId: UUID
-            if let panelArg {
-                if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: report_pwd <path> [--tab=X] [--panel=Y]"
-                    return
-                }
-                guard let parsedId = UUID(uuidString: panelArg) else {
-                    result = "ERROR: Invalid panel id '\(panelArg)'"
-                    return
-                }
-                surfaceId = parsedId
-            } else {
-                guard let focused = tab.focusedPanelId else {
-                    result = "ERROR: Missing panel id (no focused surface)"
-                    return
-                }
-                surfaceId = focused
-            }
-
-            guard validSurfaceIds.contains(surfaceId) else {
-                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
-                return
-            }
-
+        return schedulePanelMetadataMutation(
+            args: args,
+            options: parsed.options,
+            missingPanelUsage: "report_pwd <path> [--tab=X] [--panel=Y]"
+        ) { tab, surfaceId in
+            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else { return }
             tabManager.updateSurfaceDirectory(tabId: tab.id, surfaceId: surfaceId, directory: directory)
         }
-        return result
     }
 
     private func reportShellState(_ args: String) -> String {
@@ -15202,81 +15119,47 @@ class TerminalController {
             return "OK"
         }
 
-        guard let tabManager else { return "ERROR: TabManager not available" }
-
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
-
-            let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-
-            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
-            let surfaceId: UUID
-            if let panelArg {
-                if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: report_shell_state <prompt|running> [--tab=X] [--panel=Y]"
-                    return
-                }
-                guard let parsedId = UUID(uuidString: panelArg) else {
-                    result = "ERROR: Invalid panel id '\(panelArg)'"
-                    return
-                }
-                surfaceId = parsedId
-            } else {
-                guard let focused = tab.focusedPanelId else {
-                    result = "ERROR: Missing panel id (no focused surface)"
-                    return
-                }
-                surfaceId = focused
-            }
-
-            guard validSurfaceIds.contains(surfaceId) else {
-                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
-                return
-            }
-
+        return schedulePanelMetadataMutation(
+            args: args,
+            options: parsed.options,
+            missingPanelUsage: "report_shell_state <prompt|running> [--tab=X] [--panel=Y]"
+        ) { tab, surfaceId in
+            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else { return }
             tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
         }
-        return result
     }
 
     private func clearPorts(_ args: String) -> String {
         let parsed = parseOptions(args)
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
+        let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+        let scopedSurfaceId: UUID?
+        if let panelArg {
+            if panelArg.isEmpty {
+                return "ERROR: Missing panel id — usage: clear_ports [--tab=X] [--panel=Y]"
             }
+            guard let surfaceId = UUID(uuidString: panelArg) else {
+                return "ERROR: Invalid panel id '\(panelArg)'"
+            }
+            scopedSurfaceId = surfaceId
+        } else {
+            scopedSurfaceId = nil
+        }
 
-            let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-
-            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
-            if let panelArg {
-                if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: clear_ports [--tab=X] [--panel=Y]"
+        scheduleSidebarMutation(reportArgs: args) { tab in
+            if let scopedSurfaceId {
+                guard Set(tab.panels.keys).contains(scopedSurfaceId) else {
+                    #if DEBUG
+                    dlog("socket.clear_ports.unresolved panel=\(scopedSurfaceId.uuidString)")
+                    #endif
                     return
                 }
-                guard let surfaceId = UUID(uuidString: panelArg) else {
-                    result = "ERROR: Invalid panel id '\(panelArg)'"
-                    return
-                }
-                guard validSurfaceIds.contains(surfaceId) else {
-                    result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
-                    return
-                }
-                tab.surfaceListeningPorts.removeValue(forKey: surfaceId)
+                tab.surfaceListeningPorts.removeValue(forKey: scopedSurfaceId)
             } else {
                 tab.surfaceListeningPorts.removeAll()
             }
             tab.recomputeListeningPorts()
         }
-        return result
+        return "OK"
     }
 
     private func reportTTY(_ args: String) -> String {
@@ -15300,43 +15183,14 @@ class TerminalController {
             return "OK"
         }
 
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
-
-            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
-            let surfaceId: UUID
-            if let panelArg {
-                if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: report_tty <tty_name> [--tab=X] [--panel=Y]"
-                    return
-                }
-                guard let parsedId = UUID(uuidString: panelArg) else {
-                    result = "ERROR: Invalid panel id '\(panelArg)'"
-                    return
-                }
-                surfaceId = parsedId
-            } else {
-                guard let focused = tab.focusedPanelId else {
-                    result = "ERROR: Missing panel id (no focused surface)"
-                    return
-                }
-                surfaceId = focused
-            }
-
-            let validSurfaceIds = Set(tab.panels.keys)
-            guard validSurfaceIds.contains(surfaceId) else {
-                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
-                return
-            }
-
+        return schedulePanelMetadataMutation(
+            args: args,
+            options: parsed.options,
+            missingPanelUsage: "report_tty <tty_name> [--tab=X] [--panel=Y]"
+        ) { tab, surfaceId in
             tab.surfaceTTYNames[surfaceId] = ttyName
             PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: ttyName)
         }
-        return result
     }
 
     private func portsKick(_ args: String) -> String {
@@ -15355,36 +15209,13 @@ class TerminalController {
             return "OK"
         }
 
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
-
-            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
-            let surfaceId: UUID
-            if let panelArg {
-                if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: ports_kick [--tab=X] [--panel=Y]"
-                    return
-                }
-                guard let parsedId = UUID(uuidString: panelArg) else {
-                    result = "ERROR: Invalid panel id '\(panelArg)'"
-                    return
-                }
-                surfaceId = parsedId
-            } else {
-                guard let focused = tab.focusedPanelId else {
-                    result = "ERROR: Missing panel id (no focused surface)"
-                    return
-                }
-                surfaceId = focused
-            }
-
+        return schedulePanelMetadataMutation(
+            args: args,
+            options: parsed.options,
+            missingPanelUsage: "ports_kick [--tab=X] [--panel=Y]"
+        ) { tab, surfaceId in
             PortScanner.shared.kick(workspaceId: tab.id, panelId: surfaceId)
         }
-        return result
     }
 
     private func sidebarState(_ args: String) -> String {
@@ -15461,15 +15292,10 @@ class TerminalController {
     }
 
     private func resetSidebar(_ args: String) -> String {
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = "ERROR: Tab not found"
-                return
-            }
+        scheduleSidebarMutation(reportArgs: args) { tab in
             tab.resetSidebarContext(reason: "reset_sidebar")
         }
-        return result
+        return "OK"
     }
 
     private func reloadConfig(_ args: String) -> String {
@@ -15564,6 +15390,35 @@ class TerminalController {
             Thread.sleep(forTimeInterval: TimeInterval(ms) / 1000.0)
         }
         return "OK"
+    }
+
+    private func debugSetApplicatorSlowMs(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let ms = Int(trimmed), ms >= 0 else {
+            return "ERROR: Usage: debug_set_applicator_slow_ms <ms>"
+        }
+        AppearanceSweepRecorder.shared.setApplicatorSleepMs(ms)
+        return "OK"
+    }
+
+    private func debugDumpAppearanceLog() -> String {
+        let events = AppearanceSweepRecorder.shared.snapshot()
+        var lines: [String] = []
+        lines.append("chunks=\(events.count)")
+        for event in events {
+            let schemeLabel = event.schemeRawValue == GHOSTTY_COLOR_SCHEME_DARK.rawValue ? "dark" : "light"
+            lines.append("chunk gen=\(event.gen) index=\(event.chunkIndex) aborted=\(event.aborted ? 1 : 0) applied=\(event.applied) scheme=\(schemeLabel)")
+        }
+        let states: [(UUID, ghostty_color_scheme_e)] = DispatchQueue.main.sync {
+            guard let app = AppDelegate.shared else { return [] }
+            return app.debugAppearanceSurfaceStates()
+        }
+        lines.append("surfaces=\(states.count)")
+        for (id, scheme) in states {
+            let schemeLabel = scheme == GHOSTTY_COLOR_SCHEME_DARK ? "dark" : "light"
+            lines.append("surface id=\(id.uuidString) scheme=\(schemeLabel)")
+        }
+        return lines.joined(separator: "\n")
     }
 #endif
 
