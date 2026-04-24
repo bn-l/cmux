@@ -2048,6 +2048,26 @@ class TerminalController {
                 // notification commands. See PLAN_thread_leak.md Phase 3.
                 DispatchQueue.main.sync { /* no-op */ }
                 return "OK"
+
+            case "debug_force_appearance":
+                // PLAN_thread_leak.md Phase 6.1/6.2 harness. Accepts
+                // light|dark|reset. `reset` returns NSApp.appearance to nil so
+                // the app follows the system setting again — tests MUST call
+                // this in teardown or the app stays stuck in the forced
+                // appearance for subsequent runs.
+                return debugForceAppearance(args)
+
+            case "debug_block_main_ms":
+                // PLAN_thread_leak.md Phase 6.3 harness. Posts a
+                // DispatchQueue.main.async block that sleeps for the given
+                // number of milliseconds. Returns OK immediately.
+                return debugBlockMainMs(args)
+
+            case "debug_socket_metrics":
+                // Force a fresh metricsSnapshot read, useful in regression
+                // tests that want the same shape as socket_health but labeled
+                // explicitly as DEBUG-only.
+                return socketHealth()
 #endif
 
             default:
@@ -15516,6 +15536,36 @@ class TerminalController {
         let m = handlerLimiter.metricsSnapshot()
         return "cap=\(m.cap) current=\(m.currentInflight) peak=\(m.peakInflight) rejected=\(m.rejectedCount)"
     }
+
+#if DEBUG
+    private func debugForceAppearance(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        DispatchQueue.main.async {
+            switch trimmed {
+            case "light":
+                NSApp.appearance = NSAppearance(named: .aqua)
+            case "dark":
+                NSApp.appearance = NSAppearance(named: .darkAqua)
+            case "reset", "":
+                NSApp.appearance = nil
+            default:
+                break
+            }
+        }
+        return "OK"
+    }
+
+    private func debugBlockMainMs(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let ms = Int(trimmed), ms >= 0 else {
+            return "ERROR: Usage: debug_block_main_ms <ms>"
+        }
+        DispatchQueue.main.async {
+            Thread.sleep(forTimeInterval: TimeInterval(ms) / 1000.0)
+        }
+        return "OK"
+    }
+#endif
 
     private func surfaceHealth(_ tabArg: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
