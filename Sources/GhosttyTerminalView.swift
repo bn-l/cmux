@@ -3015,6 +3015,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
 
+#if DEBUG
+    /// Recorded by the Phase 5 color-scheme applicator so Phase 6.2 tests can
+    /// assert each surface ended up on the final requested scheme without a
+    /// Ghostty-side conditional-state getter (none exists in ghostty.h). See
+    /// PLAN_thread_leak.md Phase 6.2.
+    var lastAppliedColorScheme: ghostty_color_scheme_e = GHOSTTY_COLOR_SCHEME_LIGHT
+#endif
+
     /// Whether the runtime Ghostty surface exists and has not begun teardown.
     ///
     /// Use this as a quick availability check. Before passing `surface` to

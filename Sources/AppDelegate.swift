@@ -4905,23 +4905,92 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    /// Monotonically increasing generation token for the chunked color-scheme
+    /// sweep. Each call to `propagateColorSchemeToAllSurfaces` captures a fresh
+    /// generation; queued chunks abort early when they observe a newer
+    /// generation, so a rapid-fire appearance flip supersedes older sweeps
+    /// cleanly. See PLAN_thread_leak.md Phase 5.
+    private var colorSchemeSweepGeneration: UInt64 = 0
+
+    // Chunk size is intentionally small so the main run loop has a chance to
+    // service unrelated work (typing, scrolling, other dispatches) between
+    // chunks. 8 matches the Phase 6.2 test bound calculation.
+    private static let colorSchemeSweepChunkSize: Int = 8
+
     /// Update every live surface's color scheme so that per-surface conditional
     /// state (`Surface.config_conditional_state.theme`) matches the current
-    /// system appearance.  Surfaces that miss `viewDidChangeEffectiveAppearance`
+    /// system appearance. Surfaces that miss `viewDidChangeEffectiveAppearance`
     /// (hidden tabs, detached bonsplit panels, etc.) would otherwise keep the
-    /// stale scheme and resolve conditional themes incorrectly.
+    /// stale scheme and resolve conditional themes incorrectly — see
+    /// DEVLOG.md:12 for the regression this guards against.
+    ///
+    /// Phase 5: runs in chunks dispatched via DispatchQueue.main.async with a
+    /// generation token. Each chunk re-reads the live ghostty_surface_t via
+    /// `TerminalSurface.liveSurfaceForGhosttyAccess(reason:)` — we do NOT
+    /// snapshot raw C pointers, because the surface may be torn down between
+    /// chunks.
     func propagateColorSchemeToAllSurfaces(_ scheme: ghostty_color_scheme_e) {
-        var count = 0
+        colorSchemeSweepGeneration &+= 1
+        let gen = colorSchemeSweepGeneration
+
+        // Snapshot owner identities (TerminalSurface), not raw pointers.
+        // Weak refs would be ideal but forEachTerminalPanel only iterates
+        // the current tree once; strong refs for the duration of the sweep
+        // are fine.
+        var owners: [TerminalSurface] = []
         forEachTerminalPanel { terminalPanel in
-            if let surface = terminalPanel.surface.surface {
-                ghostty_surface_set_color_scheme(surface, scheme)
-                count += 1
-            }
+            owners.append(terminalPanel.surface)
         }
+        let total = owners.count
+        let chunkSize = AppDelegate.colorSchemeSweepChunkSize
+        let chunkCount = (total + chunkSize - 1) / chunkSize
+
 #if DEBUG
         let label = scheme == GHOSTTY_COLOR_SCHEME_DARK ? "dark" : "light"
-        dlog("appearance.propagateColorScheme scheme=\(label) surfaces=\(count)")
+        dlog("appearance.propagateColorScheme.begin gen=\(gen) scheme=\(label) surfaces=\(total) chunks=\(chunkCount)")
 #endif
+
+        guard total > 0 else { return }
+
+        let applicator = AppDelegate.colorSchemeApplicator
+
+        for chunkIndex in 0..<chunkCount {
+            let start = chunkIndex * chunkSize
+            let end = min(start + chunkSize, total)
+            let chunkOwners = Array(owners[start..<end])
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if gen != self.colorSchemeSweepGeneration {
+#if DEBUG
+                    dlog("appearance.propagateColorScheme.chunk gen=\(gen) index=\(chunkIndex) aborted=1")
+#endif
+                    return
+                }
+                for owner in chunkOwners {
+                    if let liveSurface = owner.liveSurfaceForGhosttyAccess(reason: "appearance.sweep") {
+                        applicator(liveSurface, scheme)
+#if DEBUG
+                        owner.lastAppliedColorScheme = scheme
+#endif
+                    }
+                }
+#if DEBUG
+                dlog("appearance.propagateColorScheme.chunk gen=\(gen) index=\(chunkIndex) aborted=0")
+                if chunkIndex == chunkCount - 1 {
+                    dlog("appearance.propagateColorScheme.end gen=\(gen)")
+                }
+#endif
+            }
+        }
+    }
+
+    // Swap point for DEBUG/test harness (Phase 6.2). Defaults to the direct
+    // Ghostty call; tests may substitute a slow applicator that records
+    // (gen, ownerId, scheme) calls.
+    nonisolated(unsafe) static var colorSchemeApplicator: (ghostty_surface_t, ghostty_color_scheme_e) -> Void = {
+        surface, scheme in
+        ghostty_surface_set_color_scheme(surface, scheme)
     }
 
     func refreshTerminalSurfacesAfterGhosttyConfigReload(source: String) {
