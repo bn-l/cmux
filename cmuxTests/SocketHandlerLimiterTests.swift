@@ -170,31 +170,112 @@ final class SocketHandlerLimiterTests: XCTestCase {
         XCTAssertEqual(limiter.metricsSnapshot().currentInflight, 0)
     }
 
-    /// Spelled out as a separate test because the contract "defer release
-    /// captures limiter strongly so the permit is always released, even if
-    /// self is deallocated before the block runs" is explicitly called out
-    /// in TerminalController.swift — the limiter outlives the controller.
-    func testLimiterOutlivesCapturingClosure() {
-        let limiter = SocketHandlerLimiter(cap: 1)
-        XCTAssertTrue(limiter.tryAcquire())
-
-        // Capture strongly, then drop every outer reference and run the
-        // deferred release. The limiter must stay alive through the release.
-        do {
-            let captured = limiter
-            let exitExpectation = expectation(description: "deferred release runs")
-            Thread.detachNewThread {
-                defer {
-                    captured.release()
-                    exitExpectation.fulfill()
-                }
-                // Simulate a handler that briefly does nothing and returns
-                // normally — defer MUST still run.
-            }
-            wait(for: [exitExpectation], timeout: 2.0)
+    /// Models the exact Phase 6.4 owner-drop hazard from
+    /// TerminalController.swift:1551-1566:
+    ///
+    ///     let limiter = handlerLimiter        // strong LOCAL capture
+    ///     Thread.detachNewThread { [weak self] in
+    ///         defer { limiter.release() }     // captures the strong local
+    ///         guard let self else { close(clientSocket); return }
+    ///         ...
+    ///     }
+    ///
+    /// The hazard: if the controller (`self`) is deallocated before the
+    /// queued handler runs, the permit must STILL be released — otherwise
+    /// every controller turnover during a socket burst leaks cap permits
+    /// and eventually the limiter runs dry. The production code copies the
+    /// limiter out to a local so the closure strongly retains the limiter
+    /// independently of `self`. This test simulates that: an `Owner`
+    /// (stand-in for the controller) goes away BEFORE the closure runs,
+    /// and the permit still returns.
+    func testReleaseFiresEvenWhenOwnerDeallocatesBeforeClosureRuns() {
+        final class Owner {
+            let limiter: SocketHandlerLimiter
+            init(_ limiter: SocketHandlerLimiter) { self.limiter = limiter }
         }
 
-        XCTAssertEqual(limiter.metricsSnapshot().currentInflight, 0,
-                       "deferred release captured via closure must fire even after outer scope exits")
+        let externalLimiter = SocketHandlerLimiter(cap: 1)
+        XCTAssertTrue(externalLimiter.tryAcquire())
+
+        let gate = DispatchSemaphore(value: 0)
+        let done = expectation(description: "deferred release runs after owner dies")
+        weak var weakOwner: Owner?
+
+        do {
+            let owner = Owner(externalLimiter)
+            weakOwner = owner
+            // Production pattern: copy out a strong reference to the
+            // limiter so the closure does NOT need `owner`/`self` alive.
+            let strongLimiter = owner.limiter
+            Thread.detachNewThread { [weak owner] in
+                defer {
+                    strongLimiter.release()
+                    done.fulfill()
+                }
+                // Block until the outer scope has dropped its strong ref
+                // to `owner`, so by the time we release, the "controller"
+                // is already gone.
+                gate.wait()
+                _ = owner  // silence unused-capture warning; weak owner is nil by here
+            }
+            // `owner` goes out of scope at the end of this `do` block —
+            // the only strong reference is gone, so the object deallocates.
+        }
+        XCTAssertNil(weakOwner,
+                     "Owner must have deallocated before the closure releases — "
+                     + "otherwise this test is not exercising the owner-drop hazard")
+
+        gate.signal()
+        wait(for: [done], timeout: 2.0)
+
+        XCTAssertEqual(externalLimiter.metricsSnapshot().currentInflight, 0,
+                       "strong local limiter capture must release the permit even "
+                       + "when the owner is dead by the time the handler runs")
+    }
+
+    /// Negative control — documents exactly why the production code copies
+    /// the limiter out to a local before `Thread.detachNewThread`. If a
+    /// refactor regressed to `defer { self?.handlerLimiter.release() }`
+    /// (or equivalent `[weak owner]` form), this is what would happen: the
+    /// owner dies first, `owner?` resolves to nil, release never fires,
+    /// the permit leaks forever. A failure of THIS test means Swift's
+    /// weak-capture/optional-chaining semantics changed under us, which
+    /// would invalidate other strong-capture assumptions in the codebase.
+    func testWeakOwnerReleaseLeaksPermitWhenOwnerDiesFirst() {
+        final class Owner {
+            let limiter: SocketHandlerLimiter
+            init(_ limiter: SocketHandlerLimiter) { self.limiter = limiter }
+        }
+
+        let externalLimiter = SocketHandlerLimiter(cap: 1)
+        XCTAssertTrue(externalLimiter.tryAcquire())
+
+        let gate = DispatchSemaphore(value: 0)
+        let done = expectation(description: "handler ran (leak path)")
+        weak var weakOwner: Owner?
+
+        do {
+            let owner = Owner(externalLimiter)
+            weakOwner = owner
+            Thread.detachNewThread { [weak owner] in
+                defer {
+                    // REGRESSION pattern — owner is nil by the time the
+                    // deferred block runs, so release() is NEVER called.
+                    owner?.limiter.release()
+                    done.fulfill()
+                }
+                gate.wait()
+            }
+        }
+        XCTAssertNil(weakOwner, "owner must have deallocated before the handler runs")
+
+        gate.signal()
+        wait(for: [done], timeout: 2.0)
+
+        XCTAssertEqual(externalLimiter.metricsSnapshot().currentInflight, 1,
+                       "regression simulation: `owner?.limiter.release()` silently "
+                       + "leaks the permit when the owner dies before the handler "
+                       + "runs. The production code strongly captures the limiter "
+                       + "via a local precisely to avoid this.")
     }
 }

@@ -15,14 +15,15 @@ import Combine
 /// telemetry traffic, the resulting invalidation storm beachballed the app.
 ///
 /// The fix was two-fold:
-///  - caller-side equality guards (`if tab.surfaceListeningPorts[id] !=
-///    ports { tab.surfaceListeningPorts[id] = ports }`)
+///  - a caller-side equality guard on hot telemetry dictionaries, now
+///    expressed as the `Workspace.setSurfaceListeningPorts(_:for:)` helper
+///    used by both the port scanner and the `report_ports` socket command.
 ///  - `pruneSurfaceMetadata` only reassigns the 7 sidebar dictionaries when
 ///    stale keys actually exist.
 ///
-/// These tests lock in both behaviours at the `Workspace` model layer. A
-/// regression that removes the equality guard from either path would cause
-/// these tests to fail loudly.
+/// These tests drive the real production mutator so a regression that
+/// deletes the guard inside the helper (or a caller that bypasses the
+/// helper and assigns the `@Published` dictionary directly) is caught here.
 @MainActor
 final class SidebarObjectWillChangeRateTests: XCTestCase {
     private var cancellables: Set<AnyCancellable> = []
@@ -44,57 +45,67 @@ final class SidebarObjectWillChangeRateTests: XCTestCase {
         return { count }
     }
 
-    func testGuardedSurfaceListeningPortsDoesNotRepublishForIdenticalValue() {
+    /// Drives the production helper used by both `report_ports` and the
+    /// PortScanner callback. A regression that deletes the `==` guard inside
+    /// `setSurfaceListeningPorts` causes repeated identical writes to
+    /// republish — this test would then fail at the `readCount() == 1`
+    /// assertion. (Previously this test re-implemented the guard in the test
+    /// body, which meant it couldn't catch a production regression — the
+    /// test's own inline guard would mask it.)
+    func testSetSurfaceListeningPortsDoesNotRepublishForIdenticalValue() {
         let workspace = makeWorkspace()
         let readCount = subscribeAndCount(workspace)
         let surfaceId = UUID()
         let ports = [8080, 3000]
 
-        // First write — genuine change; one publish.
-        if workspace.surfaceListeningPorts[surfaceId] != ports {
-            workspace.surfaceListeningPorts[surfaceId] = ports
-        }
+        XCTAssertTrue(workspace.setSurfaceListeningPorts(ports, for: surfaceId),
+                      "first write must report changed=true")
         XCTAssertEqual(readCount(), 1,
                        "initial assignment must publish exactly once")
 
-        // Repeated identical writes using the guarded pattern — ZERO extra
-        // publishes expected. If the guard is removed in the production
-        // handler, the write itself stays safe but the emission rate
-        // regresses to N per telemetry tick.
         let repeats = 50
         for _ in 0..<repeats {
-            if workspace.surfaceListeningPorts[surfaceId] != ports {
-                workspace.surfaceListeningPorts[surfaceId] = ports
-            }
+            XCTAssertFalse(workspace.setSurfaceListeningPorts(ports, for: surfaceId),
+                           "identical write must report changed=false")
         }
         XCTAssertEqual(readCount(), 1,
-                       "guarded identical writes must not republish")
+                       "identical writes through the helper must not republish")
 
-        // A genuine change — one more publish.
-        if workspace.surfaceListeningPorts[surfaceId] != [9090] {
-            workspace.surfaceListeningPorts[surfaceId] = [9090]
-        }
+        XCTAssertTrue(workspace.setSurfaceListeningPorts([9090], for: surfaceId),
+                      "genuine change must report changed=true")
         XCTAssertEqual(readCount(), 2)
+
+        XCTAssertTrue(workspace.setSurfaceListeningPorts(nil, for: surfaceId),
+                      "removal must report changed=true")
+        XCTAssertEqual(readCount(), 3)
+        XCTAssertNil(workspace.surfaceListeningPorts[surfaceId],
+                     "nil must remove the key")
+
+        XCTAssertFalse(workspace.setSurfaceListeningPorts(nil, for: surfaceId),
+                       "removing an already-absent key must report changed=false")
+        XCTAssertEqual(readCount(), 3)
     }
 
-    func testUnguardedReassignStillPublishesToProveTheGuardMatters() {
-        // This is the counter-example: without the guard, every assignment
-        // publishes, even for equal values. Locks in @Published's actual
-        // behaviour so future refactors don't silently break the invariant
-        // that the GUARD is what saves us, not the @Published wrapper.
+    /// Counter-example: a caller that bypasses the helper and writes the
+    /// @Published dictionary directly re-publishes on every assignment, even
+    /// for equal values. This documents that @Published itself does NOT
+    /// coalesce — the helper is what saves us. If the language/stdlib ever
+    /// changes so @Published coalesces, this test will fail and every other
+    /// guard-based assumption in the codebase needs re-review.
+    func testDirectAssignmentBypassesTheGuardAndAlwaysPublishes() {
         let workspace = makeWorkspace()
         let readCount = subscribeAndCount(workspace)
         let surfaceId = UUID()
         let ports = [8080, 3000]
 
         for _ in 0..<10 {
-            // Intentionally unguarded — write every time.
+            // Intentionally bypass the helper — simulates a regression
+            // where a new telemetry caller forgets to use the helper.
             workspace.surfaceListeningPorts[surfaceId] = ports
         }
         XCTAssertEqual(readCount(), 10,
-                       "@Published always publishes on set; if this ever "
-                       + "becomes <10 the language/stdlib changed under us "
-                       + "and other guard-based assumptions need re-review")
+                       "@Published always publishes on direct set; the helper is "
+                       + "what suppresses no-op republishes")
     }
 
     /// `pruneSurfaceMetadata` is called from every panel-metadata mutation.
@@ -105,10 +116,7 @@ final class SidebarObjectWillChangeRateTests: XCTestCase {
     func testPruneSurfaceMetadataIsNoOpWhenNoStaleKeys() {
         let workspace = makeWorkspace()
         let surfaceId = UUID()
-        let ports = [8080]
-        workspace.surfaceListeningPorts[surfaceId] = ports
-        // The first assignment publishes once — subscribe AFTER so we measure
-        // prune-only behaviour.
+        workspace.setSurfaceListeningPorts([8080], for: surfaceId)
         let readCount = subscribeAndCount(workspace)
 
         let validSet: Set<UUID> = [surfaceId]

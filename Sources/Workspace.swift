@@ -6687,6 +6687,21 @@ final class Workspace: Identifiable, ObservableObject {
         recomputeListeningPorts()
     }
 
+    /// DEVLOG.md:15 — telemetry hot-path guard. High-frequency socket commands
+    /// (`report_ports`, the port scanner callback) must route through this
+    /// helper instead of writing directly to the @Published
+    /// `surfaceListeningPorts`, so a no-op write does not fire objectWillChange
+    /// and trigger the 2026-04-03 SwiftUI layout death-spiral. Returns true if
+    /// the value changed (caller is responsible for calling
+    /// `recomputeListeningPorts()` in that case — kept split so callers can
+    /// coalesce the recompute across multiple surfaces).
+    @discardableResult
+    func setSurfaceListeningPorts(_ ports: [Int]?, for surfaceId: UUID) -> Bool {
+        if surfaceListeningPorts[surfaceId] == ports { return false }
+        surfaceListeningPorts[surfaceId] = ports
+        return true
+    }
+
     func recomputeListeningPorts() {
         let unique = Set(surfaceListeningPorts.values.flatMap { $0 }).union(remoteForwardedPorts)
         let next = unique.sorted()

@@ -1099,8 +1099,7 @@ class TerminalController {
             let validSurfaceIds = Set(workspace.panels.keys)
             guard validSurfaceIds.contains(panelId) else { return }
             let newValue: [Int]? = ports.isEmpty ? nil : ports
-            if workspace.surfaceListeningPorts[panelId] != newValue {
-                workspace.surfaceListeningPorts[panelId] = newValue
+            if workspace.setSurfaceListeningPorts(newValue, for: panelId) {
                 workspace.recomputeListeningPorts()
             }
         }
@@ -15146,8 +15145,7 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_ports <port1> [port2...] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
-            if tab.surfaceListeningPorts[surfaceId] != ports {
-                tab.surfaceListeningPorts[surfaceId] = ports
+            if tab.setSurfaceListeningPorts(ports, for: surfaceId) {
                 tab.recomputeListeningPorts()
             }
         }
