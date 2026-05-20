@@ -1099,6 +1099,14 @@ class TerminalController {
             let validSurfaceIds = Set(workspace.panels.keys)
             guard validSurfaceIds.contains(panelId) else { return }
             let newValue: [Int]? = ports.isEmpty ? nil : ports
+#if DEBUG
+            let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+                "portScanner",
+                workspaceId: workspaceId,
+                detail: "panel=\(panelId.uuidString.prefix(8)) ports=\(ports.count)"
+            )
+            defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
             if workspace.setSurfaceListeningPorts(newValue, for: panelId) {
                 workspace.recomputeListeningPorts()
             }
@@ -2068,6 +2076,15 @@ class TerminalController {
                 // explicitly as DEBUG-only.
                 return socketHealth()
 
+            case "debug_sidebar_owc_snapshot":
+                // DEBUG-only: lock-protected objectWillChange counters for
+                // sidebar-observed TabManager and Workspace publishers.
+                return SidebarObjectWillChangeDiagnostics.shared.snapshotText()
+
+            case "debug_reset_sidebar_owc":
+                SidebarObjectWillChangeDiagnostics.shared.reset()
+                return "OK"
+
             case "debug_set_applicator_slow_ms":
                 // PLAN_thread_leak.md Phase 6.2 harness. Injects an artificial
                 // delay into the color-scheme applicator so tests can observe
@@ -2111,6 +2128,26 @@ class TerminalController {
 
             case "debug_reset_reload_counters":
                 GhosttyReloadCounters.shared.reset()
+                return "OK"
+
+            case "debug_hibernation_status":
+                // memory_leak2.md Phase 0. Cross-tab dump of every live
+                // TerminalSurface's hibernation-relevant state: window /
+                // portal attachment, runtime surface presence, focus, and
+                // the renderer-attached/hibernated/pending-redraw fields
+                // that Phases 1-2 will start mutating. Phase 0 keeps the
+                // last three at their no-detach defaults.
+                return debugHibernationStatus()
+
+            case "debug_hibernation_counters":
+                // memory_leak2.md Phase 0 counters. Hibernate/wake attempts
+                // and failures plus current hibernated count. Zero in Phase
+                // 0; the seam exists so the preflight test can lock in
+                // baselines before the renderer detach work lands.
+                return debugHibernationCounters()
+
+            case "debug_reset_hibernation_counters":
+                HibernationMetrics.shared.reset()
                 return "OK"
 #endif
 
@@ -14658,6 +14695,14 @@ class TerminalController {
         // block so the socket handler does not main-sync. See
         // PLAN_thread_leak.md Phase 3 scheduleSidebarMutation pattern.
         scheduleSidebarMutation(reportArgs: args) { tab in
+#if DEBUG
+            let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+                "socket.set_status",
+                workspaceId: tab.id,
+                detail: "key=\(key)"
+            )
+            defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
             guard Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
@@ -14697,7 +14742,17 @@ class TerminalController {
             return "ERROR: Missing metadata key — usage: \(usage)"
         }
         scheduleSidebarMutation(reportArgs: args) { tab in
-            tab.statusEntries.removeValue(forKey: key)
+#if DEBUG
+            let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+                "socket.clear_status",
+                workspaceId: tab.id,
+                detail: "key=\(key)"
+            )
+            defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
+            if tab.statusEntries[key] != nil {
+                tab.statusEntries.removeValue(forKey: key)
+            }
             tab.agentPIDs.removeValue(forKey: key)
         }
         return "OK"
@@ -14997,6 +15052,14 @@ class TerminalController {
                       let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceId }) else {
                     return
                 }
+#if DEBUG
+                let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+                    "socket.report_git_branch",
+                    workspaceId: scope.workspaceId,
+                    detail: "panel=\(scope.panelId.uuidString.prefix(8))"
+                )
+                defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
@@ -15011,6 +15074,14 @@ class TerminalController {
         }
 
         scheduleSidebarMutation(reportArgs: args) { tab in
+#if DEBUG
+            let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+                "socket.report_git_branch",
+                workspaceId: tab.id,
+                detail: "focused"
+            )
+            defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
             let newState = SidebarGitBranchState(branch: branch, isDirty: isDirty)
             if tab.gitBranch != newState {
                 tab.gitBranch = newState
@@ -15031,6 +15102,14 @@ class TerminalController {
                       let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceId }) else {
                     return
                 }
+#if DEBUG
+                let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+                    "socket.clear_git_branch",
+                    workspaceId: scope.workspaceId,
+                    detail: "panel=\(scope.panelId.uuidString.prefix(8))"
+                )
+                defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
@@ -15039,6 +15118,14 @@ class TerminalController {
             return "OK"
         }
         scheduleSidebarMutation(reportArgs: args) { tab in
+#if DEBUG
+            let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+                "socket.clear_git_branch",
+                workspaceId: tab.id,
+                detail: "focused"
+            )
+            defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
             tab.gitBranch = nil
         }
         return "OK"
@@ -15092,6 +15179,14 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--checks=pass|fail|pending] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
+#if DEBUG
+            let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+                "socket.report_pr",
+                workspaceId: tab.id,
+                detail: "panel=\(surfaceId.uuidString.prefix(8))"
+            )
+            defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
             guard Self.shouldReplacePullRequest(
                 current: tab.panelPullRequests[surfaceId],
                 number: number,
@@ -15123,6 +15218,14 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "clear_pr [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
+#if DEBUG
+            let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+                "socket.clear_pr",
+                workspaceId: tab.id,
+                detail: "panel=\(surfaceId.uuidString.prefix(8))"
+            )
+            defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
             tab.clearPanelPullRequest(panelId: surfaceId)
         }
     }
@@ -15145,6 +15248,14 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_ports <port1> [port2...] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
+#if DEBUG
+            let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+                "socket.report_ports",
+                workspaceId: tab.id,
+                detail: "panel=\(surfaceId.uuidString.prefix(8)) ports=\(ports.count)"
+            )
+            defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
             if tab.setSurfaceListeningPorts(ports, for: surfaceId) {
                 tab.recomputeListeningPorts()
             }
@@ -15164,6 +15275,14 @@ class TerminalController {
                       let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceId }) else {
                     return
                 }
+#if DEBUG
+                let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+                    "socket.report_pwd",
+                    workspaceId: scope.workspaceId,
+                    detail: "panel=\(scope.panelId.uuidString.prefix(8))"
+                )
+                defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
@@ -15177,6 +15296,14 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pwd <path> [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
+#if DEBUG
+            let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+                "socket.report_pwd",
+                workspaceId: tab.id,
+                detail: "panel=\(surfaceId.uuidString.prefix(8))"
+            )
+            defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else { return }
             tabManager.updateSurfaceDirectory(tabId: tab.id, surfaceId: surfaceId, directory: directory)
         }
@@ -15233,6 +15360,15 @@ class TerminalController {
         }
 
         scheduleSidebarMutation(reportArgs: args) { tab in
+#if DEBUG
+            let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+                "socket.clear_ports",
+                workspaceId: tab.id,
+                detail: scopedSurfaceId.map { "panel=\($0.uuidString.prefix(8))" } ?? "all"
+            )
+            defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
+            var changed = false
             if let scopedSurfaceId {
                 guard Set(tab.panels.keys).contains(scopedSurfaceId) else {
                     #if DEBUG
@@ -15240,11 +15376,16 @@ class TerminalController {
                     #endif
                     return
                 }
-                tab.surfaceListeningPorts.removeValue(forKey: scopedSurfaceId)
+                changed = tab.setSurfaceListeningPorts(nil, for: scopedSurfaceId)
             } else {
-                tab.surfaceListeningPorts.removeAll()
+                if !tab.surfaceListeningPorts.isEmpty {
+                    tab.surfaceListeningPorts.removeAll()
+                    changed = true
+                }
             }
-            tab.recomputeListeningPorts()
+            if changed {
+                tab.recomputeListeningPorts()
+            }
         }
         return "OK"
     }
@@ -15515,6 +15656,42 @@ class TerminalController {
             lines.append("surface id=\(id.uuidString) scheme=\(schemeLabel)")
         }
         return lines.joined(separator: "\n")
+    }
+
+    private func debugHibernationStatus() -> String {
+        // Walk every TerminalSurface in the registry on the main actor so
+        // private portal/focus state can be read without races. Cross-tab —
+        // unlike `surface_health`, this does not take a tab argument; the
+        // hibernation policy must reason globally.
+        let infos: [HibernationDebugInfo] = DispatchQueue.main.sync {
+            TerminalSurfaceRegistry.shared.allSurfaces().map { $0.hibernationDebugInfo() }
+        }
+        var lines: [String] = []
+        lines.append("surfaces=\(infos.count)")
+        for info in infos {
+            lines.append(
+                "surface id=\(info.id.uuidString) tab=\(info.tabId.uuidString) "
+                + "in_window=\(info.inWindow ? 1 : 0) "
+                + "has_live=\(info.hasLiveSurface ? 1 : 0) "
+                + "portal=\(info.portalState) "
+                + "focus=\(info.focused ? 1 : 0) "
+                + "renderer_attached=\(info.rendererAttached ? 1 : 0) "
+                + "hibernated=\(info.hibernated ? 1 : 0) "
+                + "pending_redraw=\(info.pendingFullRedraw ? 1 : 0)"
+            )
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func debugHibernationCounters() -> String {
+        let snap = HibernationMetrics.shared.snapshot()
+        let surfaceCount = TerminalSurfaceRegistry.shared.allSurfaces().count
+        return "surfaces=\(surfaceCount) "
+            + "hibernated=\(snap.hibernated) "
+            + "hibernate_attempts=\(snap.hibernateAttempts) "
+            + "hibernate_failures=\(snap.hibernateFailures) "
+            + "wake_attempts=\(snap.wakeAttempts) "
+            + "wake_failures=\(snap.wakeFailures)"
     }
 #endif
 

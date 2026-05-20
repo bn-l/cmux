@@ -1087,10 +1087,13 @@ class GhosttyApp {
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
         runtimeConfig.supports_selection_clipboard = true
         runtimeConfig.wakeup_cb = { userdata in
-            GhosttyApp.shared.scheduleTick()
+            guard let userdata else { return }
+            Unmanaged<GhosttyApp>.fromOpaque(userdata).takeUnretainedValue().scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
-            return GhosttyApp.shared.handleAction(target: target, action: action)
+            guard let userdata = ghostty_app_userdata(app) else { return false }
+            return Unmanaged<GhosttyApp>.fromOpaque(userdata).takeUnretainedValue()
+                .handleAction(target: target, action: action)
         }
         runtimeConfig.read_clipboard_cb = { userdata, location, state in
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
@@ -4456,6 +4459,45 @@ extension TerminalSurface {
         AppDelegate.shared?.workspaceFor(tabId: tabId)
     }
 }
+
+#if DEBUG
+/// memory_leak2.md Phase 0 introspection. Returns a snapshot of the
+/// per-surface lifecycle state the hibernation plan touches: window/portal
+/// attachment, runtime ghostty_surface_t presence, focus, and (initially
+/// constant) renderer-attached / hibernated / pending-redraw fields. Phases
+/// 1+ will source the last three from real renderer-detach state; for now
+/// they mirror `hasLiveSurface` so the read seam is in place and the
+/// preflight test can lock in baselines.
+struct HibernationDebugInfo {
+    let id: UUID
+    let tabId: UUID
+    let inWindow: Bool
+    let hasLiveSurface: Bool
+    let portalState: String
+    let focused: Bool
+    let rendererAttached: Bool
+    let hibernated: Bool
+    let pendingFullRedraw: Bool
+}
+
+extension TerminalSurface {
+    /// Caller is responsible for invoking on the main thread — the underlying
+    /// portal/focus state is mutated on the main actor.
+    func hibernationDebugInfo() -> HibernationDebugInfo {
+        HibernationDebugInfo(
+            id: id,
+            tabId: tabId,
+            inWindow: isViewInWindow,
+            hasLiveSurface: hasLiveSurface,
+            portalState: portalLifecycleState.rawValue,
+            focused: desiredFocusState,
+            rendererAttached: hasLiveSurface,
+            hibernated: false,
+            pendingFullRedraw: false
+        )
+    }
+}
+#endif
 
 // MARK: - Ghostty Surface View
 

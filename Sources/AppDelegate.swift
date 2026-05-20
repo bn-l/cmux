@@ -13449,4 +13449,79 @@ final class GhosttyReloadCounters: @unchecked Sendable {
         _surfaceUpdateConfigCalls = 0
     }
 }
+
+/// memory_leak2.md Phase 0 observability counters. Bumped by the hibernate /
+/// wake primitives added in Phases 1-2, queried by the
+/// `debug_hibernation_counters` socket command. Phase 0 leaves every counter
+/// at zero — the surface here is only the read seam so the preflight test
+/// can lock in baseline values before the renderer-detach work lands.
+final class HibernationMetrics: @unchecked Sendable {
+    static let shared = HibernationMetrics()
+
+    struct Snapshot {
+        let hibernateAttempts: UInt64
+        let hibernateFailures: UInt64
+        let wakeAttempts: UInt64
+        let wakeFailures: UInt64
+        /// Surfaces currently in the hibernated state (renderer detached).
+        let hibernated: UInt64
+    }
+
+    private let lock = NSLock()
+    private var _hibernateAttempts: UInt64 = 0
+    private var _hibernateFailures: UInt64 = 0
+    private var _wakeAttempts: UInt64 = 0
+    private var _wakeFailures: UInt64 = 0
+    private var _hibernated: UInt64 = 0
+
+    func recordHibernateAttempt() {
+        lock.lock(); defer { lock.unlock() }
+        _hibernateAttempts &+= 1
+    }
+
+    func recordHibernateSuccess() {
+        lock.lock(); defer { lock.unlock() }
+        _hibernated &+= 1
+    }
+
+    func recordHibernateFailure() {
+        lock.lock(); defer { lock.unlock() }
+        _hibernateFailures &+= 1
+    }
+
+    func recordWakeAttempt() {
+        lock.lock(); defer { lock.unlock() }
+        _wakeAttempts &+= 1
+    }
+
+    func recordWakeSuccess() {
+        lock.lock(); defer { lock.unlock() }
+        if _hibernated > 0 { _hibernated &-= 1 }
+    }
+
+    func recordWakeFailure() {
+        lock.lock(); defer { lock.unlock() }
+        _wakeFailures &+= 1
+    }
+
+    func snapshot() -> Snapshot {
+        lock.lock(); defer { lock.unlock() }
+        return Snapshot(
+            hibernateAttempts: _hibernateAttempts,
+            hibernateFailures: _hibernateFailures,
+            wakeAttempts: _wakeAttempts,
+            wakeFailures: _wakeFailures,
+            hibernated: _hibernated
+        )
+    }
+
+    func reset() {
+        lock.lock(); defer { lock.unlock() }
+        _hibernateAttempts = 0
+        _hibernateFailures = 0
+        _wakeAttempts = 0
+        _wakeFailures = 0
+        _hibernated = 0
+    }
+}
 #endif

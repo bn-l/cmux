@@ -127,4 +127,54 @@ final class SidebarObjectWillChangeRateTests: XCTestCase {
         XCTAssertEqual(readCount(), 0,
                        "pruneSurfaceMetadata must be a no-op when nothing is stale")
     }
+
+    func testClearPanelGitBranchDoesNotRepublishWhenAlreadyClear() {
+        let workspace = makeWorkspace()
+        let panelId = UUID()
+        let readCount = subscribeAndCount(workspace)
+
+        XCTAssertFalse(workspace.clearPanelGitBranch(panelId: panelId),
+                       "clearing a missing git branch/PR pair must report changed=false")
+        XCTAssertEqual(readCount(), 0,
+                       "no-op branch clears must not republish")
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        XCTAssertEqual(readCount(), 1)
+
+        XCTAssertTrue(workspace.clearPanelGitBranch(panelId: panelId),
+                      "clearing an existing branch must report changed=true")
+        XCTAssertEqual(readCount(), 2)
+
+        XCTAssertFalse(workspace.clearPanelGitBranch(panelId: panelId),
+                       "repeating the clear must be a no-op")
+        XCTAssertEqual(readCount(), 2)
+    }
+
+    func testClearPanelPullRequestDoesNotRepublishWhenAlreadyClear() {
+        let workspace = makeWorkspace()
+        let panelId = UUID()
+        let url = URL(string: "https://example.com/pull/1")!
+        let readCount = subscribeAndCount(workspace)
+
+        XCTAssertFalse(workspace.clearPanelPullRequest(panelId: panelId),
+                       "clearing a missing PR must report changed=false")
+        XCTAssertEqual(readCount(), 0)
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 1,
+            label: "PR",
+            url: url,
+            status: .open
+        )
+        XCTAssertEqual(readCount(), 1)
+
+        XCTAssertTrue(workspace.clearPanelPullRequest(panelId: panelId),
+                      "clearing an existing PR must report changed=true")
+        XCTAssertEqual(readCount(), 2)
+
+        XCTAssertFalse(workspace.clearPanelPullRequest(panelId: panelId),
+                       "repeating the PR clear must be a no-op")
+        XCTAssertEqual(readCount(), 2)
+    }
 }

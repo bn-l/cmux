@@ -698,6 +698,7 @@ class TabManager: ObservableObject {
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     private static var nextPortOrdinal: Int = 0
     private static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
+    private static let restoredWorkspaceGitProbeDelays: [TimeInterval] = [2.0, 3.0, 5.0, 8.0, 12.0, 18.0]
     private static let workspaceGitMetadataPollInterval: TimeInterval = 30
     private static let selectedWorkspaceGitMetadataPollInterval: TimeInterval = 5
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
@@ -837,10 +838,14 @@ class TabManager: ObservableObject {
     private var didSetupChildExitSplitUITest = false
     private var didSetupChildExitKeyboardUITest = false
     private var uiTestCancellables = Set<AnyCancellable>()
+    private var sidebarObjectWillChangeDiagnosticsCancellable: AnyCancellable?
 #endif
 
     init(initialWorkingDirectory: String? = nil) {
         addWorkspace(workingDirectory: initialWorkingDirectory)
+#if DEBUG
+        installSidebarObjectWillChangeDiagnostics()
+#endif
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -884,6 +889,19 @@ class TabManager: ObservableObject {
         workspaceGitMetadataPollTimer?.cancel()
         selectedWorkspaceGitMetadataPollTimer?.cancel()
     }
+
+#if DEBUG
+    private func installSidebarObjectWillChangeDiagnostics() {
+        sidebarObjectWillChangeDiagnosticsCancellable = objectWillChange.sink { _ in
+            SidebarObjectWillChangeDiagnostics.shared.recordPublish(component: "tabManager")
+        }
+        SidebarObjectWillChangeDiagnostics.shared.mark(
+            source: "tabManager.init",
+            component: "tabManager",
+            detail: "tabs=\(tabs.count)"
+        )
+    }
+#endif
 
     // MARK: - Agent PID Sweep
 
@@ -1399,14 +1417,16 @@ class TabManager: ObservableObject {
     private func scheduleInitialWorkspaceGitMetadataRefresh(
         workspaceId: UUID,
         panelId: UUID,
-        directory: String
+        directory: String,
+        delays: [TimeInterval]? = nil,
+        reason: String = "initial"
     ) {
         scheduleWorkspaceGitMetadataRefresh(
             workspaceId: workspaceId,
             panelId: panelId,
             directory: directory,
-            delays: Self.initialWorkspaceGitProbeDelays,
-            reason: "initial"
+            delays: delays ?? Self.initialWorkspaceGitProbeDelays,
+            reason: reason
         )
     }
 
@@ -1424,6 +1444,12 @@ class TabManager: ObservableObject {
         workspaceGitProbeGenerationByKey[key] = generation
 
 #if DEBUG
+        SidebarObjectWillChangeDiagnostics.shared.mark(
+            source: "gitProbe.schedule",
+            component: "tabManager",
+            workspaceId: workspaceId,
+            detail: "panel=\(panelId.uuidString.prefix(8)) reason=\(reason) delays=\(delays.map { String(format: "%.1f", $0) }.joined(separator: ","))"
+        )
         dlog(
             "workspace.gitProbe.schedule workspace=\(workspaceId.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) dir=\(normalizedDirectory) reason=\(reason)"
@@ -1483,6 +1509,14 @@ class TabManager: ObservableObject {
         expectedDirectory: String,
         isLastAttempt: Bool
     ) {
+#if DEBUG
+        let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+            "gitProbe.apply",
+            workspaceId: probeKey.workspaceId,
+            detail: "panel=\(probeKey.panelId.uuidString.prefix(8)) last=\(isLastAttempt ? 1 : 0)"
+        )
+        defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
         defer {
             if shouldStopWorkspaceGitMetadataRefresh(snapshot) || isLastAttempt,
                workspaceGitProbeGenerationByKey[probeKey] == generation {
@@ -5555,6 +5589,18 @@ extension TabManager {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionTabManagerSnapshot) {
+#if DEBUG
+        let restoreToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+            "restore.tabManager",
+            detail: "workspaces=\(snapshot.workspaces.count)"
+        )
+        defer { SidebarObjectWillChangeDiagnostics.shared.popSource(restoreToken) }
+        SidebarObjectWillChangeDiagnostics.shared.mark(
+            source: "restore.tabManager.start",
+            component: "tabManager",
+            detail: "workspaces=\(snapshot.workspaces.count)"
+        )
+#endif
         let previousTabs = tabs
         for tab in previousTabs {
             unwireClosedBrowserTracking(for: tab)
@@ -5618,8 +5664,22 @@ extension TabManager {
 
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
+#if DEBUG
+        let publishToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+            "restore.tabsVisible",
+            detail: "tabs=\(newTabs.count) selected=\(newSelectedId.map { String($0.uuidString.prefix(8)) } ?? "nil")"
+        )
+#endif
         tabs = newTabs
         selectedTabId = newSelectedId
+#if DEBUG
+        SidebarObjectWillChangeDiagnostics.shared.popSource(publishToken)
+        SidebarObjectWillChangeDiagnostics.shared.mark(
+            source: "restore.tabsVisible.done",
+            component: "tabManager",
+            detail: "tabs=\(newTabs.count)"
+        )
+#endif
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
         sidebarSelectedWorkspaceIds.formIntersection(existingIds)
@@ -5635,7 +5695,9 @@ extension TabManager {
                 scheduleInitialWorkspaceGitMetadataRefresh(
                     workspaceId: workspace.id,
                     panelId: terminalPanel.id,
-                    directory: directory
+                    directory: directory,
+                    delays: Self.restoredWorkspaceGitProbeDelays,
+                    reason: "restoreInitial"
                 )
             }
         }

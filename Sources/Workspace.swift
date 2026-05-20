@@ -155,6 +155,190 @@ enum SidebarMetadataFormat: String {
     case markdown
 }
 
+#if DEBUG
+final class SidebarObjectWillChangeDiagnostics: @unchecked Sendable {
+    static let shared = SidebarObjectWillChangeDiagnostics()
+
+    struct SourceToken {
+        fileprivate let previousSource: Any?
+        fileprivate let previousDetail: Any?
+    }
+
+    private struct RecentEvent {
+        let sequence: UInt64
+        let elapsed: TimeInterval
+        let component: String
+        let workspaceId: String?
+        let source: String
+        let detail: String?
+    }
+
+    private static let sourceThreadKey = "cmux.sidebarObjectWillChange.source"
+    private static let detailThreadKey = "cmux.sidebarObjectWillChange.detail"
+    private let lock = NSLock()
+    private let recentLimit = 200
+    private var resetAt = Date()
+    private var sequence: UInt64 = 0
+    private var publishCount: UInt64 = 0
+    private var markerCount: UInt64 = 0
+    private var publishCountBySource: [String: UInt64] = [:]
+    private var publishCountByComponent: [String: UInt64] = [:]
+    private var publishCountByWorkspace: [String: UInt64] = [:]
+    private var markerCountBySource: [String: UInt64] = [:]
+    private var recentEvents: [RecentEvent] = []
+
+    func pushSource(_ source: String, workspaceId: UUID? = nil, detail: String? = nil) -> SourceToken {
+        let threadDictionary = Thread.current.threadDictionary
+        let previousSource = threadDictionary[Self.sourceThreadKey]
+        let previousDetail = threadDictionary[Self.detailThreadKey]
+        threadDictionary[Self.sourceThreadKey] = source
+        if let detail {
+            threadDictionary[Self.detailThreadKey] = detail
+        } else {
+            threadDictionary.removeObject(forKey: Self.detailThreadKey)
+        }
+        return SourceToken(previousSource: previousSource, previousDetail: previousDetail)
+    }
+
+    func popSource(_ token: SourceToken) {
+        let threadDictionary = Thread.current.threadDictionary
+        if let previousSource = token.previousSource {
+            threadDictionary[Self.sourceThreadKey] = previousSource
+        } else {
+            threadDictionary.removeObject(forKey: Self.sourceThreadKey)
+        }
+        if let previousDetail = token.previousDetail {
+            threadDictionary[Self.detailThreadKey] = previousDetail
+        } else {
+            threadDictionary.removeObject(forKey: Self.detailThreadKey)
+        }
+    }
+
+    func mark(source: String, component: String, workspaceId: UUID? = nil, detail: String? = nil) {
+        lock.lock()
+        defer { lock.unlock() }
+        markerCount &+= 1
+        markerCountBySource[source, default: 0] &+= 1
+        appendRecentEventLocked(
+            component: component,
+            workspaceId: workspaceId,
+            source: "mark:\(source)",
+            detail: detail
+        )
+    }
+
+    func recordPublish(component: String, workspaceId: UUID? = nil) {
+        let threadDictionary = Thread.current.threadDictionary
+        let source = threadDictionary[Self.sourceThreadKey] as? String ?? "unattributed"
+        let detail = threadDictionary[Self.detailThreadKey] as? String
+        lock.lock()
+        defer { lock.unlock() }
+        publishCount &+= 1
+        publishCountBySource[source, default: 0] &+= 1
+        publishCountByComponent[component, default: 0] &+= 1
+        if let workspaceId {
+            publishCountByWorkspace[workspaceId.uuidString, default: 0] &+= 1
+        }
+        appendRecentEventLocked(
+            component: component,
+            workspaceId: workspaceId,
+            source: source,
+            detail: detail
+        )
+    }
+
+    func reset() {
+        lock.lock()
+        defer { lock.unlock() }
+        resetAt = Date()
+        sequence = 0
+        publishCount = 0
+        markerCount = 0
+        publishCountBySource.removeAll(keepingCapacity: true)
+        publishCountByComponent.removeAll(keepingCapacity: true)
+        publishCountByWorkspace.removeAll(keepingCapacity: true)
+        markerCountBySource.removeAll(keepingCapacity: true)
+        recentEvents.removeAll(keepingCapacity: true)
+    }
+
+    func snapshotText() -> String {
+        lock.lock()
+        let elapsed = Date().timeIntervalSince(resetAt)
+        let publishTotal = publishCount
+        let markerTotal = markerCount
+        let sourceCounts = publishCountBySource
+        let componentCounts = publishCountByComponent
+        let workspaceCounts = publishCountByWorkspace
+        let markerCounts = markerCountBySource
+        let recent = recentEvents
+        lock.unlock()
+
+        var lines: [String] = [
+            "OK elapsed_s=\(Self.formatSeconds(elapsed)) publishes=\(publishTotal) markers=\(markerTotal) recent=\(recent.count)"
+        ]
+        appendCounts(sourceCounts, title: "publish_sources", to: &lines)
+        appendCounts(componentCounts, title: "publish_components", to: &lines)
+        appendCounts(workspaceCounts, title: "publish_workspaces", to: &lines)
+        appendCounts(markerCounts, title: "markers", to: &lines)
+        if recent.isEmpty {
+            lines.append("recent_events=<none>")
+        } else {
+            lines.append("recent_events")
+            for event in recent.suffix(40) {
+                var line = "#\(event.sequence) +\(Self.formatSeconds(event.elapsed))s component=\(event.component)"
+                if let workspaceId = event.workspaceId {
+                    line += " workspace=\(workspaceId.prefix(8))"
+                }
+                line += " source=\(event.source)"
+                if let detail = event.detail, !detail.isEmpty {
+                    line += " detail=\(detail.replacingOccurrences(of: "\n", with: " "))"
+                }
+                lines.append(line)
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func appendRecentEventLocked(
+        component: String,
+        workspaceId: UUID?,
+        source: String,
+        detail: String?
+    ) {
+        sequence &+= 1
+        recentEvents.append(RecentEvent(
+            sequence: sequence,
+            elapsed: Date().timeIntervalSince(resetAt),
+            component: component,
+            workspaceId: workspaceId?.uuidString,
+            source: source,
+            detail: detail
+        ))
+        if recentEvents.count > recentLimit {
+            recentEvents.removeFirst(recentEvents.count - recentLimit)
+        }
+    }
+
+    private static func formatSeconds(_ value: TimeInterval) -> String {
+        String(format: "%.3f", value)
+    }
+
+    private func appendCounts(_ counts: [String: UInt64], title: String, to lines: inout [String]) {
+        guard !counts.isEmpty else {
+            lines.append("\(title)=<none>")
+            return
+        }
+        lines.append(title)
+        for (key, value) in counts.sorted(by: { lhs, rhs in
+            if lhs.value == rhs.value { return lhs.key < rhs.key }
+            return lhs.value > rhs.value
+        }) {
+            lines.append("\(key)=\(value)")
+        }
+    }
+}
+#endif
+
 private struct SessionPaneRestoreEntry {
     let paneId: PaneID
     let snapshot: SessionPaneLayoutSnapshot
@@ -294,6 +478,20 @@ extension Workspace {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
+#if DEBUG
+        let restoreToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+            "restore.workspace",
+            workspaceId: id,
+            detail: "panels=\(snapshot.panels.count)"
+        )
+        defer { SidebarObjectWillChangeDiagnostics.shared.popSource(restoreToken) }
+        SidebarObjectWillChangeDiagnostics.shared.mark(
+            source: "restore.workspace.start",
+            component: "workspace",
+            workspaceId: id,
+            detail: "panels=\(snapshot.panels.count)"
+        )
+#endif
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -662,6 +860,14 @@ extension Workspace {
     }
 
     private func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
+#if DEBUG
+        let metadataToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+            "restore.panelMetadata",
+            workspaceId: id,
+            detail: "panel=\(panelId.uuidString.prefix(8)) type=\(snapshot.type.rawValue)"
+        )
+        defer { SidebarObjectWillChangeDiagnostics.shared.popSource(metadataToken) }
+#endif
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
         }
@@ -5472,6 +5678,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Subscriptions for panel updates (e.g., browser title changes)
     private var panelSubscriptions: [UUID: AnyCancellable] = [:]
+#if DEBUG
+    private var sidebarObjectWillChangeDiagnosticsCancellable: AnyCancellable?
+#endif
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
@@ -5867,12 +6076,33 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(initialTabId)
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
+#if DEBUG
+        installSidebarObjectWillChangeDiagnostics()
+#endif
     }
 
     deinit {
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
     }
+
+#if DEBUG
+    private func installSidebarObjectWillChangeDiagnostics() {
+        let workspaceId = id
+        sidebarObjectWillChangeDiagnosticsCancellable = objectWillChange.sink { _ in
+            SidebarObjectWillChangeDiagnostics.shared.recordPublish(
+                component: "workspace",
+                workspaceId: workspaceId
+            )
+        }
+        SidebarObjectWillChangeDiagnostics.shared.mark(
+            source: "workspace.init",
+            component: "workspace",
+            workspaceId: workspaceId,
+            detail: "title=\(title)"
+        )
+    }
+#endif
 
     func refreshSplitButtonTooltips() {
         let tooltips = Self.currentSplitButtonTooltips()
@@ -6476,7 +6706,9 @@ final class Workspace: Identifiable, ObservableObject {
             panelGitBranches[panelId] = state
         }
         if branchChanged {
-            panelPullRequests.removeValue(forKey: panelId)
+            if panelPullRequests[panelId] != nil {
+                panelPullRequests.removeValue(forKey: panelId)
+            }
             if panelId == focusedPanelId {
                 pullRequest = nil
             }
@@ -6486,13 +6718,28 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func clearPanelGitBranch(panelId: UUID) {
-        panelGitBranches.removeValue(forKey: panelId)
-        panelPullRequests.removeValue(forKey: panelId)
-        if panelId == focusedPanelId {
-            gitBranch = nil
-            pullRequest = nil
+    @discardableResult
+    func clearPanelGitBranch(panelId: UUID) -> Bool {
+        var changed = false
+        if panelGitBranches[panelId] != nil {
+            panelGitBranches.removeValue(forKey: panelId)
+            changed = true
         }
+        if panelPullRequests[panelId] != nil {
+            panelPullRequests.removeValue(forKey: panelId)
+            changed = true
+        }
+        if panelId == focusedPanelId {
+            if gitBranch != nil {
+                gitBranch = nil
+                changed = true
+            }
+            if pullRequest != nil {
+                pullRequest = nil
+                changed = true
+            }
+        }
+        return changed
     }
 
     func updatePanelPullRequest(
@@ -6552,11 +6799,20 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func clearPanelPullRequest(panelId: UUID) {
-        panelPullRequests.removeValue(forKey: panelId)
-        if panelId == focusedPanelId {
-            pullRequest = nil
+    @discardableResult
+    func clearPanelPullRequest(panelId: UUID) -> Bool {
+        var changed = false
+        if panelPullRequests[panelId] != nil {
+            panelPullRequests.removeValue(forKey: panelId)
+            changed = true
         }
+        if panelId == focusedPanelId {
+            if pullRequest != nil {
+                pullRequest = nil
+                changed = true
+            }
+        }
+        return changed
     }
 
     func resetSidebarContext(reason: String = "unspecified") {
@@ -6999,8 +7255,8 @@ final class Workspace: Identifiable, ObservableObject {
         remoteLastHeartbeatAt = nil
         remoteConnectionDetail = nil
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
-        statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
-        statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
+        removeStatusEntryIfPresent(key: Self.remoteErrorStatusKey)
+        removeStatusEntryIfPresent(key: Self.remotePortConflictStatusKey)
         remoteLastErrorFingerprint = nil
         remoteLastDaemonErrorFingerprint = nil
         remoteLastPortConflictFingerprint = nil
@@ -7059,8 +7315,8 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConnectionState = .disconnected
         remoteConnectionDetail = nil
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
-        statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
-        statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
+        removeStatusEntryIfPresent(key: Self.remoteErrorStatusKey)
+        removeStatusEntryIfPresent(key: Self.remotePortConflictStatusKey)
         remoteLastErrorFingerprint = nil
         remoteLastDaemonErrorFingerprint = nil
         remoteLastPortConflictFingerprint = nil
@@ -7221,11 +7477,59 @@ final class Workspace: Identifiable, ObservableObject {
             .lowercased()
     }
 
+    @discardableResult
+    private func setStatusEntryIfChanged(
+        key: String,
+        value: String,
+        icon: String?,
+        color: String? = nil,
+        url: URL? = nil,
+        priority: Int = 0,
+        format: SidebarMetadataFormat = .plain
+    ) -> Bool {
+        if let current = statusEntries[key],
+           current.key == key,
+           current.value == value,
+           current.icon == icon,
+           current.color == color,
+           current.url == url,
+           current.priority == priority,
+           current.format == format {
+            return false
+        }
+        statusEntries[key] = SidebarStatusEntry(
+            key: key,
+            value: value,
+            icon: icon,
+            color: color,
+            url: url,
+            priority: priority,
+            format: format,
+            timestamp: Date()
+        )
+        return true
+    }
+
+    @discardableResult
+    private func removeStatusEntryIfPresent(key: String) -> Bool {
+        guard statusEntries[key] != nil else { return false }
+        statusEntries.removeValue(forKey: key)
+        return true
+    }
+
     func applyRemoteConnectionStateUpdate(
         _ state: WorkspaceRemoteConnectionState,
         detail: String?,
         target: String
     ) {
+#if DEBUG
+        let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+            "remote.connection",
+            workspaceId: id,
+            detail: "state=\(state.rawValue) target=\(target)"
+        )
+        defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
         let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
         let proxyOnlyError = trimmedDetail.map(Self.isProxyOnlyRemoteError) ?? false
         let preserveConnectedStateForRetry =
@@ -7239,8 +7543,12 @@ final class Workspace: Identifiable, ObservableObject {
             effectiveState = state
         }
 
-        remoteConnectionState = effectiveState
-        remoteConnectionDetail = detail
+        if remoteConnectionState != effectiveState {
+            remoteConnectionState = effectiveState
+        }
+        if remoteConnectionDetail != detail {
+            remoteConnectionDetail = detail
+        }
         applyBrowserRemoteWorkspaceStatusToPanels()
 
         if let trimmedDetail, !trimmedDetail.isEmpty, (state == .error || proxyOnlyError) {
@@ -7248,12 +7556,11 @@ final class Workspace: Identifiable, ObservableObject {
             let statusIcon = proxyOnlyError ? "exclamationmark.triangle.fill" : "network.slash"
             let notificationTitle = proxyOnlyError ? "Remote Proxy Unavailable" : "Remote SSH Error"
             let logSource = proxyOnlyError ? "remote-proxy" : "remote"
-            statusEntries[Self.remoteErrorStatusKey] = SidebarStatusEntry(
+            setStatusEntryIfChanged(
                 key: Self.remoteErrorStatusKey,
                 value: "\(statusPrefix) (\(target)): \(trimmedDetail)",
                 icon: statusIcon,
-                color: nil,
-                timestamp: Date()
+                color: nil
             )
 
             let fingerprint = "connection:\(trimmedDetail)"
@@ -7278,13 +7585,23 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         if state == .connected {
-            statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
+            removeStatusEntryIfPresent(key: Self.remoteErrorStatusKey)
             remoteLastErrorFingerprint = nil
         }
     }
 
     fileprivate func applyRemoteDaemonStatusUpdate(_ status: WorkspaceRemoteDaemonStatus, target: String) {
-        remoteDaemonStatus = status
+#if DEBUG
+        let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+            "remote.daemon",
+            workspaceId: id,
+            detail: "state=\(status.state.rawValue) target=\(target)"
+        )
+        defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
+        if remoteDaemonStatus != status {
+            remoteDaemonStatus = status
+        }
         applyBrowserRemoteWorkspaceStatusToPanels()
         guard status.state == .error else {
             remoteLastDaemonErrorFingerprint = nil
@@ -7302,7 +7619,17 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     fileprivate func applyRemoteProxyEndpointUpdate(_ endpoint: BrowserProxyEndpoint?) {
-        remoteProxyEndpoint = endpoint
+#if DEBUG
+        let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+            "remote.proxyEndpoint",
+            workspaceId: id,
+            detail: endpoint.map { "port=\($0.port)" } ?? "nil"
+        )
+        defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
+        if remoteProxyEndpoint != endpoint {
+            remoteProxyEndpoint = endpoint
+        }
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
             browserPanel.setRemoteProxyEndpoint(endpoint)
@@ -7311,30 +7638,54 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     fileprivate func applyRemoteHeartbeatUpdate(count: Int, lastSeenAt: Date?) {
+#if DEBUG
+        let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+            "remote.heartbeat",
+            workspaceId: id,
+            detail: "count=\(count)"
+        )
+        defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
         remoteHeartbeatCount = max(0, count)
         remoteLastHeartbeatAt = lastSeenAt
         applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
     fileprivate func applyRemotePortsSnapshot(detected: [Int], forwarded: [Int], conflicts: [Int], target: String) {
-        remoteDetectedPorts = detected
-        remoteForwardedPorts = forwarded
-        remotePortConflicts = conflicts
-        recomputeListeningPorts()
+#if DEBUG
+        let diagnosticsToken = SidebarObjectWillChangeDiagnostics.shared.pushSource(
+            "remote.ports",
+            workspaceId: id,
+            detail: "detected=\(detected.count) forwarded=\(forwarded.count) conflicts=\(conflicts.count) target=\(target)"
+        )
+        defer { SidebarObjectWillChangeDiagnostics.shared.popSource(diagnosticsToken) }
+#endif
+        let forwardedChanged = remoteForwardedPorts != forwarded
+        if remoteDetectedPorts != detected {
+            remoteDetectedPorts = detected
+        }
+        if forwardedChanged {
+            remoteForwardedPorts = forwarded
+        }
+        if remotePortConflicts != conflicts {
+            remotePortConflicts = conflicts
+        }
+        if forwardedChanged {
+            recomputeListeningPorts()
+        }
 
         if conflicts.isEmpty {
-            statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
+            removeStatusEntryIfPresent(key: Self.remotePortConflictStatusKey)
             remoteLastPortConflictFingerprint = nil
             return
         }
 
         let conflictsList = conflicts.map { ":\($0)" }.joined(separator: ", ")
-        statusEntries[Self.remotePortConflictStatusKey] = SidebarStatusEntry(
+        setStatusEntryIfChanged(
             key: Self.remotePortConflictStatusKey,
             value: "SSH port conflicts (\(target)): \(conflictsList)",
             icon: "exclamationmark.triangle.fill",
-            color: nil,
-            timestamp: Date()
+            color: nil
         )
 
         let fingerprint = conflicts.map(String.init).joined(separator: ",")
