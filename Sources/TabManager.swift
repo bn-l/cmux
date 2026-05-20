@@ -698,7 +698,9 @@ class TabManager: ObservableObject {
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     private static var nextPortOrdinal: Int = 0
     private static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
-    private static let restoredWorkspaceGitProbeDelays: [TimeInterval] = [2.0, 3.0, 5.0, 8.0, 12.0, 18.0]
+    private static let restoredWorkspaceGitProbeBaseDelays: [TimeInterval] = [2.0, 3.0, 5.0, 8.0, 12.0, 18.0]
+    private static let restoredWorkspaceGitProbeStaggerStep: TimeInterval = 0.10
+    private static let restoredWorkspaceGitProbeMaxStagger: TimeInterval = 8.0
     private static let workspaceGitMetadataPollInterval: TimeInterval = 30
     private static let selectedWorkspaceGitMetadataPollInterval: TimeInterval = 5
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
@@ -832,6 +834,15 @@ class TabManager: ObservableObject {
     private var debugPreparedWorkspaceSwitchTarget: UUID?
 #endif
 
+    private static func restoredWorkspaceGitProbeDelays(forOrdinal ordinal: Int) -> [TimeInterval] {
+        let safeOrdinal = max(0, ordinal)
+        let offset = min(
+            TimeInterval(safeOrdinal) * Self.restoredWorkspaceGitProbeStaggerStep,
+            Self.restoredWorkspaceGitProbeMaxStagger
+        )
+        return Self.restoredWorkspaceGitProbeBaseDelays.map { $0 + offset }
+    }
+
 #if DEBUG
     private var didSetupSplitCloseRightUITest = false
     private var didSetupUITestFocusShortcuts = false
@@ -842,10 +853,10 @@ class TabManager: ObservableObject {
 #endif
 
     init(initialWorkingDirectory: String? = nil) {
-        addWorkspace(workingDirectory: initialWorkingDirectory)
 #if DEBUG
         installSidebarObjectWillChangeDiagnostics()
 #endif
+        addWorkspace(workingDirectory: initialWorkingDirectory)
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -5686,17 +5697,22 @@ extension TabManager {
         for workspace in previousTabs {
             releaseRestoredAwayWorkspace(workspace)
         }
+        var restoredGitProbeOrdinal = 0
         for workspace in newTabs {
-            let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
-            for terminalPanel in terminalPanels {
-                guard let directory = gitProbeDirectory(for: workspace, panelId: terminalPanel.id) else {
+            let terminalPanelIds = workspace.sidebarOrderedPanelIds().filter {
+                workspace.terminalPanel(for: $0) != nil
+            }
+            for panelId in terminalPanelIds {
+                guard let directory = gitProbeDirectory(for: workspace, panelId: panelId) else {
                     continue
                 }
+                let delays = Self.restoredWorkspaceGitProbeDelays(forOrdinal: restoredGitProbeOrdinal)
+                restoredGitProbeOrdinal += 1
                 scheduleInitialWorkspaceGitMetadataRefresh(
                     workspaceId: workspace.id,
-                    panelId: terminalPanel.id,
+                    panelId: panelId,
                     directory: directory,
-                    delays: Self.restoredWorkspaceGitProbeDelays,
+                    delays: delays,
                     reason: "restoreInitial"
                 )
             }

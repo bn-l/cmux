@@ -162,6 +162,7 @@ final class SidebarObjectWillChangeDiagnostics: @unchecked Sendable {
     struct SourceToken {
         fileprivate let previousSource: Any?
         fileprivate let previousDetail: Any?
+        fileprivate let previousWorkspaceId: Any?
     }
 
     private struct RecentEvent {
@@ -175,6 +176,7 @@ final class SidebarObjectWillChangeDiagnostics: @unchecked Sendable {
 
     private static let sourceThreadKey = "cmux.sidebarObjectWillChange.source"
     private static let detailThreadKey = "cmux.sidebarObjectWillChange.detail"
+    private static let workspaceThreadKey = "cmux.sidebarObjectWillChange.workspace"
     private let lock = NSLock()
     private let recentLimit = 200
     private var resetAt = Date()
@@ -191,13 +193,21 @@ final class SidebarObjectWillChangeDiagnostics: @unchecked Sendable {
         let threadDictionary = Thread.current.threadDictionary
         let previousSource = threadDictionary[Self.sourceThreadKey]
         let previousDetail = threadDictionary[Self.detailThreadKey]
+        let previousWorkspaceId = threadDictionary[Self.workspaceThreadKey]
         threadDictionary[Self.sourceThreadKey] = source
         if let detail {
             threadDictionary[Self.detailThreadKey] = detail
         } else {
             threadDictionary.removeObject(forKey: Self.detailThreadKey)
         }
-        return SourceToken(previousSource: previousSource, previousDetail: previousDetail)
+        if let workspaceId {
+            threadDictionary[Self.workspaceThreadKey] = workspaceId.uuidString
+        }
+        return SourceToken(
+            previousSource: previousSource,
+            previousDetail: previousDetail,
+            previousWorkspaceId: previousWorkspaceId
+        )
     }
 
     func popSource(_ token: SourceToken) {
@@ -212,6 +222,11 @@ final class SidebarObjectWillChangeDiagnostics: @unchecked Sendable {
         } else {
             threadDictionary.removeObject(forKey: Self.detailThreadKey)
         }
+        if let previousWorkspaceId = token.previousWorkspaceId {
+            threadDictionary[Self.workspaceThreadKey] = previousWorkspaceId
+        } else {
+            threadDictionary.removeObject(forKey: Self.workspaceThreadKey)
+        }
     }
 
     func mark(source: String, component: String, workspaceId: UUID? = nil, detail: String? = nil) {
@@ -221,7 +236,7 @@ final class SidebarObjectWillChangeDiagnostics: @unchecked Sendable {
         markerCountBySource[source, default: 0] &+= 1
         appendRecentEventLocked(
             component: component,
-            workspaceId: workspaceId,
+            workspaceId: workspaceId?.uuidString,
             source: "mark:\(source)",
             detail: detail
         )
@@ -231,17 +246,19 @@ final class SidebarObjectWillChangeDiagnostics: @unchecked Sendable {
         let threadDictionary = Thread.current.threadDictionary
         let source = threadDictionary[Self.sourceThreadKey] as? String ?? "unattributed"
         let detail = threadDictionary[Self.detailThreadKey] as? String
+        let threadWorkspaceId = threadDictionary[Self.workspaceThreadKey] as? String
+        let resolvedWorkspaceId = workspaceId?.uuidString ?? threadWorkspaceId
         lock.lock()
         defer { lock.unlock() }
         publishCount &+= 1
         publishCountBySource[source, default: 0] &+= 1
         publishCountByComponent[component, default: 0] &+= 1
-        if let workspaceId {
-            publishCountByWorkspace[workspaceId.uuidString, default: 0] &+= 1
+        if let resolvedWorkspaceId {
+            publishCountByWorkspace[resolvedWorkspaceId, default: 0] &+= 1
         }
         appendRecentEventLocked(
             component: component,
-            workspaceId: workspaceId,
+            workspaceId: resolvedWorkspaceId,
             source: source,
             detail: detail
         )
@@ -301,7 +318,7 @@ final class SidebarObjectWillChangeDiagnostics: @unchecked Sendable {
 
     private func appendRecentEventLocked(
         component: String,
-        workspaceId: UUID?,
+        workspaceId: String?,
         source: String,
         detail: String?
     ) {
@@ -310,7 +327,7 @@ final class SidebarObjectWillChangeDiagnostics: @unchecked Sendable {
             sequence: sequence,
             elapsed: Date().timeIntervalSince(resetAt),
             component: component,
-            workspaceId: workspaceId?.uuidString,
+            workspaceId: workspaceId,
             source: source,
             detail: detail
         ))
@@ -6010,6 +6027,9 @@ final class Workspace: Identifiable, ObservableObject {
         )
         self.bonsplitController = BonsplitController(configuration: config)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
+#if DEBUG
+        installSidebarObjectWillChangeDiagnostics()
+#endif
 
         // Remove the default "Welcome" tab that bonsplit creates
         let welcomeTabIds = bonsplitController.allTabIds
@@ -6076,9 +6096,6 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(initialTabId)
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
-#if DEBUG
-        installSidebarObjectWillChangeDiagnostics()
-#endif
     }
 
     deinit {
