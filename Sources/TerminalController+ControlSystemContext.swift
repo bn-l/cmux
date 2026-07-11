@@ -1,7 +1,6 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
-import CmuxFeedback
 import Foundation
 
 /// The system-domain witnesses: the byte-faithful bodies of the former
@@ -237,7 +236,9 @@ extension TerminalController: ControlSystemContext {
                 }
             }
 
-            FeedbackComposerBridge().openComposer(in: targetWindow)
+            // The feedback composer was removed from this fork; `feedback.open`
+            // now performs only the window-activation half of its old contract.
+            _ = targetWindow
         }
     }
 

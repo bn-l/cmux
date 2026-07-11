@@ -50,7 +50,7 @@ extension CMUXCLI {
         def: AgentHookDef,
         commandArgs: [String],
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry,
+        telemetry: CLISocketDiagnostics,
         env: [String: String]
     ) {
         guard let source = autoNamingSource(for: def) else { return }
@@ -153,7 +153,7 @@ extension CMUXCLI {
         client: SocketClient,
         missingOverride: String?,
         telemetryKey: String,
-        telemetry: CLISocketSentryTelemetry,
+        telemetry: CLISocketDiagnostics,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
     ) {
         guard !lines.isEmpty else { return }
@@ -181,7 +181,7 @@ extension CMUXCLI {
         client: SocketClient,
         missingOverride: String?,
         telemetryKey: String,
-        telemetry: CLISocketSentryTelemetry,
+        telemetry: CLISocketDiagnostics,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
     ) {
         guard !messages.isEmpty else { return }
@@ -208,7 +208,7 @@ extension CMUXCLI {
         client: SocketClient,
         missingOverride: String?,
         telemetryKey: String,
-        telemetry: CLISocketSentryTelemetry,
+        telemetry: CLISocketDiagnostics,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
     ) {
         let engine = AutoNamingEngine()
@@ -262,7 +262,7 @@ extension CMUXCLI {
         previousTitle: String?,
         client: SocketClient,
         telemetryKey: String,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketDiagnostics
     ) -> String? {
         guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
             "workspace_id": workspaceId,

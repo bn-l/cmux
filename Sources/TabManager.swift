@@ -293,7 +293,7 @@ class TabManager: ObservableObject {
             if !isRestoringSessionSnapshot {
                 workspaces.expandWorkspaceGroupForSelectionIfNeeded()
             }
-            sentryBreadcrumb("workspace.switch", data: [
+            debugBreadcrumb("workspace.switch", data: [
                 "tabCount": tabs.count
             ])
             let previousTabId = oldValue
@@ -1065,7 +1065,7 @@ class TabManager: ObservableObject {
             maybeMutateSelectionDuringWorkspaceCreationForDev(snapshot: snapshot)
 #endif
             let nextTabCount = snapshot.tabs.count + 1
-            sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
+            debugBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
             let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
             let workingDirectory = explicitWorkingDirectory ?? snapshot.preferredWorkingDirectory
             let inheritedConfig = workspaceCreationConfigTemplate(
@@ -1993,7 +1993,7 @@ class TabManager: ObservableObject {
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
         panelTitleUpdateCoalescer.flushNow()
-        sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
+        debugBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         // User-initiated close of a mirrored remote tmux session kills it on the
         // remote. (App quit tears down windows without calling closeWorkspace, so
         // quitting still leaves remote sessions alive.)
@@ -3661,7 +3661,7 @@ class TabManager: ObservableObject {
         guard let tab = tabs.first(where: { $0.id == tabId }),
               tab.panels[surfaceId] != nil else { return nil }
         tab.clearSplitZoom()
-        sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
+        debugBreadcrumb("split.create", data: ["direction": String(describing: direction)])
         return newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus)
     }
 
@@ -6168,7 +6168,6 @@ extension Notification.Name {
     static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
     static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
-    static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")

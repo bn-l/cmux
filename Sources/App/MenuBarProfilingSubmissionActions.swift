@@ -27,7 +27,7 @@ extension MenuBarProfilingProgressWindowController {
             return
         }
 
-        UserDefaults.standard.set(email, forKey: feedbackSettings.storedEmailKey)
+        UserDefaults.standard.set(email, forKey: storedEmailKey)
         prepareSubmit()
         let privateInputs: (replyToFile: URL, noteFile: URL)
         do {

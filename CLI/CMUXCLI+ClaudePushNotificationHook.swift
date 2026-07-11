@@ -3,7 +3,7 @@ import Foundation
 extension CMUXCLI {
     func runClaudePushNotificationHook(
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry,
+        telemetry: CLISocketDiagnostics,
         parsedInput: ClaudeHookParsedInput,
         sessionStore: ClaudeHookSessionStore,
         workspaceArg: String?,

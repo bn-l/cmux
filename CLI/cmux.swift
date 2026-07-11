@@ -2804,7 +2804,7 @@ struct CMUXCLI {
         self.initialSIGPIPEInspectionPayload = initialSIGPIPEInspectionPayload
     }
 
-    private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
+    private func captureSocketTransportError(telemetry: CLISocketDiagnostics, stage: String, error: Error, client: SocketClient) {
         if client.hasUnfinishedOperationTelemetry() {
             telemetry.captureError(stage: stage, error: error, data: client.operationTelemetryContext())
         }
@@ -3273,7 +3273,7 @@ struct CMUXCLI {
 
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
-            : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
+            : CLISocketEnvironment.socketPathForDiagnostics(in: processEnv)
         let socketPath = explicitSocketPath ?? envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
             bundleIdentifier: cliBundleIdentifier,
             environment: processEnv
@@ -3290,7 +3290,7 @@ struct CMUXCLI {
         } else {
             socketPathSource = .implicitDefault
         }
-        let cliTelemetry = CLISocketSentryTelemetry(
+        let cliTelemetry = CLISocketDiagnostics(
             command: command,
             commandArgs: commandArgs,
             socketPath: socketPath,
@@ -23905,7 +23905,7 @@ struct CMUXCLI {
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry,
+        telemetry: CLISocketDiagnostics,
         socketPassword: String? = nil
     ) throws {
         let subcommand = commandArgs.first?.lowercased() ?? "help"
@@ -25000,7 +25000,7 @@ struct CMUXCLI {
         parsedInput: ClaudeHookParsedInput,
         workspaceId: String,
         surfaceId: String?,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketDiagnostics
     ) -> Bool {
         shouldApplyClaudeHookVisibleMutation(
             sessionStore: sessionStore,
@@ -25018,7 +25018,7 @@ struct CMUXCLI {
         turnId: String?,
         workspaceId: String,
         surfaceId: String?,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketDiagnostics
     ) -> Bool {
         do {
             return try sessionStore.isCurrent(
@@ -25046,7 +25046,7 @@ struct CMUXCLI {
         parsedInput: ClaudeHookParsedInput,
         workspaceId: String,
         surfaceId: String?,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketDiagnostics
     ) -> Bool {
         do {
             return try sessionStore.canReplaceActiveSession(
@@ -26616,7 +26616,7 @@ struct CMUXCLI {
         surfaceId: String?,
         leasePath: String?,
         env: [String: String],
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketDiagnostics
     ) {
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -30116,7 +30116,7 @@ export default CMUXSessionRestore;
         def: AgentHookDef,
         commandArgs: [String],
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry,
+        telemetry: CLISocketDiagnostics,
         socketPassword: String? = nil
     ) throws {
         let env = ProcessInfo.processInfo.environment
@@ -33721,7 +33721,7 @@ export default CMUXSessionRestore;
         client: SocketClient? = nil,
         socketPath: String? = nil,
         socketPassword: String? = nil,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketDiagnostics
     ) throws {
         _ = telemetry
         let source = optionValue(commandArgs, name: "--source") ?? ""
@@ -34495,13 +34495,13 @@ export default CMUXSessionRestore;
 
     private func runCursorInstallHooks() throws { try installAgentHooks(Self.agentDef(named: "cursor")!) }
     private func runCursorUninstallHooks() throws { try uninstallAgentHooks(Self.agentDef(named: "cursor")!) }
-    private func runCursorHook(commandArgs: [String], client: SocketClient, telemetry: CLISocketSentryTelemetry) throws {
+    private func runCursorHook(commandArgs: [String], client: SocketClient, telemetry: CLISocketDiagnostics) throws {
         try runGenericAgentHook(def: Self.agentDef(named: "cursor")!, commandArgs: commandArgs, client: client, telemetry: telemetry)
     }
 
     private func runGeminiInstallHooks() throws { try installAgentHooks(Self.agentDef(named: "gemini")!) }
     private func runGeminiUninstallHooks() throws { try uninstallAgentHooks(Self.agentDef(named: "gemini")!) }
-    private func runGeminiHook(commandArgs: [String], client: SocketClient, telemetry: CLISocketSentryTelemetry) throws {
+    private func runGeminiHook(commandArgs: [String], client: SocketClient, telemetry: CLISocketDiagnostics) throws {
         try runGenericAgentHook(def: Self.agentDef(named: "gemini")!, commandArgs: commandArgs, client: client, telemetry: telemetry)
     }
 
@@ -34610,7 +34610,7 @@ export default CMUXSessionRestore;
     private func runHooksSocketCommand(
         commandArgs: [String],
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry,
+        telemetry: CLISocketDiagnostics,
         socketPassword: String? = nil
     ) throws {
         guard let first = commandArgs.first?.lowercased() else {

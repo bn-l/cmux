@@ -10,7 +10,7 @@ extension CMUXCLI {
         surfaceId: String,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketDiagnostics
     ) {
         guard let sessionId = parsedInput.sessionId else { return }
         let env = ProcessInfo.processInfo.environment
@@ -116,7 +116,7 @@ extension CMUXCLI {
         transcriptPath: String?,
         cwd: String?,
         env: [String: String],
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketDiagnostics
     ) {
         let selfPath: String = {
             if let first = ProcessInfo.processInfo.arguments.first,
@@ -168,7 +168,7 @@ extension CMUXCLI {
     func runCodexAutoNameHook(
         commandArgs: [String],
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry,
+        telemetry: CLISocketDiagnostics,
         env: [String: String]
     ) {
         guard let sessionId = optionValue(commandArgs, name: "--session"),

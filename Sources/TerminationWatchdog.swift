@@ -12,7 +12,7 @@ import Foundation
 /// can wedge for ~30s on the main thread until the OS force-kills the app
 /// (https://github.com/manaflow-ai/cmux/issues/6758). The same structural gap —
 /// quit having no global "return within N seconds no matter what" guard —
-/// produced #6415 (`PostHogAnalytics.flush()`) and #6381 (`ghostty` lock).
+/// produced #6415 (an analytics flush on quit) and #6381 (`ghostty` lock).
 ///
 /// This watchdog closes that gap. It runs on a dedicated background thread with
 /// no run-loop, GCD-queue, or main-actor dependency, so it fires even while the

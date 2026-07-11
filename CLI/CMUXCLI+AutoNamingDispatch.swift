@@ -15,7 +15,7 @@ extension CMUXCLI {
         probe: [String: Any],
         sessionAgent: String,
         env: [String: String],
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketDiagnostics
     ) -> (agent: String, missingOverride: String?) {
         // Pure decision (unit-tested in CmuxSettings); the CLI only supplies the
         // binary-availability probe and emits telemetry.
@@ -64,7 +64,7 @@ extension CMUXCLI {
         prompt: String,
         env: [String: String],
         timeout: TimeInterval,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketDiagnostics
     ) -> String? {
         switch agent {
         case "claude":

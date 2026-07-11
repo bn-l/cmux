@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import PostHog
 
 struct CmuxFeatureFlagDefinition: Identifiable, Equatable {
     var id: String { key }
@@ -11,17 +10,15 @@ struct CmuxFeatureFlagDefinition: Identifiable, Equatable {
     let defaultWhenUnavailable: Bool
 }
 
-/// PostHog-backed runtime feature flags for the macOS app (PostHog project
-/// 244066, same public key analytics uses). Values are cached in memory and
-/// refreshed when the SDK reports a flag payload, so gated UI can be toggled
-/// from the PostHog dashboard without shipping a build.
+/// Runtime feature flags for the macOS app. This fork removed the remote
+/// (analytics-backed) flag provider, so every flag resolves from a local
+/// override or its compiled-in default; there is no network flag source.
 ///
 /// Fallback semantics (flags must never break the app):
-/// - Until a payload arrives — including forever, when the SDK never starts
-///   because telemetry is off or a DEBUG build lacks CMUX_POSTHOG_ENABLE=1 —
-///   every flag keeps its safe default.
-/// - Once a payload has arrived, a false flag reads as off. An absent flag
-///   still uses the explicit per-flag fallback below.
+/// - With no local override and no remote value, every flag keeps its safe
+///   default (release builds hide gated UI; DEBUG defaults keep it visible for
+///   dogfood).
+/// - A local override, when set, always wins.
 ///
 /// Registry contract (enforced by scripts/lint-feature-flags.py in CI): each
 /// flag declares key / owner / reviewBy / defaultWhenUnavailable in the FLAG
@@ -159,8 +156,6 @@ final class CmuxFeatureFlags {
     private let defaults: UserDefaults
     @ObservationIgnored
     private let remoteFlagValueProvider: (String) -> Any?
-    @ObservationIgnored
-    private var flagsObserver: (any NSObjectProtocol)?
 
     private var localOverridesByKey: [String: Bool] = [:]
     private var remoteValuesByKey: [String: Bool] = [:]
@@ -168,7 +163,7 @@ final class CmuxFeatureFlags {
 
     init(
         defaults: UserDefaults = .standard,
-        remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) }
+        remoteFlagValueProvider: @escaping (String) -> Any? = { _ in nil }
     ) {
         self.defaults = defaults
         self.remoteFlagValueProvider = remoteFlagValueProvider
@@ -180,21 +175,10 @@ final class CmuxFeatureFlags {
         recomputeEffectiveValues()
     }
 
-    /// Called once from AppDelegate after PostHog analytics starts. Safe when
-    /// the SDK never sets up — flags then keep their defaults.
-    func start() {
-        guard flagsObserver == nil else { return }
-        flagsObserver = NotificationCenter.default.addObserver(
-            forName: PostHogSDK.didReceiveFeatureFlags,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.applyLoadedFlags()
-            }
-        }
-        PostHogSDK.shared.reloadFeatureFlags()
-    }
+    /// Previously subscribed to remote (analytics-backed) feature-flag payloads.
+    /// This fork removed that provider, so flags always resolve from local
+    /// overrides and compiled-in defaults; kept as a no-op for call-site parity.
+    func start() {}
 
     func effectiveValue(for definition: CmuxFeatureFlagDefinition) -> Bool {
         effectiveValuesByKey[definition.key] ?? definition.defaultWhenUnavailable

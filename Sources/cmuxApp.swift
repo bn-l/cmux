@@ -690,12 +690,6 @@ struct cmuxApp: App {
                 Button(String(localized: "menu.updateLogs.copyFocusLogs", defaultValue: "Copy Focus Logs")) {
                     appDelegate.copyFocusLogs(nil)
                 }
-
-                Divider()
-
-                Button("Trigger Sentry Test Crash") {
-                    appDelegate.triggerSentryTestCrash(nil)
-                }
             }
 #endif
 
@@ -4717,15 +4711,6 @@ nonisolated enum BuildFlavor: String, Sendable {
             .split { !$0.isLetter && !$0.isNumber }
             .contains { String($0) == token }
     }
-}
-
-enum TelemetrySettings {
-    // Launch-frozen telemetry enablement: read once at process start so settings
-    // changes apply on next restart. The persisted key, default, and read logic
-    // live in `CmuxSettings` (`AppCatalogSection().sendAnonymousTelemetry`) as the
-    // single source of truth; this anchor only freezes that read for the lifetime
-    // of the launch.
-    static let enabledForCurrentLaunch = AppCatalogSection().sendAnonymousTelemetry.value(in: .standard)
 }
 
 @MainActor

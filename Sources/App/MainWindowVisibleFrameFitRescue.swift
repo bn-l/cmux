@@ -43,7 +43,7 @@ final class MainWindowVisibleFrameFitRescue {
                     "from={\(Self.rectDescription(originalFrame))} to={\(Self.rectDescription(targetFrame))}"
             )
 #endif
-            sentryBreadcrumb(
+            debugBreadcrumb(
                 "mainWindow.visibleFrameFit.clamp",
                 category: "window",
                 data: [

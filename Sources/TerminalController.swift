@@ -3,7 +3,6 @@ import AppKit
 import CmuxRemoteSession
 import CmuxCore
 import CmuxAuthRuntime
-import CmuxFeedback
 import CmuxBrowser
 import CmuxControlSocket
 import CmuxFoundation
@@ -775,10 +774,10 @@ class TerminalController {
     ) -> SocketControlServerEvents {
         SocketControlServerEvents(
             breadcrumb: { message, data in
-                sentryBreadcrumb(message, category: "socket", data: data)
+                debugBreadcrumb(message, category: "socket", data: data)
             },
             failure: { message, stage, errnoCode, data in
-                sentryBreadcrumb(message, category: "socket", data: data)
+                debugBreadcrumb(message, category: "socket", data: data)
                 guard shouldCaptureSocketListenerFailure(
                     message: message,
                     stage: stage,
@@ -787,7 +786,7 @@ class TerminalController {
                 ) else {
                     return
                 }
-                sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
+                debugCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
             },
             listenerDidStart: { path, _ in
                 // @MainActor closure, invoked synchronously inside start().
@@ -886,7 +885,7 @@ class TerminalController {
         let restartMode = socketServer.accessMode
         guard socketServer.shouldRestartForMissingPath(path: path, generation: generation) else { return }
 
-        sentryBreadcrumb(
+        debugBreadcrumb(
             "socket.listener.restart",
             category: "socket",
             data: [
@@ -5578,51 +5577,14 @@ class TerminalController {
     }
 
     private nonisolated func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
-        guard let email = params["email"] as? String else {
-            return .err(code: "invalid_params", message: "Missing email", data: ["field": "email"])
-        }
-        guard let body = params["body"] as? String else {
-            return .err(code: "invalid_params", message: "Missing body", data: ["field": "body"])
-        }
-        let imagePaths = params["image_paths"] as? [String] ?? []
-
-        let semaphore = DispatchSemaphore(value: 0)
-        var result: V2CallResult = .err(code: "internal_error", message: "Feedback submission failed", data: nil)
-
-        Task {
-            let resolved: V2CallResult
-            do {
-                let attachmentCount = try await FeedbackComposerBridge().submit(
-                    email: email,
-                    message: body,
-                    imagePaths: imagePaths
-                )
-                resolved = .ok([
-                    "submitted": true,
-                    "attachment_count": attachmentCount,
-                ])
-            } catch let error as FeedbackComposerBridgeError {
-                let code: String
-                switch error {
-                case .invalidEmail, .emptyMessage, .messageTooLong, .tooManyImages, .invalidImagePath:
-                    code = "invalid_params"
-                case .submissionFailed:
-                    code = "request_failed"
-                }
-                resolved = .err(code: code, message: error.localizedDescription, data: nil)
-            } catch {
-                resolved = .err(code: "internal_error", message: error.localizedDescription, data: nil)
-            }
-
-            result = resolved
-            semaphore.signal()
-        }
-
-        if semaphore.wait(timeout: .now() + 35) == .timedOut {
-            return .err(code: "timeout", message: "Feedback submission timed out", data: nil)
-        }
-
-        return result
+        // The feedback composer and its submission endpoint were removed from
+        // this fork. The `feedback.submit` verb stays registered for socket
+        // protocol stability but no longer forwards anything off-device.
+        .err(
+            code: "unsupported",
+            message: "Feedback submission was removed from this build",
+            data: nil
+        )
     }
 
     // MARK: - V2 Feed (workstream) handlers
@@ -14050,60 +14012,18 @@ class TerminalController {
         return mobileHostResult(result)
     }
 
-    /// Privileged agent feedback sink (the Mac↔phone feedback loop).
+    /// Former privileged agent feedback sink (the Mac↔phone feedback loop).
     ///
-    /// Reads `{ text, terminal_text, build_stamp, diagnostic_blob_base64 }` off
-    /// the wire and hands them to ``DogfoodFeedbackService`` (in the
-    /// `CmuxFeedback` package), which caps the fields, rejects an oversized
-    /// base64 blob without decoding, and writes a self-contained bundle
-    /// directory under `~/.cache/cmux-dogfood-feedback/<ISO8601>_<shortid>/`
-    /// (a `bundle.json` manifest plus the decoded `diagnostic.log`) off the main
-    /// actor. This method owns only the trust-boundary privilege check and the
-    /// wire mapping; the validation, allocation caps, and filesystem I/O live in
-    /// the service.
-    ///
-    /// It is protected by the same-account Stack-auth authorization the rest of
-    /// the mobile data plane enforces, so it never accepts an unauthenticated
-    /// caller. The phone only ever routes here for `@manaflow.ai` users on an
-    /// active connection, so this exists in Release builds too (the team can
-    /// dogfood beta/prod), and only a Mac that runs the watcher acts on it.
+    /// The local dogfood feedback bundle writer lived in the removed feedback
+    /// package, so this fork no longer persists submissions. The
+    /// `dogfood.feedback.submit` verb stays registered for mobile-plane protocol
+    /// stability but now reports the sink as unavailable.
     func v2MobileDogfoodFeedbackSubmit(params: [String: Any]) async -> V2CallResult {
-        // Privilege check at the trust boundary: the mobile data plane only
-        // accepts same-account connections, so the caller is this Mac's own Stack
-        // account. The service re-enforces the @manaflow.ai gate, but we resolve
-        // the authenticated email here because it requires the main-actor
-        // `MobileHostService`. (The phone also gates the route on `@manaflow.ai`
-        // + `dogfood.v1`, but the Mac is the real boundary.)
-        let localEmail = await MobileHostService.shared.currentAuthenticatedLocalUserEmail()
-        let submission = DogfoodFeedbackSubmission(
-            text: v2RawString(params, "text") ?? "",
-            terminalText: v2RawString(params, "terminal_text") ?? "",
-            buildStamp: v2RawString(params, "build_stamp") ?? "",
-            diagnosticBlobBase64: v2RawString(params, "diagnostic_blob_base64") ?? ""
+        .err(
+            code: "unsupported",
+            message: "Dogfood feedback sink was removed from this build",
+            data: nil
         )
-        let outcome = await DogfoodFeedbackService().submit(submission, authenticatedEmail: localEmail)
-        switch outcome {
-        case let .written(bundlePath, diagnosticLogBytes):
-            return .ok([
-                "ok": true,
-                "bundle_path": bundlePath,
-                "diagnostic_log_bytes": diagnosticLogBytes,
-            ])
-        case .unauthorized:
-            return .err(
-                code: "unauthorized",
-                message: "Feedback agent sink is restricted to privileged accounts",
-                data: nil
-            )
-        case let .invalidParams(reason):
-            return .err(code: "invalid_params", message: reason, data: nil)
-        case .internalError:
-            return .err(
-                code: "internal_error",
-                message: "Failed to persist dogfood feedback bundle",
-                data: nil
-            )
-        }
     }
 
     /// Publish a `terminal.set_font` event to connected iOS device(s) so the

@@ -13,7 +13,7 @@
 /// recovery paths) or the listener queue (accept drain and path monitor);
 /// they must be safe to call from any thread and must not block.
 public struct SocketControlServerEvents: Sendable {
-    /// Emits a non-fatal telemetry breadcrumb (`sentryBreadcrumb` in the app).
+    /// Emits a non-fatal telemetry breadcrumb (`debugBreadcrumb` in the app).
     public let breadcrumb: @Sendable (_ message: String, _ data: [String: any Sendable]) -> Void
 
     /// Reports a listener failure. The host decides whether to escalate the

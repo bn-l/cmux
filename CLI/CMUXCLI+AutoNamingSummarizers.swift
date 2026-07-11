@@ -7,7 +7,7 @@ extension CMUXCLI {
         prompt: String,
         env: [String: String],
         timeout: TimeInterval,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketDiagnostics
     ) -> String? {
         let policy = AutoNamingEnvironmentPolicy()
         // Generic agents (grok/opencode/pi/omp) need their OWN provider/cloud

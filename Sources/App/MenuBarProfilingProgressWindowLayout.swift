@@ -4,7 +4,7 @@ import Foundation
 extension MenuBarProfilingProgressWindowController {
     func configureEmailField() {
         emailField.placeholderString = String(localized: "statusMenu.profiling.emailPlaceholder", defaultValue: "you@example.com")
-        emailField.stringValue = UserDefaults.standard.string(forKey: feedbackSettings.storedEmailKey) ?? ""
+        emailField.stringValue = UserDefaults.standard.string(forKey: storedEmailKey) ?? ""
         emailField.delegate = self
         emailField.controlSize = .large
         emailField.font = .systemFont(ofSize: 13)
