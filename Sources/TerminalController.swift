@@ -139,6 +139,20 @@ class TerminalController {
     nonisolated let socketServer: SocketControlServer
     // Accepted-connection consumer; runs until process exit (singleton).
     private nonisolated let socketConnectionsTask: Task<Void, Never>
+    // Bounded handler admission replacing unbounded per-connection
+    // Thread.detachNewThread: handler bodies may block on main-thread sync
+    // hops, so a stalled main plus a connection burst would otherwise pin an
+    // unbounded number of threads. Accessed from the nonisolated connection
+    // consumer and from handler blocks. Override the cap via env
+    // `CMUX_SOCKET_HANDLER_INFLIGHT` for production tuning.
+    nonisolated static let defaultHandlerInflightCap: Int = {
+        if let env = ProcessInfo.processInfo.environment["CMUX_SOCKET_HANDLER_INFLIGHT"],
+           let n = Int(env), n > 0 {
+            return n
+        }
+        return 64
+    }()
+    nonisolated let handlerLimiter = SocketHandlerLimiter(cap: TerminalController.defaultHandlerInflightCap)
     // Per-surface dedupe for high-frequency report_* socket telemetry.
     // Cross-thread contract (reintroduced by the tranche-B v1 worker lane):
     // the nonisolated seam witness controlSidebarScheduleScopedShellState
@@ -1426,7 +1440,29 @@ class TerminalController {
     }
 
     private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) {
+        // Bounded-concurrency admission: refuse the connection instead of
+        // spawning an unbounded thread when all permits are in use.
+        guard handlerLimiter.tryAcquire() else {
+#if DEBUG
+            let metrics = handlerLimiter.metricsSnapshot()
+            debugBreadcrumb("socket.handler.rejected", category: "socket", data: [
+                "cap": metrics.cap,
+                "peak": metrics.peakInflight,
+                "rejected": metrics.rejectedCount,
+            ])
+#endif
+            let msg = "ERROR: server_busy\n"
+            msg.withCString { ptr in _ = write(clientSocket, ptr, strlen(ptr)) }
+            close(clientSocket)
+            return
+        }
+        // The limiter is captured strongly so the permit is always released
+        // exactly once via `defer`, even if self is deallocated before the
+        // block runs. `handleClient` closes the socket on the live-self path;
+        // the dead-self branch is the only other close.
+        let limiter = handlerLimiter
         Thread.detachNewThread { [weak self] in
+            defer { limiter.release() }
             guard let self else {
                 close(clientSocket)
                 return
