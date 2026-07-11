@@ -19,7 +19,7 @@ import Testing
     @Test func testCLIErrorPathDoesNotCrashWhenStderrIsClosed() throws {
         let cliPath = try bundledCLIPath()
         let result = runShell(
-            "CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) definitely-not-a-command 2>&-",
+            "\(shellSingleQuote(cliPath)) definitely-not-a-command 2>&-",
             timeout: 5
         )
 
@@ -34,7 +34,6 @@ import Testing
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["PATH"] = "/usr/bin:/bin"
 
         for command in ["claude-teams", "codex-teams"] {
@@ -73,7 +72,6 @@ import Testing
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         // Redirect the CLI's stable-socket resolution to the temp home so this
         // test is hermetic (CFFIXED_USER_HOME overrides homeDirectoryForCurrentUser).
         environment["CFFIXED_USER_HOME"] = home.path
@@ -120,7 +118,6 @@ import Testing
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
         environment["CMUX_SOCKET_PATH"] = caseVariantStablePath
         // Resolve the stable path under the temp home so the case-variant env
@@ -171,7 +168,6 @@ import Testing
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
         environment["CMUX_SOCKET_PATH"] = stableSocketURL.path
         environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
@@ -231,7 +227,6 @@ import Testing
                 for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
                     environment.removeValue(forKey: key)
                 }
-                environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
                 environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
                 environment["CMUX_SOCKET_PATH"] = alias
                 environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
@@ -290,7 +285,6 @@ import Testing
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
         environment["CMUX_SOCKET_PATH"] = userScopedStableSocketPath
         environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
@@ -354,7 +348,6 @@ import Testing
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
         environment["CMUX_SOCKET_PATH"] = userScopedStableSocketPath
         environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
@@ -420,7 +413,6 @@ import Testing
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
         environment["CMUX_SOCKET_PATH"] = legacyStableSocketPath
         environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
@@ -484,7 +476,6 @@ import Testing
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
         environment["CMUX_SOCKET_PATH"] = legacyStableSocketPath
         environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
@@ -537,7 +528,6 @@ import Testing
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         // Redirect the CLI's stable-socket resolution to the temp home (hermetic).
         environment["CFFIXED_USER_HOME"] = home.path
 
@@ -608,7 +598,6 @@ import Testing
         environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLE_ID"] = bundleIdentifier
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let configURL = root
             .appendingPathComponent("Library", isDirectory: true)
@@ -696,7 +685,6 @@ import Testing
         environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLE_ID"] = staleBundleIdentifier
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -742,7 +730,6 @@ import Testing
         environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-nightly.sock"
         environment["CMUX_BUNDLE_ID"] = bundleIdentifier
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -849,7 +836,6 @@ import Testing
             "CFFIXED_USER_HOME=\(shellSingleQuote(root.path))",
             "CMUX_SOCKET_PATH=\(shellSingleQuote(socketPath))",
             "CMUX_BUNDLE_ID=\(shellSingleQuote(bundleIdentifier))",
-            "CMUX_CLI_SENTRY_DISABLED=1",
             "PATH=/usr/bin:/bin",
             "/usr/bin/script",
             "-q",
@@ -915,7 +901,6 @@ import Testing
             "HOME=\(shellSingleQuote(root.path))",
             "CFFIXED_USER_HOME=\(shellSingleQuote(root.path))",
             "CMUX_SOCKET_PATH=\(shellSingleQuote(socketPath))",
-            "CMUX_CLI_SENTRY_DISABLED=1",
             "PATH=/usr/bin:/bin",
             "/usr/bin/script",
             "-q",
@@ -943,7 +928,6 @@ import Testing
             environment.removeValue(forKey: key)
         }
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
 
         let result = runProcess(
@@ -977,7 +961,6 @@ import Testing
             environment.removeValue(forKey: key)
         }
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
 
         let result = runProcess(
@@ -1033,7 +1016,6 @@ import Testing
         environment["CMUX_SURFACE_ID"] = "surface:stale"
         environment["CMUX_TAB_ID"] = "tab:stale"
         environment["CMUX_TAG"] = "keepme"
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_TEST_OPEN_TOOL_PATH"] = fakeOpenURL.path
         environment["CMUX_TEST_OPEN_LOG"] = openLogURL.path
         environment["CMUX_TEST_OPEN_ENV_LOG"] = openEnvLogURL.path
@@ -1102,7 +1084,6 @@ import Testing
             environment.removeValue(forKey: key)
         }
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_TEST_OPEN_TOOL_PATH"] = fakeOpenURL.path
         environment["CMUX_TEST_OPEN_LOG"] = openLogURL.path
 
@@ -1147,7 +1128,6 @@ import Testing
             environment.removeValue(forKey: key)
         }
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_TEST_OPEN_TOOL_PATH"] = fakeOpenURL.path
         environment["CMUX_TEST_OPEN_LOG"] = openLogURL.path
 
@@ -1191,7 +1171,6 @@ import Testing
             environment.removeValue(forKey: key)
         }
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_TEST_OPEN_TOOL_PATH"] = fakeOpenURL.path
         environment["CMUX_TEST_OPEN_LOG"] = openLogURL.path
 
@@ -1236,7 +1215,6 @@ import Testing
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_TEST_OPEN_TOOL_PATH"] = fakeOpenURL.path
         environment["CMUX_TEST_OPEN_LOG"] = openLogURL.path
 

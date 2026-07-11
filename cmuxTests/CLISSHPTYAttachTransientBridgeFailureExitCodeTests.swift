@@ -266,7 +266,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
     private func sshPTYAttachTestEnvironment(socketPath: String) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         return environment
     }
 }

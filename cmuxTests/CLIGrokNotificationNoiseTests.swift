@@ -169,7 +169,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": surfaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
             "GROK_HOME": grokHome.path,
         ]
 

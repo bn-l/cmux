@@ -311,7 +311,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": surfaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
         startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
@@ -578,7 +577,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": surfaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
         func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
@@ -728,7 +726,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": surfaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
         func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
@@ -861,7 +858,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_BUNDLED_CLI_PATH": root.path,
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
         )
@@ -946,7 +942,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": root.path,
                 "KIRO_HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
         )
@@ -1037,7 +1032,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_SURFACE_ID": surfaceId,
                 "CMUX_KIRO_PID": "525252",
                 "CMUX_KIRO_NOTIFICATION_LEVEL": "standard",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             standardInput: #"{"hook_event_name":"preToolUse","session_id":"kiro-session-123","cwd":"\#(root.path)","tool_name":"fs_write","tool_input":{"operations":[{"mode":"Line","path":"\#(root.appendingPathComponent("README.md").path)"}]}}"#,
             timeout: 5
@@ -1106,7 +1100,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
                     "CMUX_KIRO_PID": "525252",
                     "CMUX_KIRO_NOTIFICATION_LEVEL": "standard",
-                    "CMUX_CLI_SENTRY_DISABLED": "1",
                 ],
                 standardInput: #"{"hook_event_name":"preToolUse","session_id":"kiro-session-mode","cwd":"\#(root.path)","tool_name":"fs_write","tool_input":{"operations":[{"mode":"Line","path":"\#(root.appendingPathComponent("README.md").path)"}]}}"#,
                 timeout: 5
@@ -1165,7 +1158,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
                     "CMUX_KIRO_PID": "525252",
                     "CMUX_KIRO_NOTIFICATION_LEVEL": "standard",
-                    "CMUX_CLI_SENTRY_DISABLED": "1",
                 ],
                 standardInput: #"{"hook_event_name":"postToolUse","session_id":"kiro-suppress","cwd":"\#(root.path)","tool_name":"\#(tool)"}"#,
                 timeout: 5
@@ -1226,7 +1218,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_WORKSPACE_ID": workspaceId,
                 "CMUX_SURFACE_ID": surfaceId,
                 "CMUX_GEMINI_PID": "626262",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             standardInput: #"{"hook_event_name":"PreToolUse","session_id":"gemini-session-123","cwd":"\#(root.path)","tool_name":"write","tool_input":{"path":"\#(root.appendingPathComponent("README.md").path)"}}"#,
             timeout: 5
@@ -1280,7 +1271,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": surfaceId,
             "CMUX_ANTIGRAVITY_PID": "424242",
-            "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
         func runFeedHook(input: String) -> ProcessRunResult {
@@ -1369,7 +1359,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": surfaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
             "GROK_HOME": grokHome.path,
         ]
 
@@ -1933,7 +1922,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_SOCKET_PATH": socketPath,
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
             "GROK_HOME": grokHome.path,
         ]
 
@@ -2109,7 +2097,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": surfaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
@@ -2211,7 +2198,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": surfaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
         func runGrokHook(_ subcommand: String, input: String, stallFeedTelemetry: Bool = false) -> ProcessRunResult {
@@ -2307,7 +2293,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "PWD": root.path,
             "CMUX_SOCKET_PATH": socketPath,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
         let initialEnvironment = baseEnvironment.merging([
             "CMUX_WORKSPACE_ID": workspaceId,
@@ -2487,7 +2472,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "PWD": root.path,
             "CMUX_SOCKET_PATH": socketPath,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
         func environment(surfaceId: String) -> [String: String] {
             baseEnvironment.merging([
@@ -2647,7 +2631,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "PWD": root.path,
             "CMUX_SOCKET_PATH": socketPath,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": completingSurfaceId,
         ]
@@ -2791,7 +2774,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
         )
@@ -2870,7 +2852,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_BUNDLED_CLI_PATH": pinnedCLI.path,
                 "CMUX_SOCKET_PATH": socketPath,
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
         )
@@ -2953,7 +2934,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
         )
@@ -3014,7 +2994,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
         )
@@ -3070,7 +3049,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": root.path,
                 "CODEX_HOME": codexHome.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
         )
@@ -3127,7 +3105,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": root.path,
                 "GROK_HOME": grokRoot.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
         )
@@ -3196,7 +3173,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_AGENT_LAUNCH_EXECUTABLE": scenario.executable,
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(scenario.launchArguments),
             "CMUX_AGENT_LAUNCH_CWD": workspace.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
         for (key, value) in scenario.extraEnvironment {
             environment[key] = value
@@ -3341,7 +3317,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_HOME"] = codexHome
         for key in ["CMUX_AGENT_LAUNCH_KIND", "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD"] {
             environment.removeValue(forKey: key)
@@ -3456,7 +3431,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = leakedSurfaceId
         environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
@@ -3544,7 +3518,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = staleSurfaceId
         environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
@@ -3632,7 +3605,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-accounts/work", isDirectory: true).path
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"

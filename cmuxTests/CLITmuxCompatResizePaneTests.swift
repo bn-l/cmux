@@ -149,7 +149,6 @@ extension CLITmuxCompatRemoteSplitTests {
                 "CMUX_WORKSPACE_ID": workspaceID,
                 "HOME": NSTemporaryDirectory(),
                 "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 30
         )

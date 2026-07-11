@@ -1749,8 +1749,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(fakeBinURL.path):\(environment["PATH"] ?? "")"
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
         environment["CMUX_FAKE_GIT_REPO_ROOT"] = repoURL.path
         environment["CMUX_FAKE_GIT_STARTED"] = diffStartedURL.path
         environment["CMUX_FAKE_GIT_RELEASE"] = releaseDiffURL.path
@@ -2183,8 +2181,6 @@ final class CMUXOpenCommandTests: XCTestCase {
     ) -> ProcessRunResult {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
         for (key, value) in environmentOverrides {
             environment[key] = value
         }

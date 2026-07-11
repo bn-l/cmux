@@ -768,8 +768,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": context.surfaceId,
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
-            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
         ]
         for (key, value) in extraEnvironment {
             environment[key] = value
@@ -826,8 +824,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": context.surfaceId,
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
-            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
         ]
         for (key, value) in extraEnvironment {
             environment[key] = value
@@ -3420,7 +3416,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
             var environment = ProcessInfo.processInfo.environment
             environment["CMUX_SOCKET_PATH"] = socketPath
-            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
             let result = runProcess(
                 executablePath: cliPath,
@@ -3443,7 +3438,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = missingSocketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -3464,7 +3458,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = missingSocketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -3831,7 +3824,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -3937,7 +3929,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
 
         let result = runProcess(
@@ -4040,7 +4031,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4129,7 +4119,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment.removeValue(forKey: "CMUX_SURFACE_ID")
 
         let result = runProcess(
@@ -4228,7 +4217,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4401,7 +4389,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = slaveHandle
@@ -4556,7 +4543,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
@@ -4652,7 +4638,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4739,7 +4724,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4823,7 +4807,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4886,7 +4869,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4974,7 +4956,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -5054,7 +5035,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -5128,7 +5108,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -5202,7 +5181,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -5269,7 +5247,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -5346,7 +5323,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -5434,7 +5410,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -5486,7 +5461,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -5556,8 +5530,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_WORKSPACE_ID"] = callerWorkspace
         environment["CMUX_SURFACE_ID"] = callerSurface
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -5597,8 +5569,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         func run(
             _ arguments: [String],
@@ -5804,8 +5774,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -5908,7 +5876,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = currentSurfaceId
         environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
 
         let result = runProcess(
@@ -5994,8 +5961,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6076,8 +6041,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6158,8 +6121,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6219,8 +6180,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6266,8 +6225,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6338,8 +6295,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6419,8 +6374,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6515,8 +6468,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6597,8 +6548,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6675,8 +6624,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6733,8 +6680,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6786,8 +6731,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6834,8 +6777,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6879,8 +6820,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -6942,8 +6881,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -7065,8 +7002,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -7148,8 +7083,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -7208,8 +7141,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -7256,8 +7187,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -7314,8 +7243,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -7438,8 +7365,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -7502,7 +7427,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_WORKSPACE_ID"] = foreignWorkspaceId
         environment["CMUX_SURFACE_ID"] = foreignSurfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
 
         let result = runProcess(
@@ -7588,7 +7512,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_WORKSPACE_ID"] = foreignWorkspaceId
         environment["CMUX_SURFACE_ID"] = foreignSurfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
 
         let result = runProcess(
@@ -7655,7 +7578,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_WORKSPACE_ID"] = workspaceId
         environment["CMUX_SURFACE_ID"] = foreignSurfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
 
         let result = runProcess(
@@ -7737,7 +7659,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
         environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
         environment.removeValue(forKey: "CMUX_SURFACE_ID")
@@ -7856,7 +7777,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codexTeams"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/cmux"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
@@ -7979,8 +7899,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": surfaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
-            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
         ]
 
         let result = runProcess(
@@ -8065,7 +7983,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_WORKSPACE_ID"] = workspaceId
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -8116,7 +8033,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -8175,7 +8091,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -8234,7 +8149,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -8300,7 +8214,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_WORKSPACE_ID"] = staleWorkspaceId
         environment["CMUX_SURFACE_ID"] = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 
@@ -8337,7 +8250,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = missingSocketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -8365,7 +8277,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = missingSocketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -8394,7 +8305,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = missingSocketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let cases: [(arguments: [String], expected: String)] = [
             (
@@ -8447,7 +8357,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = missingSocketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -8512,7 +8421,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -8587,7 +8495,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -8702,7 +8609,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": context.surfaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": context.root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
         environment.merge(extraEnvironment, uniquingKeysWith: { _, new in new })
 
@@ -8832,8 +8738,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": context.surfaceId,
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
-            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
         ]
         for (key, value) in extraEnvironment {
             environment[key] = value
@@ -8915,7 +8819,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_THREAD_ID"] = "codex-thread-browser-import"
 
         let result = runProcess(
@@ -8985,7 +8888,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment.removeValue(forKey: "CMUX_AGENT_LAUNCH_KIND")
         environment.removeValue(forKey: "CODEX_CI")
         environment.removeValue(forKey: "CODEX_THREAD_ID")
@@ -9051,7 +8953,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_THREAD_ID"] = "codex-thread-browser-import"
 
         let result = runProcess(
@@ -9109,7 +9010,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -9205,7 +9105,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
             var environment = ProcessInfo.processInfo.environment
             environment["CMUX_SOCKET_PATH"] = socketPath
-            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
             let result = runProcess(
                 executablePath: cliPath,
@@ -9309,7 +9208,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             environment.removeValue(forKey: key)
         }
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["HOME"] = homeURL.path
         for (key, value) in environmentOverrides {
             environment[key] = value

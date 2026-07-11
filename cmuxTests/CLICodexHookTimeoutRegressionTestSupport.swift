@@ -21,7 +21,6 @@ func codexHookTestEnvironment(root: URL, codexHome: URL) -> [String: String] {
         "HOME": root.path,
         "CODEX_HOME": codexHome.path,
         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-        "CMUX_CLI_SENTRY_DISABLED": "1",
     ]
 }
 

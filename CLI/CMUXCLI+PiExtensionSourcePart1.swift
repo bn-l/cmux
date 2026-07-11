@@ -125,7 +125,7 @@ function safeCmuxEnvKey(key: string): boolean {
   if (key === "CMUX_PANE_ID" || key === "CMUX_TAB_ID" || key === "CMUX_PANEL_ID") return true;
   if (key === "CMUX_SOCKET" || key === "CMUX_SOCKET_PATH") return true;
   if (key === "CMUX_BUNDLE_ID" || key === "CMUX_BUNDLED_CLI_PATH") return true;
-  if (key === "CMUX_CLI_SENTRY_DISABLED" || key === "CMUX_DEBUG_LOG") return true;
+  if (key === "CMUX_DEBUG_LOG") return true;
   return false;
 }
 

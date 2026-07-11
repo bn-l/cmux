@@ -63,7 +63,7 @@ private struct InternalFlagsView: View {
                     .font(.title2.weight(.semibold))
                 Text(String(
                     localized: "featureFlags.window.subtitle",
-                    defaultValue: "Inspect PostHog flag state and local overrides for this Mac."
+                    defaultValue: "Inspect feature-flag state and local overrides for this Mac."
                 ))
                 .font(.callout)
                 .foregroundStyle(.secondary)

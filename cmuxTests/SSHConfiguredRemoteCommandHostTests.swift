@@ -72,8 +72,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         var captureEnvironment = ProcessInfo.processInfo.environment
         captureEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        captureEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        captureEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let captureResult = runProcess(
             executablePath: cliPath,
@@ -217,8 +215,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         var captureEnvironment = ProcessInfo.processInfo.environment
         captureEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        captureEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        captureEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let captureResult = runProcess(
             executablePath: cliPath,
@@ -331,8 +327,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment["CMUX_SURFACE_ID"] = surfaceID
             environment["CMUX_FAKE_SSH_EVENTS"] = eventsFile.path
             environment["CMUX_FAKE_CLI_LOG"] = fakeCLILog.path
-            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-            environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
             environment["CMUX_SSH_RECONNECT_LIMIT"] = "1"
             environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
             return environment

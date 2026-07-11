@@ -80,8 +80,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_WORKSPACE_ID": liveWorkspaceId,
                 "CMUX_SURFACE_ID": liveSurfaceId,
                 "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-                "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
             ],
             standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"Notification","message":"Claude needs your input"}"#,
             timeout: 5
@@ -182,8 +180,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_SURFACE_ID": "77777777-7777-7777-7777-777777777777",
                 "CMUX_CLI_TTY_NAME": ttyName,
                 "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("claude-hook-sessions.json").path,
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-                "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
             ],
             standardInput: #"{"session_id":"orphan-ambiguous","hook_event_name":"Notification","message":"Claude needs your input"}"#,
             timeout: 5
@@ -280,8 +276,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("claude-hook-sessions.json").path,
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-                "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
             ],
             standardInput: #"{"session_id":"explicit-ref","hook_event_name":"Notification","message":"Claude needs your input"}"#,
             timeout: 5
@@ -386,8 +380,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_WORKSPACE_ID": ownWorkspaceId,
                 "CMUX_SURFACE_ID": ownSurfaceId,
                 "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-                "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
             ],
             standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"Notification","message":"Claude needs your input"}"#,
             timeout: 5

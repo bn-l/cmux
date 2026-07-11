@@ -26658,7 +26658,7 @@ struct CMUXCLI {
             monitorArgs += ["--lease", leasePath]
         }
         process.arguments = monitorArgs
-        process.environment = env.merging(["CMUX_CLI_SENTRY_DISABLED": "1"], uniquingKeysWith: { _, new in new })
+        process.environment = env
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice

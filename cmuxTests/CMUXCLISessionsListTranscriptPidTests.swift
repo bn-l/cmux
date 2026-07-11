@@ -46,7 +46,6 @@ extension CMUXCLIErrorOutputRegressionTests {
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
 
         let result = runProcess(
@@ -109,7 +108,6 @@ extension CMUXCLIErrorOutputRegressionTests {
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
 
         let result = runProcess(
@@ -189,7 +187,6 @@ extension CMUXCLIErrorOutputRegressionTests {
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
 
         let result = runProcess(
@@ -272,7 +269,6 @@ extension CMUXCLIErrorOutputRegressionTests {
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
 
         let result = runProcess(
@@ -339,7 +335,6 @@ extension CMUXCLIErrorOutputRegressionTests {
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
         environment["CODEX_HOME"] = codexHome.path
 
@@ -406,7 +401,6 @@ extension CMUXCLIErrorOutputRegressionTests {
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
         environment["CODEX_HOME"] = codexHome.path
 
@@ -471,7 +465,6 @@ extension CMUXCLIErrorOutputRegressionTests {
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
         environment["CODEX_HOME"] = codexHome.path
 

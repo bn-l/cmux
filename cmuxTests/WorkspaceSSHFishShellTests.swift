@@ -78,8 +78,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -154,8 +152,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         startupEnvironment["CMUX_TEST_LOCAL_SHELL"] = fishExecutable
         startupEnvironment["CMUX_SOCKET_PATH"] = socketPath
         startupEnvironment["CMUX_WORKSPACE_ID"] = workspaceID
-        startupEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        startupEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let foregroundAuthState = MockSocketServerState()
         let foregroundAuthHandled = startMockServer(listenerFD: listenerFD, state: foregroundAuthState) { line in

@@ -128,8 +128,6 @@ final class CMUXOpenHTMLFocusTests {
     ) -> ProcessRunResult {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
         environmentOverrides.forEach { environment[$0.key] = $0.value }
         return runProcess(executablePath: cliPath, arguments: arguments, environment: environment, timeout: 15)
     }

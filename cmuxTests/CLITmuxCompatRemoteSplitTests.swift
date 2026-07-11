@@ -57,7 +57,6 @@ import Testing
                 "CMUX_SURFACE_ID": surfaceId,
                 "HOME": tmpDir.path,
                 "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 30
         )
@@ -149,7 +148,6 @@ import Testing
             "CMUX_SURFACE_ID": surfaceId,
             "HOME": tmpDir.path,
             "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
-            "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
         for (key, value) in extraEnvironment {
             environment[key] = value

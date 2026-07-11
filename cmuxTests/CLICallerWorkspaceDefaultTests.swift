@@ -137,8 +137,6 @@ struct CLICallerWorkspaceDefaultTests {
     private func cliEnvironment(socketPath: String, callerWorkspaceId: String?) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
         // Clear any ambient caller/window context inherited from the test host's own pane,
         // then set only what this scenario needs.
         environment.removeValue(forKey: "CMUX_SURFACE_ID")

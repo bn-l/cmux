@@ -1360,7 +1360,6 @@ final class GhosttyConfigTests: XCTestCase {
         for (key, value) in overrides {
             environment[key] = value
         }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = outputPipe

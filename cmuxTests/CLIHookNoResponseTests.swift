@@ -91,7 +91,6 @@ struct CLIHookNoResponseTests {
                 "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
                 "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ]
             environment[testCase.pidKey] = "626262"
 
@@ -186,7 +185,6 @@ struct CLIHookNoResponseTests {
                     "old-session",
                 ]),
                 "CMUX_AGENT_LAUNCH_CWD": root.path,
-                "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CMUX_SOCKET_PASSWORD": "test-password",
             ],
             standardInput: #"{"session_id":"kiro-lifecycle-no-response","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
@@ -234,7 +232,6 @@ struct CLIHookNoResponseTests {
                 "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
                 "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
                 "CMUX_CODEX_PID": "626262",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             standardInput: input,
             timeout: 0.5

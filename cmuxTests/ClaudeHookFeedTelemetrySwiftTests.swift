@@ -41,8 +41,6 @@ struct ClaudeHookFeedTelemetrySwiftTests {
             "CMUX_SURFACE_ID": leakedSurfaceID,
             "CMUX_CLI_TTY_NAME": ttyName,
             "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("claude-hook-sessions.json").path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
-            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
             "CMUX_AGENT_LAUNCH_KIND": "claude",
             "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
             "CMUX_AGENT_LAUNCH_CWD": root.path,

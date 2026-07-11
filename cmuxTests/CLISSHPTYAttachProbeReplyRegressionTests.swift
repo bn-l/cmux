@@ -61,7 +61,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
             var environment = ProcessInfo.processInfo.environment
             environment["CMUX_SOCKET_PATH"] = socketPath
-            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
             environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
             let result = runProcess(
                 executablePath: cliPath,
@@ -148,7 +147,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let queuedProbeReplies =
             "\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{1B}\\" +
