@@ -338,7 +338,7 @@ jobs:
               -resolvePackageDependencies; then
               # Guard against a stale/poisoned Swift-package cache: resolve can
               # report success without binary artifacts materialized.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ]; then
                 exit 0
               fi
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2

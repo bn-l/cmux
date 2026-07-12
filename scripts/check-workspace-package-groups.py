@@ -4,11 +4,10 @@
 The on-disk folder layout is the single source of truth. Every Swift package
 lives physically under exactly one group directory:
 
-    Packages/Shared/<pkg>     packages shared by the macOS and iOS apps
-    Packages/iOS/<pkg>        iOS-app-only packages
+    Packages/Shared/<pkg>     packages shared across cmux targets
     Packages/macOS/<pkg>      macOS-app-only packages
 
-The root workspace mirrors that shape one-to-one: it has three groups whose
+The root workspace mirrors that shape one-to-one: it has groups whose
 container locations are those folders, and every package directory appears as a
 FileRef under its folder's group. To move a package between groups you `git mv`
 its directory; this script regenerates the workspace to match.
@@ -32,14 +31,11 @@ PACKAGES_DIR = os.path.join(ROOT, "Packages")
 WORKSPACE_DATA = os.path.join(ROOT, "cmux.xcworkspace", "contents.xcworkspacedata")
 
 # Group directories, in the order they appear in the workspace.
-GROUPS = ["Shared", "iOS", "macOS"]
+GROUPS = ["Shared", "macOS"]
 
 # Structural workspace entries that are not Packages/<group>/* folders; kept
 # verbatim so regeneration only ever touches package membership.
-TOP_LEVEL_PROJECTS = ["group:cmux.xcodeproj", "group:ios/cmux-ios.xcodeproj"]
-# The iOS app's own SwiftPM package lives outside Packages/; it heads the iOS
-# group.
-IOS_APP_PACKAGE_REF = "container:ios/cmuxPackage"
+TOP_LEVEL_PROJECTS = ["group:cmux.xcodeproj"]
 # The Examples group is curated by hand and lives under a different container.
 EXAMPLES_GROUP = (
     "container:Examples",
@@ -88,8 +84,6 @@ def render() -> str:
         out += _file_ref(loc, "   ")
     for group in GROUPS:
         refs = [f"group:{name}" for name in packages_in(group)]
-        if group == "iOS":
-            refs = [IOS_APP_PACKAGE_REF] + refs
         out += _group(f"container:Packages/{group}", f"Packages ({group})", refs)
     out += _group(*EXAMPLES_GROUP)
     out += "</Workspace>\n"

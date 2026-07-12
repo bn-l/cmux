@@ -14,7 +14,6 @@ import Testing
         #expect(SurfaceKind.agentSession.rawValue == "agentSession")
         #expect(SurfaceKind.project.rawValue == "project")
         #expect(SurfaceKind.extensionBrowser.rawValue == "extensionBrowser")
-        #expect(SurfaceKind.cloudVMLoading.rawValue == "cloudVMLoading")
     }
 }
 

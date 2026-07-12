@@ -28,19 +28,6 @@ struct CmuxFeatureFlagDefinition: Identifiable, Equatable {
 final class CmuxFeatureFlags {
     static let shared = CmuxFeatureFlags()
 
-    #if DEBUG
-    private static let proUpgradeUIDefault = true
-    #else
-    private static let proUpgradeUIDefault = false
-    #endif
-
-    private static let mobileConnectButtonDefault = true
-
-    #if DEBUG
-    private static let cloudVMUIDefault = true
-    #else
-    private static let cloudVMUIDefault = false
-    #endif
     private static let agentChatUIDefault = false
     private static let sidebarWorkspaceAgentSpinnerDefault = false
 
@@ -51,53 +38,6 @@ final class CmuxFeatureFlags {
     // evaluation-site rule.
     static let allFlags: [CmuxFeatureFlagDefinition] = {
         [
-            // FLAG(key: pro-upgrade-ui-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-            // Shows the Pro upgrade entrypoints (sidebar badge, Settings Account
-            // card, palette command, Help menu item). Release builds hide them until
-            // the PostHog flag is enabled; DEBUG keeps them visible for dogfood.
-            CmuxFeatureFlagDefinition(
-                key: "pro-upgrade-ui-enabled-release",
-                title: String(localized: "featureFlags.proUpgrade.title", defaultValue: "Pro upgrade UI"),
-                flagDescription: String(
-                    localized: "featureFlags.proUpgrade.description",
-                    defaultValue: "Shows Pro upgrade entrypoints in the sidebar, Settings, command palette, and Help menu."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.proUpgradeUIDefault
-            ),
-
-            // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
-            // Shows the top-right iPhone button that opens the Mobile Connect
-            // (phone pairing) window. Default keeps it visible when flags are
-            // unavailable; the window it opens ships in every build.
-            CmuxFeatureFlagDefinition(
-                key: "mobile-connect-button-enabled-release",
-                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Mobile Connect button"),
-                flagDescription: String(
-                    localized: "featureFlags.mobileConnect.description",
-                    defaultValue: "Shows the iPhone button that opens the Mobile Connect pairing window."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
-            ),
-
-            // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-            // Shows the Cloud VM entrypoints: the new-workspace dropdown section
-            // (Open/Fork/Checkpoint/Restore/Advanced), the caret's direct Cloud
-            // VM menu, and the command-palette Cloud VM commands. Release builds
-            // hide them until the PostHog flag is enabled; DEBUG keeps them
-            // visible for dogfood.
-            CmuxFeatureFlagDefinition(
-                key: "cloud-vm-ui-enabled-release",
-                title: String(localized: "featureFlags.cloudVM.title", defaultValue: "Cloud VM UI"),
-                flagDescription: String(
-                    localized: "featureFlags.cloudVM.description",
-                    defaultValue: "Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.cloudVMUIDefault
-            ),
-
             // FLAG(key: agent-chat-ui-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
             // Shows the Agent Chat entrypoints: the new-workspace dropdown item,
@@ -132,24 +72,12 @@ final class CmuxFeatureFlags {
         ]
     }()
 
-    var isProUpgradeUIEnabled: Bool {
+    var isAgentChatUIEnabled: Bool {
         effectiveValue(for: Self.allFlags[0])
     }
 
-    var isMobileConnectButtonEnabled: Bool {
-        effectiveValue(for: Self.allFlags[1])
-    }
-
-    var isCloudVMUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[2])
-    }
-
-    var isAgentChatUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[3])
-    }
-
     var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
-        effectiveValue(for: Self.allFlags[4])
+        effectiveValue(for: Self.allFlags[1])
     }
 
     @ObservationIgnored

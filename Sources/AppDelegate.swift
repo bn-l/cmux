@@ -37,123 +37,6 @@ private struct WorkspaceGroupNewWorkspaceTarget {
     let placement: WorkspaceGroupNewPlacement
 }
 
-/// Short-lived helper that watches for the next workspace to appear in a
-/// TabManager and joins it to a target group. Used by group `+` context-menu
-/// actions whose underlying executor creates the workspace asynchronously
-/// (cloudVM in particular launches `cmux vm base open` and returns immediately).
-/// Subscribes to `tabManager.tabsPublisher` (the legacy Combine bridge fed by
-/// every `tabs` mutation, regardless of whether a NotificationCenter event
-/// fired) so VM workspaces, dropped attaches, or any other slow async path
-/// is caught. Self-clears on first match, group disappearance, or a process
-/// completion signal that either names the created workspace or reports launch
-/// failure.
-@MainActor
-final class ConfiguredGroupActionAsyncWorkspaceObserver {
-    static var pending: [ObjectIdentifier: ConfiguredGroupActionAsyncWorkspaceObserver] = [:]
-    private let id = UUID()
-    private weak var tabManager: TabManager?
-    private let storedKey: ObjectIdentifier
-    private let groupId: UUID
-    private let placement: WorkspaceGroupNewPlacement
-    private let referenceWorkspaceId: UUID?
-    private var knownIds: Set<UUID>
-    private var subscription: AnyCancellable?
-
-    @discardableResult
-    static func install(
-        tabManager: TabManager,
-        groupId: UUID,
-        knownIds: Set<UUID>,
-        placement: WorkspaceGroupNewPlacement,
-        referenceWorkspaceId: UUID?
-    ) -> UUID {
-        let key = ObjectIdentifier(tabManager)
-        pending[key]?.dispose()
-        let watcher = ConfiguredGroupActionAsyncWorkspaceObserver(
-            tabManager: tabManager,
-            groupId: groupId,
-            placement: placement,
-            referenceWorkspaceId: referenceWorkspaceId,
-            knownIds: knownIds
-        )
-        pending[key] = watcher
-        watcher.subscription = tabManager.tabsPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak watcher] tabs in
-                watcher?.checkForNewWorkspace(in: tabs)
-            }
-        return watcher.id
-    }
-
-    static func disposePending(tabManager: TabManager, observerId: UUID) {
-        let key = ObjectIdentifier(tabManager)
-        guard pending[key]?.id == observerId else { return }
-        pending[key]?.dispose()
-    }
-
-    static func finishPending(tabManager: TabManager, observerId: UUID, workspaceId: UUID?) {
-        let key = ObjectIdentifier(tabManager)
-        guard let watcher = pending[key], watcher.id == observerId else { return }
-        watcher.finish(workspaceId: workspaceId)
-    }
-
-    private init(
-        tabManager: TabManager,
-        groupId: UUID,
-        placement: WorkspaceGroupNewPlacement,
-        referenceWorkspaceId: UUID?,
-        knownIds: Set<UUID>
-    ) {
-        self.tabManager = tabManager
-        self.storedKey = ObjectIdentifier(tabManager)
-        self.groupId = groupId
-        self.placement = placement
-        self.referenceWorkspaceId = referenceWorkspaceId
-        self.knownIds = knownIds
-    }
-
-    private func checkForNewWorkspace(in tabs: [Workspace]) {
-        guard let tabManager else { dispose(); return }
-        guard tabManager.workspaceGroups.contains(where: { $0.id == groupId }) else {
-            dispose()
-            return
-        }
-        for tab in tabs where !knownIds.contains(tab.id) {
-            tabManager.addWorkspaceToGroup(
-                workspaceId: tab.id,
-                groupId: groupId,
-                placement: placement,
-                referenceWorkspaceId: referenceWorkspaceId
-            )
-            dispose()
-            return
-        }
-    }
-
-    private func finish(workspaceId: UUID?) {
-        defer { dispose() }
-        guard let workspaceId, let tabManager else { return }
-        guard tabManager.workspaceGroups.contains(where: { $0.id == groupId }) else { return }
-        guard tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
-        tabManager.addWorkspaceToGroup(
-            workspaceId: workspaceId,
-            groupId: groupId,
-            placement: placement,
-            referenceWorkspaceId: referenceWorkspaceId
-        )
-    }
-
-    private func dispose() {
-        subscription?.cancel()
-        subscription = nil
-        // Remove by the key recorded at install time. The weak `tabManager`
-        // may already be nil here (window closed mid-watch), and walking it
-        // would silently leak the entry in the static `pending` dictionary
-        // for the rest of the app session.
-        Self.pending.removeValue(forKey: storedKey)
-    }
-}
-
 #if DEBUG
 enum CmuxTypingTiming {
     static let isEnabled: Bool = {
@@ -780,10 +663,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
-    /// Strongly-held observers for every active TabManager. Each observer owns
-    /// Combine subscriptions that publish workspace.updated to mobile clients.
-    private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
-    private let agentChatTranscriptService = AgentChatTranscriptService()
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
     /// main window's `NSHostingView` itself, so it injects this into the
@@ -800,7 +679,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
-    private var mobileHostSettingsObserver: NSObjectProtocol?
     private var reloadConfigurationMenuItemRefreshScheduled = false
     /// Orchestrates per-window cmux config-store reloads + window-title refresh.
     /// Holds `self` weakly through the environment seam to avoid a retain cycle.
@@ -1206,7 +1084,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             for url in authCallbacks {
                 Task { @MainActor in
                     let signedIn = await browserSignIn.handleCallbackURL(url)
-                    if signedIn { await NativePricingPlanRefresh.refreshForProWelcomeChecklist() } else {
+                    if !signedIn {
                         AuthDebugLog().log("auth.callback did not complete sign-in")
                     }
                 }
@@ -1932,14 +1810,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         terminationWatchdog.arm()
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
         remoteTmuxController.detachAll()
-        // Best-effort presence goodbye; unclean exits are covered by the
-        // service's missed-heartbeat timeout.
-        PresenceHeartbeatClient.shared.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         stopSessionAutosaveTimer()
-        CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
-        MobileHostService.shared.stop()
         TerminalController.shared.stop()
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
@@ -1980,24 +1853,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
-        VMClient.bootstrap(auth: auth.coordinator)
-        RemotesClient.bootstrap(auth: auth.coordinator)
-        AIAccountsClient.bootstrap(auth: auth.coordinator)
-        PhonePushClient.shared.configure(auth: auth.coordinator)
-        MobileHostService.shared.configure(auth: auth.coordinator)
-        DeviceRegistryClient.shared.configure(auth: auth.coordinator)
-        PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
-        // DEV-only: auto-publish this Mac's attach route to the signed-in user's
-        // pairedMacs backup so a fresh dev iOS build restores it (no manual host
-        // entry). No-op on Release / when the flag is off.
-        MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
-        TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         auth.start()
-        ensureMobileWorkspaceListObserver(for: tabManager)
-        MobileTerminalRenderObserver.shared.start()
-        agentChatTranscriptService.start()
-        installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
@@ -4476,20 +4333,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
-    func ensureMobileWorkspaceListObserver(for tabManager: TabManager) {
-        let id = ObjectIdentifier(tabManager)
-        if mobileWorkspaceListObservers[id] == nil {
-            mobileWorkspaceListObservers[id] = MobileWorkspaceListObserver(tabManager: tabManager, notificationStore: notificationStore)
-        }
-    }
-
-    private func removeMobileWorkspaceListObserverIfUnused(for tabManager: TabManager) {
-        guard !mainWindowContexts.values.contains(where: { $0.tabManager === tabManager }) else {
-            return
-        }
-        mobileWorkspaceListObservers.removeValue(forKey: ObjectIdentifier(tabManager))
-    }
-
     /// Register a terminal window with the AppDelegate so menu commands and socket control
     /// can target whichever window is currently active.
     func registerMainWindow(
@@ -4584,7 +4427,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         ensureSocketListenerIfEnabled(tabManager: tabManager, source: "mainWindow.register")
-        ensureMobileWorkspaceListObserver(for: tabManager)
         notifyMainWindowContextsDidChange()
         if window.isKeyWindow {
             setActiveMainWindow(window)
@@ -5876,7 +5718,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainWindowContexts.removeValue(forKey: key)
         }
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
-        removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
         return removed
     }
@@ -5891,7 +5732,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainWindowContexts.removeValue(forKey: key)
         }
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
-        removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
 
         commandPaletteWindowStore.removeWindow(context.windowId)
@@ -7108,7 +6948,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: manager,
                 source: "bootstrapInitialMainWindow.\(debugSource)"
             )
-            MobileHostService.shared.start()
         }
         guard !didBootstrapInitialMainWindow else { return windowId }
 
@@ -7189,70 +7028,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    @discardableResult
-    func performProUpgradeWorkspaceAction(
-        title: String,
-        url: URL,
-        tabManager preferredTabManager: TabManager? = nil,
-        event: NSEvent? = nil,
-        debugSource: String = "proUpgradeWorkspace"
-    ) -> Workspace? {
-        guard BrowserAvailabilitySettings.isEnabled() else {
-#if DEBUG
-            cmuxDebugLog("proUpgradeWorkspace.blocked_browser_disabled source=\(debugSource)")
-#endif
-            return nil
-        }
-        var createdWorkspace: Workspace?
-        let didCreate = performNewWorkspaceCreationAction(
-            initialSurface: .browser,
-            preferredTabManager: preferredTabManager,
-            event: event,
-            debugSource: debugSource,
-            title: title,
-            initialBrowserURL: url,
-            initialBrowserOmnibarVisible: false,
-            initialBrowserTransparentBackground: true,
-            focusInitialBrowserAddressBarOnCreate: false,
-            createdWorkspaceHandler: { workspace in
-                createdWorkspace = workspace
-            }
-        )
-        guard didCreate, let createdWorkspace else { return nil }
-        focusInitialBrowserWebView(in: createdWorkspace)
-        return createdWorkspace
-    }
-
-    func proUpgradeWorkspaceExists(workspaceId: UUID) -> Bool {
-        mainWindowContexts.values.contains { context in
-            context.tabManager.tabs.contains { $0.id == workspaceId }
-        } || (tabManager?.tabs.contains { $0.id == workspaceId } == true)
-    }
-
-    @discardableResult
-    func focusProUpgradeWorkspace(workspaceId: UUID, url: URL) -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled() else { return false }
-        guard let (context, workspace) = proUpgradeWorkspaceContext(workspaceId: workspaceId) else {
-            return false
-        }
-        guard let window = resolvedWindow(for: context) else {
-            return false
-        }
-        guard focusWindowForAppActivation(window, reason: .workspaceCreation) else {
-            return false
-        }
-        context.tabManager.selectedTabId = workspace.id
-        guard let browserPanel = workspace.focusedSurfaceId.flatMap({ workspace.browserPanel(for: $0) })
-            ?? workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
-            return false
-        }
-        workspace.focusPanel(browserPanel.id)
-        browserPanel.navigate(to: url)
-        browserPanel.requestExplicitWebViewFocus()
-        context.tabManager.rememberFocusedSurface(tabId: workspace.id, surfaceId: browserPanel.id)
-        return true
-    }
-
     private func performNewWorkspaceCreationAction(
         initialSurface: NewWorkspaceInitialSurface,
         preferredTabManager: TabManager?,
@@ -7314,13 +7089,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     if focusInitialBrowserAddressBarOnCreate {
                         focusInitialBrowserAddressBar(in: workspace)
                     }
-                case .cloudVMLoading:
-                    let workspace = context.tabManager.addWorkspace(initialSurface: .cloudVMLoading)
-                    closeInitialWorkspaceIfNeeded(
-                        initialWorkspaceId: initialWorkspace?.id,
-                        in: context
-                    )
-                    context.tabManager.setPinned(workspace, pinned: true)
                 }
             }
             return true
@@ -7407,20 +7175,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    private func proUpgradeWorkspaceContext(workspaceId: UUID) -> (MainWindowContext, Workspace)? {
-        for context in mainWindowContexts.values {
-            if let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceId }) {
-                return (context, workspace)
-            }
-        }
-        if let tabManager,
-           let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
-           let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
-            return (context, workspace)
-        }
-        return nil
-    }
-
     /// Routes first focus of a freshly created browser-initial workspace into
     /// the address bar so the user can type a URL immediately.
     private func focusInitialBrowserAddressBar(in workspace: Workspace) {
@@ -7430,259 +7184,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         workspace.focusPanel(browserPanel.id)
         focusBrowserAddressBar(in: browserPanel)
-    }
-
-    private func focusInitialBrowserWebView(in workspace: Workspace) {
-        guard let browserPanel = workspace.focusedSurfaceId.flatMap({ workspace.browserPanel(for: $0) })
-            ?? workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
-            return
-        }
-        workspace.focusPanel(browserPanel.id)
-        browserPanel.requestExplicitWebViewFocus()
-        workspace.owningTabManager?.rememberFocusedSurface(tabId: workspace.id, surfaceId: browserPanel.id)
-    }
-
-    @discardableResult
-    func performCloudVMAction(
-        tabManager preferredTabManager: TabManager? = nil,
-        preferredWindow: NSWindow? = nil,
-        debugSource: String = "cloudVM",
-        onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
-    ) -> Bool {
-        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
-            ?? preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
-        guard let context else {
-            NSSound.beep()
-            return false
-        }
-        let socketPath = TerminalController.shared.activeSocketPath(
-            preferredPath: SocketControlSettings.socketPath()
-        )
-        let workspaceTitle = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
-        let existingWorkspace = existingCloudVMWorkspace(in: context.tabManager)
-        let workspace: Workspace
-        if let existingWorkspace {
-            workspace = existingWorkspace
-            context.tabManager.selectedTabId = workspace.id
-            context.tabManager.setPinned(workspace, pinned: true)
-            if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
-                if !loadingPanel.hasFailed {
-                    onCompletion?(CloudVMActionLauncher.Completion(terminationStatus: 0, output: "", workspaceId: workspace.id))
-                    return true
-                }
-            } else {
-                onCompletion?(CloudVMActionLauncher.Completion(terminationStatus: 0, output: "", workspaceId: workspace.id))
-                return true
-            }
-        } else {
-            workspace = context.tabManager.addWorkspace(
-                title: workspaceTitle,
-                initialSurface: .cloudVMLoading,
-                inheritWorkingDirectory: false,
-                select: true,
-                autoWelcomeIfNeeded: false
-            )
-            context.tabManager.setPinned(workspace, pinned: true)
-        }
-        if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
-            loadingPanel.resetLoading()
-        }
-        let didStart = CloudVMActionLauncher.shared.start(
-            socketPath: socketPath,
-            preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
-            arguments: ["vm", "base", "open", "--workspace", workspace.id.uuidString],
-            showsProgress: false,
-            presentsFailureAlert: false,
-            environmentOverrides: [
-                "CMUX_CLOUD_ATTACH_RETRY_LIMIT": "12",
-                "CMUX_CLOUD_ATTACH_RETRY_DELAY_SECONDS": "2",
-            ],
-            onCompletion: { completion in
-                if !completion.succeeded,
-                   let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
-                    loadingPanel.showFailure(completion.output)
-                }
-                onCompletion?(completion)
-            }
-        )
-        if !didStart,
-           let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
-            loadingPanel.showFailure(String(
-                localized: "panel.cloudVM.loading.failed.launch",
-                defaultValue: "Cloud VM command could not be launched."
-            ))
-        }
-        return didStart
-    }
-
-    private func existingCloudVMWorkspace(in tabManager: TabManager) -> Workspace? {
-        tabManager.tabs.first { workspace in
-            if workspace.panels.values.contains(where: { $0.panelType == .cloudVMLoading }) {
-                return true
-            }
-            guard let remote = workspace.remoteConfiguration else { return false }
-            return remote.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1" &&
-                remote.managedCloudVMID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        }
-    }
-
-    @discardableResult
-    func performCurrentCloudVMCommand(
-        _ command: CurrentCloudVMCommand,
-        tabManager preferredTabManager: TabManager? = nil,
-        preferredWindow: NSWindow? = nil,
-        debugSource: String = "cloudVM.current"
-    ) -> Bool {
-        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
-            ?? preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
-        guard let context else {
-            NSSound.beep()
-            return false
-        }
-        guard let vmId = currentCloudVMId(tabManager: context.tabManager) else {
-            presentCloudVMNotice(
-                title: String(localized: "command.cloudVM.current.missing.title", defaultValue: "No Cloud VM Selected"),
-                message: String(localized: "command.cloudVM.current.missing.message", defaultValue: "Select a Cloud VM workspace first, then retry this command."),
-                preferredWindow: resolvedWindow(for: context) ?? preferredWindow
-            )
-            return false
-        }
-        let socketPath = TerminalController.shared.activeSocketPath(
-            preferredPath: SocketControlSettings.socketPath()
-        )
-        return CloudVMActionLauncher.shared.start(
-            socketPath: socketPath,
-            preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
-            arguments: command.arguments(vmId: vmId),
-            successTitle: command.successTitle,
-            presentOutputOnSuccess: command.presentOutputOnSuccess
-        )
-    }
-
-    @discardableResult
-    func performCloudVMRestoreCommand(
-        preferredWindow: NSWindow? = nil,
-        debugSource: String = "cloudVM.restore"
-    ) -> Bool {
-        let context = preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
-        guard let context else {
-            NSSound.beep()
-            return false
-        }
-        let window = resolvedWindow(for: context) ?? preferredWindow
-        guard let snapshotId = promptForCloudVMSnapshotId(preferredWindow: window) else {
-            return false
-        }
-        let socketPath = TerminalController.shared.activeSocketPath(
-            preferredPath: SocketControlSettings.socketPath()
-        )
-        return CloudVMActionLauncher.shared.start(
-            socketPath: socketPath,
-            preferredWindow: window,
-            arguments: ["vm", "restore", snapshotId],
-            successTitle: String(localized: "command.cloudVM.restore.result.title", defaultValue: "Cloud VM Restored"),
-            presentOutputOnSuccess: true
-        )
-    }
-
-    enum CurrentCloudVMCommand {
-        case status
-        case fork
-        case snapshot
-        case ports
-        case tools
-        case handoff
-        case promoteTemplate
-
-        var successTitle: String {
-            switch self {
-            case .status:
-                return String(localized: "command.cloudVM.status.result.title", defaultValue: "Cloud VM Status")
-            case .fork:
-                return String(localized: "command.cloudVM.fork.result.title", defaultValue: "Cloud VM Forked")
-            case .snapshot:
-                return String(localized: "command.cloudVM.snapshot.result.title", defaultValue: "Cloud VM Checkpoint")
-            case .ports:
-                return String(localized: "command.cloudVM.ports.result.title", defaultValue: "Cloud VM Ports")
-            case .tools:
-                return String(localized: "command.cloudVM.tools.result.title", defaultValue: "Cloud VM Tools")
-            case .handoff:
-                return String(localized: "command.cloudVM.handoff.result.title", defaultValue: "Cloud VM Handoff")
-            case .promoteTemplate:
-                return String(localized: "command.cloudVM.template.result.title", defaultValue: "Cloud VM Template")
-            }
-        }
-
-        var presentOutputOnSuccess: Bool {
-            switch self {
-            case .fork:
-                return false
-            case .status, .snapshot, .ports, .tools, .handoff, .promoteTemplate:
-                return true
-            }
-        }
-
-        func arguments(vmId: String) -> [String] {
-            switch self {
-            case .status:
-                return ["vm", "status", vmId]
-            case .fork:
-                return ["vm", "fork", vmId]
-            case .snapshot:
-                return ["vm", "snapshot", vmId]
-            case .ports:
-                return ["vm", "ports", vmId]
-            case .tools:
-                return ["vm", "tools", vmId]
-            case .handoff:
-                return ["vm", "handoff", vmId]
-            case .promoteTemplate:
-                return ["vm", "promote-template", vmId]
-            }
-        }
-    }
-
-    private func currentCloudVMId(tabManager: TabManager) -> String? {
-        guard let workspaceId = tabManager.selectedTabId,
-              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
-              let vmID = workspace.remoteConfiguration?.managedCloudVMID?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-              !vmID.isEmpty else {
-            return nil
-        }
-        return vmID
-    }
-
-    private func promptForCloudVMSnapshotId(preferredWindow: NSWindow?) -> String? {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = String(localized: "command.cloudVM.restore.prompt.title", defaultValue: "Restore Cloud VM")
-        alert.informativeText = String(localized: "command.cloudVM.restore.prompt.message", defaultValue: "Paste a checkpoint or snapshot id to restore.")
-        alert.addButton(withTitle: String(localized: "common.restore", defaultValue: "Restore"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
-        field.placeholderString = String(localized: "command.cloudVM.restore.prompt.placeholder", defaultValue: "snapshot-id")
-        alert.accessoryView = field
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else { return nil }
-        let snapshotId = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        return snapshotId.isEmpty ? nil : snapshotId
-    }
-
-    private func presentCloudVMNotice(title: String, message: String, preferredWindow: NSWindow?) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = title
-        alert.informativeText = message
-        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        if let preferredWindow {
-            alert.beginSheetModal(for: preferredWindow, completionHandler: nil)
-        } else {
-            _ = alert.runModal()
-        }
     }
 
     func mainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
@@ -7720,7 +7221,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let beforeIds = workspaceGroupTarget.map { _ in Set(context.tabManager.tabs.map(\.id)) }
-        var asyncObserverId: UUID?
         // Named workspace commands and inline workspace actions both create a
         // workspace, so both must retire the throwaway initial workspace.
         let actionCreatesWorkspace = action.workspaceCommandName != nil || action.action.inlineWorkspace != nil || action.action == .builtIn(.newAgentChat)
@@ -7740,15 +7240,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     newlyCreatedId = id
                     break
                 }
-                if newlyCreatedId == nil, case .builtIn(.cloudVM) = action.action {
-                    asyncObserverId = ConfiguredGroupActionAsyncWorkspaceObserver.install(
-                        tabManager: context.tabManager,
-                        groupId: workspaceGroupTarget.groupId,
-                        knownIds: Set(afterIds),
-                        placement: workspaceGroupTarget.placement,
-                        referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
-                    )
-                }
             }
             if actionCreatesWorkspace {
                 self?.closeInitialWorkspaceIfNeeded(
@@ -7757,20 +7248,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
         }
-        let onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = workspaceGroupTarget == nil ? nil : { [weak context] completion in
-            guard let context, let asyncObserverId else { return }
-            ConfiguredGroupActionAsyncWorkspaceObserver.finishPending(
-                tabManager: context.tabManager,
-                observerId: asyncObserverId,
-                workspaceId: completion.succeeded ? completion.workspaceId : nil
-            )
-        }
         return executeConfiguredCmuxAction(
             action,
             context: context,
             preferredWindow: window,
-            onExecuted: onExecuted,
-            onCloudVMCompletion: onCloudVMCompletion
+            onExecuted: onExecuted
         )
     }
 
@@ -9082,23 +8564,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
         syncActivationPolicy(defaults: defaults)
         syncMenuBarExtraVisibility(defaults: defaults)
-    }
-
-    private func installMobileHostSettingsObserver() {
-        guard mobileHostSettingsObserver == nil else { return }
-        mobileHostSettingsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.syncMobileHostService()
-            }
-        }
-    }
-
-    private func syncMobileHostService() {
-        MobileHostService.shared.syncToSettings()
     }
 
     private func syncActivationPolicy(defaults: UserDefaults = .standard) {
@@ -15254,7 +14719,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            tabManager.tabs.contains(where: { $0.id == anchorId }) {
             tabManager.selectedTabId = anchorId
         }
-        var asyncObserverId: UUID?
         let onExecuted: () -> Void = { [weak tabManager, groupId, beforeIds, previousSelectedId, anchorId, groupPlacement, action] in
             guard let tabManager else { return }
             let afterIds = tabManager.tabs.map(\.id)
@@ -15269,20 +14733,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 newlyCreatedId = id
                 break
             }
-            // cloudVM launches a `cmux vm base open` process and returns before the
-            // workspace appears in tabs[]. The synchronous diff above misses
-            // it, so watch the tab list while the process is running. Process
-            // completion also reports the created workspace UUID as an exact
-            // fallback.
-            if newlyCreatedId == nil, case .builtIn(.cloudVM) = action.action {
-                asyncObserverId = ConfiguredGroupActionAsyncWorkspaceObserver.install(
-                    tabManager: tabManager,
-                    groupId: groupId,
-                    knownIds: Set(afterIds),
-                    placement: groupPlacement,
-                    referenceWorkspaceId: anchorId
-                )
-            }
             // Restore the prior selection if the action didn't create a new
             // workspace (the gesture wasn't "go work in the new one") and
             // the previous selection still exists. When a new workspace was
@@ -15295,20 +14745,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager.selectedTabId = previousSelectedId
             }
         }
-        let onCloudVMCompletion: (CloudVMActionLauncher.Completion) -> Void = { [weak tabManager] completion in
-            guard let tabManager, let asyncObserverId else { return }
-            ConfiguredGroupActionAsyncWorkspaceObserver.finishPending(
-                tabManager: tabManager,
-                observerId: asyncObserverId,
-                workspaceId: completion.succeeded ? completion.workspaceId : nil
-            )
-        }
         let didRun = executeConfiguredCmuxAction(
             action,
             context: context,
             preferredWindow: resolvedWindow(for: context),
-            onExecuted: onExecuted,
-            onCloudVMCompletion: onCloudVMCompletion
+            onExecuted: onExecuted
         )
         // executeConfiguredCmuxAction returns false when the action couldn't
         // start at all (unresolved action ref, missing target terminal, etc.).
@@ -15330,8 +14771,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ action: CmuxResolvedConfigAction,
         context: MainWindowContext,
         preferredWindow: NSWindow? = nil,
-        onExecuted: (() -> Void)? = nil,
-        onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
+        onExecuted: (() -> Void)? = nil
     ) -> Bool {
         switch action.action {
         case .builtIn(let builtIn):
@@ -15341,19 +14781,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted?()
                 return true
             case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)
-            case .cloudVM:
-                let didStart = performCloudVMAction(
-                    tabManager: context.tabManager,
-                    preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
-                    debugSource: "configured.cmux.cloudvm",
-                    onCompletion: onCloudVMCompletion
-                )
-                if didStart { onExecuted?() }
-                return didStart
-            case .mobileConnect:
-                MobilePairingWindowController.shared.show()
-                onExecuted?()
-                return true
             case .newTerminal:
                 context.tabManager.newSurface()
                 onExecuted?()

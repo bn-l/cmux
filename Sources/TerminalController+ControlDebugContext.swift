@@ -74,10 +74,6 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugActivateApp() -> String { activateApp() }
 
-    func controlDebugShowProWelcomeChecklist() {
-        ProWelcomeChecklistPresenter.present()
-    }
-
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
         isTerminalFocused(surfaceArgument)
     }

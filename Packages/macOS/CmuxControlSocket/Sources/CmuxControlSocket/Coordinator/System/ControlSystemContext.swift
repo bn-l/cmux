@@ -4,8 +4,7 @@ public import Foundation
 /// the ``ControlCommandContext`` umbrella): `system.identify`, `system.tree`,
 /// `auth.login`, `session.restore_previous`, `settings.open`, `feedback.open`,
 /// `extension.sidebar.snapshot`, `workspace.action`, `surface.action` /
-/// `tab.action`, `surface.drag_to_split` / `surface.split_off`, and the
-/// DEBUG-only `mobile.dev_stack_auth.configure`.
+/// `tab.action`, and `surface.drag_to_split` / `surface.split_off`.
 ///
 /// Every method is `@MainActor`: the conformer (the interim composition owner)
 /// and the coordinator both live on the main actor, so these are plain
@@ -112,12 +111,4 @@ public protocol ControlSystemContext: AnyObject {
     /// - Parameter params: The raw command params.
     /// - Returns: The fully shaped call result.
     func controlSurfaceSplitOff(params: [String: JSONValue]) -> ControlCallResult
-
-    #if DEBUG
-    /// Configures (or clears, with `nil`) the accepted dev Stack auth token
-    /// for the DEBUG-only `mobile.dev_stack_auth.configure`.
-    ///
-    /// - Parameter token: The token to accept, or `nil` to disable.
-    func controlMobileDevStackAuthSetToken(_ token: String?)
-    #endif
 }

@@ -217,7 +217,7 @@ class TabManager: ObservableObject {
     /// subscribers; same contract as `tabsPublisher`.
     let selectedTabIdPublisher = CurrentValueSubject<UUID?, Never>(nil)
     /// Legacy Combine bridge for the remaining `tabManager.$workspaceGroups`
-    /// subscribers (e.g. MobileWorkspaceListObserver); same contract as
+    /// subscribers; same contract as
     /// `tabsPublisher`. Emits during willSet and replays the current value
     /// on subscribe — the `Published.Publisher` semantics those call sites
     /// were written against.
@@ -1086,8 +1086,6 @@ class TabManager: ObservableObject {
                 // single-panel title sync keeps the workspace title following
                 // the page title once the user navigates.
                 defaultTitle = String(localized: "browser.newTab", defaultValue: "New tab")
-            case .cloudVMLoading:
-                defaultTitle = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
             }
             let newWorkspace = makeWorkspaceForCreation(
                 title: title ?? defaultTitle,

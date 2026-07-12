@@ -294,22 +294,6 @@ import WebKit
 #endif
 
         if let url = navigationAction.request.url,
-           shouldOpenCheckoutInSystemBrowser(navigationAction, url: url) {
-            clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
-            let opened = NSWorkspace.shared.open(url)
-#if DEBUG
-            cmuxDebugLog(
-                "browser.nav.decidePolicy.action kind=openCheckoutInSystemBrowser opened=\(opened ? 1 : 0) " +
-                "url=\(browserNavigationDebugURL(url))"
-            )
-#endif
-            if opened { reportTerminalCancellation() }
-            decisionHandler(opened ? .cancel : .allow)
-            return
-        }
-
-        if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
            shouldBlockInsecureHTTPNavigation?(url) == true {
             let intent: BrowserInsecureHTTPNavigationIntent
@@ -421,22 +405,6 @@ import WebKit
             }
         }
         decisionHandler(.allow)
-    }
-
-    private func shouldOpenCheckoutInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
-        guard navigationAction.targetFrame?.isMainFrame != false else { return false }
-        guard navigationAction.navigationType == .linkActivated else { return false }
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-            return false
-        }
-        guard url.path == "/api/billing/checkout",
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.queryItems?.contains(where: {
-                  $0.name == "cmux_external_browser" && $0.value != "0"
-              }) == true else {
-            return false
-        }
-        return true
     }
 
     func canHandleSSLTrustBypassToken(_ token: String) -> Bool {

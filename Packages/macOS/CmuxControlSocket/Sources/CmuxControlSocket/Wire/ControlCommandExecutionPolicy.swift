@@ -88,13 +88,6 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.clear",
         "browser.profiles.delete",
         "browser.import.cookies",
-        "mobile.attach_ticket.create",
-        // `mobile.terminal.set_font` only validates params and emits a push
-        // event via thread-safe MobileHostService statics, so it runs on the worker
-        // like the other mobile data-plane verbs. Without this entry the policy
-        // routes it to the main-actor processV2Command switch, which lacks the
-        // case, and the control socket returns method_not_found.
-        "mobile.terminal.set_font",
         "system.top",
         "system.memory",
         // `surface.read_text` reads a terminal's visible or full-scrollback

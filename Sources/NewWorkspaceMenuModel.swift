@@ -19,7 +19,6 @@ struct NewWorkspaceMenuModel: Equatable {
 
     enum Section: Equatable {
         case create([CreateRow])
-        case cloud
         case layouts([LayoutRow])
         case templates([String])
         case management(ManagementSection)
@@ -30,7 +29,6 @@ struct NewWorkspaceMenuModel: Equatable {
     static func build(
         newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem],
         agentChatAction: CmuxResolvedConfigAction?,
-        cloudSectionEnabled: Bool,
         templateNames: [String],
         loadedActions: [CmuxResolvedConfigAction],
         newWorkspaceActionID: String?,
@@ -102,18 +100,15 @@ struct NewWorkspaceMenuModel: Equatable {
 
         var sections: [Section] = []
         let createSection: Section? = createRows.isEmpty ? nil : .create(createRows)
-        let cloudSection: Section? = cloudSectionEnabled ? .cloud : nil
         let layoutsSection: Section? = layoutRows.isEmpty ? nil : .layouts(layoutRows)
 
-        // Layout rows come from `ui.newWorkspace.contextMenu`, so they belong
-        // to the custom side of the `menuSectionOrder` contract: with
-        // `customFirst` the whole custom block (create actions, then the
-        // labeled Layouts section) stays above the built-in Cloud VM section.
+        // Layout rows come from `ui.newWorkspace.contextMenu`; create actions
+        // stay above the labeled Layouts section. The `menuSectionOrder`
+        // preference no longer reorders anything now that the built-in Cloud VM
+        // section is gone, but both orderings keep create above layouts.
         switch sectionOrder {
-        case .customFirst:
-            sections.append(contentsOf: [createSection, layoutsSection, cloudSection].compactMap { $0 })
-        case .cloudFirst:
-            sections.append(contentsOf: [cloudSection, createSection, layoutsSection].compactMap { $0 })
+        case .customFirst, .cloudFirst:
+            sections.append(contentsOf: [createSection, layoutsSection].compactMap { $0 })
         }
         if !templateNames.isEmpty {
             sections.append(.templates(templateNames))

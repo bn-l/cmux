@@ -246,9 +246,7 @@ def linux_preflight_needs(
         "changes": "success",
         "workflow-guard-tests": "success",
         "remote-daemon-tests": "success",
-        "web-typecheck": "success",
         "react-apps-check": "success",
-        "web-db-migrations": "success",
         "agent-session-web-resources": "success",
     }
     if results:
@@ -473,9 +471,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "changes",
         "workflow-guard-tests",
         "remote-daemon-tests",
-        "web-typecheck",
         "react-apps-check",
-        "web-db-migrations",
         "linux-preflight",
         "app-host-unit-tests",
         "tests",
@@ -535,9 +531,7 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "      - changes" in block
     assert "      - workflow-guard-tests" in block
     assert "      - remote-daemon-tests" in block
-    assert "      - web-typecheck" in block
     assert "      - react-apps-check" in block
-    assert "      - web-db-migrations" in block
     assert "      - agent-session-web-resources" in block
     assert "if: ${{ always() }}" in block
     assert 'required = ("changes", "workflow-guard-tests")' in block

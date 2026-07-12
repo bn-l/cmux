@@ -75,7 +75,6 @@ extension AppDelegate {
         let model = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems,
             agentChatAction: resolvedBuiltInNewAgentChatAction(cmuxConfigStore: cmuxConfigStore),
-            cloudSectionEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled,
             templateNames: savedLayoutNames(),
             loadedActions: cmuxConfigStore.loadedActions,
             newWorkspaceActionID: cmuxConfigStore.newWorkspaceActionID,

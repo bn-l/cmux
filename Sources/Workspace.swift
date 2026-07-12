@@ -669,8 +669,6 @@ extension Workspace {
             agentSessionSnapshot = nil
         case .extensionBrowser:
             return nil
-        case .cloudVMLoading:
-            return nil
         }
         return SessionPanelSnapshot(
             id: panelId,
@@ -1343,33 +1341,6 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand,
                 hasResumeStartupWork: restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
             )
-            // cmux is itself resuming this agent session onto the restored surface.
-            // Some agents (codex) fire NO SessionStart hook on resume, and an
-            // `sr codex resume` bypasses the hook-injecting shim entirely, so
-            // record the (session, surface) binding from cmux's own authority
-            // instead of waiting for a hook that will not arrive; otherwise the
-            // chat registry keeps the stale pre-relaunch record (dead pid ->
-            // .ended) and the iOS GUI shows it read-only. The actual call is made
-            // AFTER the surface is created, keyed on the real `terminalPanel.id`
-            // (which differs from `snapshot.id` when a surface-id collision forces
-            // a fresh id on restore-into-live / duplicate-workspace). The
-            // (session id, agent source) comes from the restorable-agent snapshot
-            // when present, else from the agent-hook resume binding (most restores
-            // carry only the binding, whose `checkpointId` IS the agent session id).
-            let resumeReboundSession: (sessionID: String, source: String)? = {
-                if let restorableAgent {
-                    return (restorableAgent.sessionId, restorableAgent.kind.rawValue)
-                }
-                if let binding = resumeBinding,
-                   binding.isAgentHookBinding,
-                   let checkpoint = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !checkpoint.isEmpty,
-                   let bindingKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !bindingKind.isEmpty {
-                    return (checkpoint, bindingKind)
-                }
-                return nil
-            }()
             let restoredRemotePTYSessionID: String? = {
                 guard !isDefaultFreestyleSSHDRemoteWorkspace else {
                     return nil
@@ -1472,32 +1443,6 @@ extension Workspace {
                 restoredSurfaceId: reusableSurfaceId
             ) else {
                 return nil
-            }
-            // Re-bind the resumed agent session from cmux's own authority, keyed
-            // on the surface that was actually created. `terminalPanel.id` equals
-            // `snapshot.id` on the normal path, but on a surface-id collision
-            // (restore-into-live / duplicate-workspace) `newTerminalSurface`
-            // minted a fresh id, so keying on `snapshot.id` would bind to a
-            // surface that does not exist and the GUI would never find the
-            // session. This is unconditional on whether cmux runs the resume
-            // command itself: a restored surface that CARRIES a resumable agent
-            // binding must flip its registry record to live/.idle so the iOS GUI
-            // is editable, even when auto-resume is off and the user resumes
-            // manually (e.g. `sr codex resume`). Recording .idle here is the safe
-            // direction per the spec — never invent `ended`.
-            if let resumeReboundSession {
-                // The chat record's cwd feeds transcript-path resolution
-                // (Claude transcripts live under the project the agent ran
-                // in), so it must be the resume launcher's real target, not
-                // the persisted terminal cwd a stray report may have parked
-                // on home (#7155).
-                AgentChatTranscriptService.recordResumeIntent(
-                    sessionID: resumeReboundSession.sessionID,
-                    source: resumeReboundSession.source,
-                    surfaceID: terminalPanel.id.uuidString,
-                    workspaceID: id.uuidString,
-                    workingDirectory: resumeSessionWorkingDirectory
-                )
             }
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
@@ -1664,8 +1609,6 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
             return projectPanel.id
         case .extensionBrowser:
-            return nil
-        case .cloudVMLoading:
             return nil
         }
     }
@@ -2981,22 +2924,6 @@ final class Workspace: Identifiable, ObservableObject {
                 initialTabId = tabId
             }
             installBrowserPanelSubscription(browserPanel)
-        } else if initialSurface == .cloudVMLoading {
-            let loadingPanel = CloudVMLoadingPanel(workspaceId: id)
-            panels[loadingPanel.id] = loadingPanel
-            panelTitles[loadingPanel.id] = loadingPanel.displayTitle
-
-            if let tabId = bonsplitController.createTab(
-                title: loadingPanel.displayTitle,
-                icon: loadingPanel.displayIcon,
-                kind: SurfaceKind.cloudVMLoading.rawValue,
-                isDirty: loadingPanel.isDirty,
-                isLoading: true,
-                isPinned: false
-            ) {
-                bindSurface(tabId, toPanelId: loadingPanel.id)
-                initialTabId = tabId
-            }
         } else {
             // Create initial terminal panel
             let terminalPanel = TerminalPanel(
@@ -3178,7 +3105,6 @@ final class Workspace: Identifiable, ObservableObject {
         // dashboard changes land on the next config reload or launch.
         let buttons = buttons.filter { button in
             guard case .builtIn(let builtInAction) = button.action else { return true }
-            if builtInAction == .mobileConnect { return CmuxFeatureFlags.shared.isMobileConnectButtonEnabled }
             if builtInAction == .newAgentChat { return CmuxFeatureFlags.shared.isAgentChatUIEnabled }
             return true
         }
@@ -5019,9 +4945,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     var isRestorableInSessionSnapshot: Bool {
         if isRemoteTmuxMirror { return false }
-        if panels.values.contains(where: { $0.panelType == .cloudVMLoading }) {
-            return false
-        }
         guard let remoteConfiguration else { return true }
         return remoteConfiguration.sessionSnapshot() != nil
     }
@@ -7621,80 +7544,6 @@ final class Workspace: Identifiable, ObservableObject {
         panelTitles[panelId] = title
         guard let existing = bonsplitController.tab(tabId), existing.title != title else { return }
         bonsplitController.updateTab(tabId, title: title, icon: nil, isDirty: nil)
-    }
-
-    @discardableResult
-    func replaceCloudVMLoadingSurfaceWithTerminal(
-        workspaceId: UUID,
-        initialCommand: String,
-        focus: Bool = true
-    ) -> TerminalPanel? {
-        guard workspaceId == id,
-              let pair = panels.first(where: { $0.value.panelType == .cloudVMLoading }),
-              let loadingPanel = pair.value as? CloudVMLoadingPanel,
-              let tabId = surfaceIdFromPanelId(pair.key),
-              let paneId = paneId(forPanelId: pair.key) else {
-            return nil
-        }
-
-        let trimmedCommand = initialCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedCommand.isEmpty else {
-            loadingPanel.showFailure(String(
-                localized: "panel.cloudVM.loading.failed.missingCommand",
-                defaultValue: "Cloud VM attach command was empty."
-            ))
-            return nil
-        }
-
-        var inheritedConfig = inheritedTerminalConfig(inPane: paneId) ?? CmuxSurfaceConfigTemplate()
-        inheritedConfig.waitAfterCommand = true
-        let replacementPanel = TerminalPanel(
-            id: pair.key,
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            configTemplate: inheritedConfig,
-            workingDirectory: currentDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: trimmedCommand,
-            tmuxStartCommand: trimmedCommand,
-            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
-        )
-        // Cloud VM loading swaps replace the panel object but keep the logical tab identity.
-        replacementPanel.adoptStableSurfaceId(loadingPanel.stableSurfaceId)
-        configureNewTerminalPanel(replacementPanel)
-        panels[pair.key] = replacementPanel
-        panelTitles[pair.key] = replacementPanel.displayTitle
-        seedTerminalInheritanceFontPoints(panelId: pair.key, configTemplate: inheritedConfig)
-        bonsplitController.updateTab(
-            tabId,
-            title: replacementPanel.displayTitle,
-            icon: .some(replacementPanel.displayIcon),
-            iconImageData: .some(nil),
-            iconAsset: .some(nil),
-            kind: .some(SurfaceKind.terminal.rawValue),
-            hasCustomTitle: false,
-            isDirty: replacementPanel.isDirty,
-            showsNotificationBadge: false,
-            isLoading: false,
-            isPinned: false
-        )
-        publishCmuxSurfaceCreated(pair.key, paneId: paneId, kind: SurfaceKind.terminal.rawValue, origin: "cloud_vm_ready", focused: focus)
-
-        if focus {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(tabId)
-            focusPanel(pair.key)
-        } else {
-            replacementPanel.unfocus()
-        }
-        owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
-            workspaceId: id,
-            panelId: pair.key,
-            reason: "cloudVMReady"
-        )
-        scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
-        return replacementPanel
     }
 
     /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
@@ -12647,10 +12496,6 @@ extension Workspace: BonsplitDelegate {
             case .newWorkspace:
                 owningTabManager?.addWorkspace()
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
-            case .cloudVM:
-                _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
-            case .mobileConnect:
-                MobilePairingWindowController.shared.show()
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

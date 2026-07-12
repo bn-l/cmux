@@ -325,11 +325,4 @@ extension TerminalController: ControlSystemContext {
         }
     }
 
-#if DEBUG
-    // MARK: - mobile.dev_stack_auth.configure (DEBUG)
-
-    func controlMobileDevStackAuthSetToken(_ token: String?) {
-        MobileHostService.shared.debugConfigureAcceptedStackAuthTokenForTesting(token)
-    }
-#endif
 }

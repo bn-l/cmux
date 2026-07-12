@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # Shared helpers for the iOS dev auto-pair flow: tag -> identity, enabling the
 # tagged Mac app's iOS pairing host, and headlessly minting a short-TTL attach
-# URL against the tagged debug socket. Sourced by scripts/dev-setup.sh,
-# scripts/mobile-dev-launch.sh, and the reload scripts so the bundle-id / socket
+# URL against the tagged debug socket. Sourced by scripts/dev-setup.sh
+# and the reload scripts so the bundle-id / socket
 # derivation and the mint RPC live in exactly ONE place (they MUST match
 # reload.sh / cmux-debug-cli.sh exactly).
 #

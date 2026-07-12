@@ -14,7 +14,6 @@ GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
-IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -203,27 +202,6 @@ check_e2e_runner_fallbacks() {
   fi
 
   echo "PASS: test-e2e.yml exposes Depot and Tart runner choices, identity guards, and duplicate-queue cancellation"
-}
-
-check_ios_tart_canary() {
-  if ! grep -Eq '^[[:space:]]+- tart-ios$' "$IOS_FILE"; then
-    echo "FAIL: test-ios.yml must expose the Tart iOS canary runner"
-    exit 1
-  fi
-  if [[ "$(grep -c 'tart-ios resolved to unexpected runner' "$IOS_FILE")" -ne 2 ]] ||
-     [[ "$(grep -c 'tart-ios runner is missing the immutable VM identity marker' "$IOS_FILE")" -ne 2 ]]; then
-    echo "FAIL: both macOS iOS test jobs must fail closed on Tart identity mismatch"
-    exit 1
-  fi
-  if [[ "$(grep -Fc "runs-on: \${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}" "$IOS_FILE")" -ne 2 ]]; then
-    echo "FAIL: both macOS iOS test jobs must honor the dispatch runner override"
-    exit 1
-  fi
-  if [[ "$(grep -Fc "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-')" "$IOS_FILE")" -ne 2 ]]; then
-    echo "FAIL: both macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
-    exit 1
-  fi
-  echo "PASS: test-ios.yml exposes the guarded Tart iOS canary"
 }
 
 check_xcode_selection() {
@@ -551,132 +529,6 @@ EOF
   echo "PASS: signing helper imports vendored intermediates offline, downloads as fallback, and verifies the count"
 }
 
-check_sentry_cli_install_portability() {
-  local helper="$ROOT_DIR/scripts/ensure-sentry-cli.sh"
-  if [[ ! -x "$helper" ]]; then
-    echo "FAIL: sentry-cli helper must exist and be executable"
-    exit 1
-  fi
-
-  for needle in \
-    'INSTALL_DIR="${RUNNER_TEMP:-/tmp}/sentry-cli-bin"' \
-    'SENTRY_CLI_ASSET="sentry-cli-Darwin-universal"' \
-    'SENTRY_CLI_SHA256="dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5"' \
-    'https://github.com/getsentry/sentry-cli/releases/download/${SENTRY_CLI_VERSION}/${SENTRY_CLI_ASSET}' \
-    'SENTRY_CLI_VERSION="3.3.0"' \
-    '--connect-timeout 20' \
-    '--max-time 120' \
-    'ACTUAL_SHA256="$(shasum -a 256 "$DOWNLOAD_PATH" | awk' \
-    'install -m 0755 "$DOWNLOAD_PATH" "$INSTALL_DIR/sentry-cli"'; do
-    if ! grep -Fq -- "$needle" "$helper"; then
-      echo "FAIL: sentry-cli helper must contain $needle"
-      exit 1
-    fi
-  done
-  if grep -Fq 'command -v sentry-cli' "$helper"; then
-    echo "FAIL: sentry-cli helper must not reuse ambient runner PATH state"
-    exit 1
-  fi
-
-  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
-    if grep -Fq 'brew install getsentry/tools/sentry-cli' "$file"; then
-      echo "FAIL: $(basename "$file") must not require Homebrew for sentry-cli on self-hosted signing runners"
-      exit 1
-    fi
-
-    if ! awk '
-      /- name: Upload dSYMs to Sentry/ { in_step=1; next }
-      in_step && /^[[:space:]]*- name:/ { in_step=0 }
-      in_step && /SENTRY_CLI="\$\(\.\/scripts\/ensure-sentry-cli\.sh\)"/ { saw_helper=1 }
-      in_step && /"\$SENTRY_CLI" debug-files upload --include-sources/ { saw_upload=1 }
-      END { exit !(saw_helper && saw_upload) }
-    ' "$file"; then
-      echo "FAIL: $(basename "$file") must install sentry-cli through scripts/ensure-sentry-cli.sh before dSYM upload"
-      exit 1
-    fi
-  done
-
-  echo "PASS: dSYM upload installs sentry-cli without requiring Homebrew"
-}
-
-check_sentry_cli_helper_behavior() {
-  local helper="$ROOT_DIR/scripts/ensure-sentry-cli.sh"
-  local tmp_dir bin_dir stdout stderr expected_path
-  tmp_dir="$(mktemp -d)"
-  bin_dir="$tmp_dir/bin"
-  stdout="$tmp_dir/stdout"
-  stderr="$tmp_dir/stderr"
-  expected_path="$tmp_dir/runner/sentry-cli-bin/sentry-cli"
-  mkdir -p "$bin_dir"
-
-  cat > "$bin_dir/sentry-cli" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-echo "ambient sentry-cli should not run" >&2
-exit 44
-EOF
-  chmod +x "$bin_dir/sentry-cli"
-  cat > "$bin_dir/curl" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-output=""
-while [[ $# -gt 0 ]]; do
-	case "$1" in
-		--output)
-			output="$2"
-			shift 2
-			;;
-		*)
-			shift
-			;;
-	esac
-done
-if [[ -z "$output" ]]; then
-	echo "missing --output" >&2
-	exit 1
-fi
-cat > "$output" <<'SCRIPT'
-#!/usr/bin/env bash
-set -euo pipefail
-echo "sentry-cli 3.3.0"
-SCRIPT
-EOF
-  chmod +x "$bin_dir/curl"
-  cat > "$bin_dir/shasum" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-last=""
-for arg in "$@"; do
-	last="$arg"
-done
-printf 'dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5  %s\n' "$last"
-EOF
-  chmod +x "$bin_dir/shasum"
-
-  if ! RUNNER_TEMP="$tmp_dir/runner" PATH="$bin_dir:/usr/bin:/bin" "$helper" >"$stdout" 2>"$stderr"; then
-    echo "FAIL: sentry-cli helper behavior test should install pinned CLI"
-    cat "$stderr" >&2 || true
-    exit 1
-  fi
-
-  if [[ "$(cat "$stdout")" != "$expected_path" ]]; then
-    echo "FAIL: sentry-cli helper must print only the executable path on stdout"
-    exit 1
-  fi
-
-  if ! grep -Fq 'Installing sentry-cli 3.3.0 into' "$stderr"; then
-    echo "FAIL: sentry-cli helper should report pinned install on stderr"
-    exit 1
-  fi
-  if grep -Fq 'ambient sentry-cli should not run' "$stderr"; then
-    echo "FAIL: sentry-cli helper must ignore ambient sentry-cli on PATH"
-    exit 1
-  fi
-
-  rm -rf "$tmp_dir"
-  echo "PASS: sentry-cli helper installs the pinned binary without ambient PATH state"
-}
-
 check_dmg_signing_uses_build_keychain() {
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
     if grep -Fq -- '--identity="$APPLE_SIGNING_IDENTITY"' "$file"; then
@@ -794,37 +646,6 @@ check_no_ci_swift_package_skips() {
   echo "PASS: ci.yml does not exclude Swift package tests"
 }
 
-check_web_db_behavior_tests() {
-  local db_runner="$ROOT_DIR/web/scripts/run-db-behavior-tests.sh"
-  if [[ ! -x "$db_runner" ]]; then
-    echo "FAIL: web DB behavior runner must exist and be executable"
-    exit 1
-  fi
-
-  if ! grep -Fq '"test:db:behavior": "bash scripts/run-db-behavior-tests.sh"' "$ROOT_DIR/web/package.json"; then
-    echo "FAIL: web/package.json must expose test:db:behavior for DB-gated web tests"
-    exit 1
-  fi
-
-  if ! awk '
-    /- name: Database behavior tests/ { in_step=1; next }
-    in_step && /^[[:space:]]*- name:/ { in_step=0 }
-    in_step && /CMUX_DB_TEST:[[:space:]]*"1"/ { saw_env=1 }
-    in_step && /bun run test:db:behavior/ { saw_runner=1 }
-    END { exit !(saw_env && saw_runner) }
-  ' "$CI_FILE"; then
-    echo "FAIL: ci.yml must run the DB behavior test discovery runner with CMUX_DB_TEST=1"
-    exit 1
-  fi
-
-  if ! grep -Fq 'grep -q "process\\.env\\.CMUX_DB_TEST"' "$db_runner"; then
-    echo "FAIL: DB behavior runner must discover CMUX_DB_TEST-gated files instead of hard-coding a subset"
-    exit 1
-  fi
-
-  echo "PASS: web DB behavior tests run through the discovery runner"
-}
-
 check_tmux_terminal_nightly_isolation() {
   check_macos_runner "$TMUX_CORPUS_FILE" "terminal-nightly"
 
@@ -911,7 +732,7 @@ check_no_self_hosted_fleet_runners() {
     exit 1
   fi
 
-  local e2e_tart_option_line e2e_tart_dual_option_line e2e_tart_small_option_line e2e_tart_tahoe_option_line ios_tart_option_line
+  local e2e_tart_option_line e2e_tart_dual_option_line e2e_tart_small_option_line e2e_tart_tahoe_option_line
   e2e_tart_option_line="$(awk '
     /^      runner:$/ { in_runner=1; next }
     in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
@@ -933,13 +754,6 @@ check_no_self_hosted_fleet_runners() {
     in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
     in_options && /^          - tart-small$/ { print FNR }
   ' "$E2E_FILE")"
-  ios_tart_option_line="$(awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-ios$/ { print FNR }
-  ' "$IOS_FILE")"
 
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
@@ -959,9 +773,6 @@ check_no_self_hosted_fleet_runners() {
       continue
     fi
     if [[ -n "$e2e_tart_small_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_small_option_line:"* ]]; then
-      continue
-    fi
-    if [[ -n "$ios_tart_option_line" ]] && [[ "$line" == "$IOS_FILE:$ios_tart_option_line:"* ]]; then
       continue
     fi
     hits+="$line"$'\n'
@@ -995,7 +806,6 @@ check_macos_runner "$COMPAT_FILE" "compat-tests"
 # test-e2e.yml is manual, so keep the Depot GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
-check_ios_tart_canary
 
 check_xcode_selection
 check_release_build_signal
@@ -1004,12 +814,9 @@ check_release_helper_artifact_from_package_lane
 check_runtime_regressions_collapsed
 check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior
-check_sentry_cli_install_portability
-check_sentry_cli_helper_behavior
 check_dmg_signing_uses_build_keychain
 check_create_dmg_uses_run_local_npm_prefix
 check_gui_smoke_unsupported_launch_handling
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
-check_web_db_behavior_tests
 check_tmux_terminal_nightly_isolation

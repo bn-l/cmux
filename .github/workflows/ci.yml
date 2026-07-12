@@ -130,15 +130,6 @@ jobs:
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
-      - name: Validate TestFlight notes generator
-        run: python3 tests/test_ios_testflight_notes.py
-
-      - name: Validate external TestFlight group assignment helper
-        run: python3 tests/test_ios_testflight_external_distribution.py
-
-      - name: Validate iOS App Store lane identity
-        run: python3 tests/test_ios_appstore_lane_identity.py
-
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
@@ -275,33 +266,6 @@ jobs:
       - name: Validate remote daemon release assets
         run: ./tests/test_remote_daemon_release_assets.sh
 
-  web-typecheck:
-    needs: changes
-    if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Web tests
-        # Explicit sorted file list: bun discovers test files in filesystem
-        # readdir order, which differs between Linux runners and local macOS,
-        # so an unpinned run exercises a file order no developer can
-        # reproduce. Sorted order makes CI failures replayable locally.
-        run: bun test $(ls tests/*.test.ts tests/*.test.tsx | sort)
-
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
   react-apps-check:
@@ -336,56 +300,6 @@ jobs:
       - name: React Doctor
         working-directory: webviews
         run: bun run react-doctor:ci
-
-  web-db-migrations:
-    needs: changes
-    if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    defaults:
-      run:
-        working-directory: web
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: cmux_test
-          POSTGRES_PASSWORD: cmux
-          POSTGRES_USER: cmux
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U cmux -d cmux_test"
-          --health-interval 1s
-          --health-timeout 5s
-          --health-retries 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Apply migrations
-        env:
-          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: bunx drizzle-kit migrate --config drizzle.config.ts
-
-      - name: Re-apply migrations
-        env:
-          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: bunx drizzle-kit migrate --config drizzle.config.ts
-
-      - name: Database behavior tests
-        env:
-          CMUX_DB_TEST: "1"
-          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: bun run test:db:behavior
 
   app-host-unit-tests:
     needs:
@@ -495,9 +409,9 @@ jobs:
               -resolvePackageDependencies; then
               # Guard against a stale/poisoned Swift-package cache: a restored
               # .ci-source-packages can make resolve report success without the
-              # binary artifacts (Sparkle/Sentry) actually present, which then
+              # binary artifacts (Sparkle) actually present, which then
               # fails the build. Verify they materialized; if not, clear and retry.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ]; then
                 exit 0
               fi
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
@@ -1015,7 +929,7 @@ jobs:
           # lines are that known diagnostic. Everything else (compile errors,
           # test failures, crashes) still fails the job.
           for pkg in "${PACKAGES[@]}"; do
-            # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
+            # Packages live under group folders (Packages/{Shared,macOS}/);
             # resolve the actual directory so this list stays group-agnostic.
             pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
             if [ -z "$pkgdir" ]; then
@@ -1087,9 +1001,7 @@ jobs:
       - changes
       - workflow-guard-tests
       - remote-daemon-tests
-      - web-typecheck
       - react-apps-check
-      - web-db-migrations
       - agent-session-web-resources
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -1108,9 +1020,7 @@ jobs:
           required = ("changes", "workflow-guard-tests")
           allowed_routed = {
               "remote-daemon-tests",
-              "web-typecheck",
               "react-apps-check",
-              "web-db-migrations",
               "agent-session-web-resources",
           }
 
@@ -1123,9 +1033,7 @@ jobs:
           outputs = needs["changes"].get("outputs", {})
           routed_outputs = {
               "remote-daemon-tests": "go",
-              "web-typecheck": "web",
               "react-apps-check": "web",
-              "web-db-migrations": "web",
               "agent-session-web-resources": "agent_session_web",
           }
           for name in sorted(allowed_routed):
@@ -1294,9 +1202,9 @@ jobs:
               -resolvePackageDependencies; then
               # Guard against a stale/poisoned Swift-package cache: a restored
               # .ci-source-packages can make resolve report success without the
-              # binary artifacts (Sparkle/Sentry) actually present, which then
+              # binary artifacts (Sparkle) actually present, which then
               # fails the build. Verify they materialized; if not, clear and retry.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ]; then
                 exit 0
               fi
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
@@ -1631,9 +1539,7 @@ jobs:
       - changes
       - workflow-guard-tests
       - remote-daemon-tests
-      - web-typecheck
       - react-apps-check
-      - web-db-migrations
       - linux-preflight
       - app-host-unit-tests
       - tests

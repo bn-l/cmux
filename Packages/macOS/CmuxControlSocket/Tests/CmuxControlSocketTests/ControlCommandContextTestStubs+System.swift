@@ -45,7 +45,4 @@ extension ControlSystemContext {
     func controlSurfaceSplitOff(params: [String: JSONValue]) -> ControlCallResult {
         .err(code: "unavailable", message: "AppDelegate not available", data: nil)
     }
-    #if DEBUG
-    func controlMobileDevStackAuthSetToken(_ token: String?) {}
-    #endif
 }

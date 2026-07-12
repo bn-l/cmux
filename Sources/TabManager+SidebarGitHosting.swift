@@ -180,12 +180,15 @@ extension TabManager: SidebarGitHosting {
         SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
     }
 
+    // The mobile-host subsystem was removed, so there is never a phone driving
+    // requests to defer to: report no recent activity and no quiet delay, which
+    // makes CmuxSidebarGit's deferral guards proceed with normal polling.
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool {
-        MobileHostRequestActivity.hasRecentActivity(within: interval)
+        false
     }
 
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval {
-        MobileHostRequestActivity.quietDelay(for: interval)
+        0
     }
 }
 

@@ -66,44 +66,25 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
     }
 }
 
-// MARK: Mobile byte tee
+// MARK: Byte tee
 
-/// Installs the libghostty PTY tee for `MobileTerminalByteTee` and keys
-/// drop/replay state by surface id (the legacy inline
-/// `ghostty_surface_set_pty_tee_cb` + `MobileTerminalByteTee.shared` calls).
+/// No-op ``TerminalByteTeeBinding``. The mobile PTY byte tee this once
+/// installed was removed with the phone-pairing stack; the `CmuxTerminal`
+/// runtime seam still requires a binding, so this satisfies it without
+/// installing a tee or retaining any per-surface state.
 final class TerminalMobileByteTeeBridge: TerminalByteTeeBinding {
-    /// Wraps the retained tee userdata; `release()` runs exactly where the
-    /// surface released the legacy `Unmanaged` context.
-    /// @unchecked Sendable: the Unmanaged box is exclusively owned by this
-    /// lease from install until release, mirroring the teardown-request
-    /// transport.
+    /// No-op lease; nothing is retained, so `release()` has nothing to balance.
     final class Lease: TerminalByteTeeLease, @unchecked Sendable {
-        private let context: Unmanaged<MobileTerminalByteTeeUserdata>
-
-        init(context: Unmanaged<MobileTerminalByteTeeUserdata>) {
-            self.context = context
-        }
-
-        func release() {
-            context.release()
-        }
+        func release() {}
     }
 
     @MainActor
     func installTee(on surface: ghostty_surface_t, surfaceID: UUID) -> any TerminalByteTeeLease {
-        let teeContext = Unmanaged.passRetained(MobileTerminalByteTeeUserdata(surfaceID: surfaceID))
-        ghostty_surface_set_pty_tee_cb(
-            surface,
-            cmuxMobileTerminalByteTeeCallback,
-            teeContext.toOpaque()
-        )
-        return Lease(context: teeContext)
+        Lease()
     }
 
     @MainActor
-    func dropSurface(surfaceID: UUID) {
-        MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
-    }
+    func dropSurface(surfaceID: UUID) {}
 }
 
 // MARK: Renderer reclamation
