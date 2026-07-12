@@ -73,7 +73,6 @@ extension AppDelegate {
             cmuxConfigStore: cmuxConfigStore,
             window: nil
         )
-        ensureMobileWorkspaceListObserver(for: tabManager)
         notifyMainWindowContextsDidChange()
         return windowId
     }

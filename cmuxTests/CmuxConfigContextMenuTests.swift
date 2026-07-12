@@ -179,40 +179,12 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 
-    @MainActor
-    func testCloudVMAliasesResolveToCanonicalBuiltInAction() throws {
-        let store = try loadStore(localJSON: """
-        {
-          "ui": {
-            "newWorkspace": {
-              "contextMenu": [
-                "cmux.cloudvm",
-                "cmux.cloudVM",
-                "cloudVM",
-                "newCloudVM",
-                "startCloudVM"
-              ]
-            }
-          }
-        }
-        """)
-
-        XCTAssertEqual(store.newWorkspaceContextMenuItems.count, 5)
-        for item in store.newWorkspaceContextMenuItems {
-            guard case .action(let action) = item else {
-                return XCTFail("Expected Cloud VM context-menu action.")
-            }
-            XCTAssertEqual(action.action.id, CmuxSurfaceTabBarBuiltInAction.cloudVM.configID)
-        }
-        XCTAssertTrue(store.configurationIssues.isEmpty)
-    }
-
     func testActionAliasesCannotOverrideSameBuiltInTwice() throws {
         let json = """
         {
           "actions": {
-            "cmux.cloudvm": { "type": "command", "command": "echo canonical" },
-            "startCloudVM": { "type": "command", "command": "echo alias" }
+            "cmux.newAgentChat": { "type": "command", "command": "echo canonical" },
+            "agentChat": { "type": "command", "command": "echo alias" }
           }
         }
         """
@@ -220,42 +192,8 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         XCTAssertThrowsError(try decode(json)) { error in
             let description = String(describing: error)
             XCTAssertTrue(description.contains("duplicate aliases"))
-            XCTAssertTrue(description.contains(CmuxSurfaceTabBarBuiltInAction.cloudVM.configID))
+            XCTAssertTrue(description.contains(CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID))
         }
-    }
-
-    @MainActor
-    func testDefaultCloudVMMenuActionCanBeOverriddenByAlias() throws {
-        let store = try loadStore(localJSON: """
-        {
-          "actions": {
-            "cmux.cloudvm": {
-              "type": "command",
-              "command": "echo cloud",
-              "title": "Cloud Override",
-              "icon": { "type": "symbol", "name": "bolt" }
-            }
-          },
-          "ui": {
-            "newWorkspace": {
-              "contextMenu": [
-                "cloudVM"
-              ]
-            }
-          }
-        }
-        """)
-
-        XCTAssertEqual(store.newWorkspaceContextMenuItems.count, 1)
-        guard store.newWorkspaceContextMenuItems.count == 1 else { return }
-        guard case .action(let item) = store.newWorkspaceContextMenuItems[0] else {
-            return XCTFail("Expected Cloud VM context-menu action.")
-        }
-        XCTAssertEqual(item.action.id, CmuxSurfaceTabBarBuiltInAction.cloudVM.configID)
-        XCTAssertEqual(item.title, "Cloud Override")
-        XCTAssertEqual(item.icon, .symbol("bolt"))
-        XCTAssertEqual(item.action.terminalCommand, "echo cloud")
-        XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 
     @MainActor

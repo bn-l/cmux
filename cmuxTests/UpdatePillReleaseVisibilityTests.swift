@@ -441,39 +441,6 @@ struct TitlebarControlsHoverPolicyTests {
     }
 
     @Test
-    func testButtonsStayVisuallyEvenAcrossTitlebarStyles() {
-        let sizes = TitlebarControlsStyle.allCases.map { $0.config.buttonSize }
-        let smallest = sizes.min() ?? 0
-        let largest = sizes.max() ?? 0
-
-        checkLessThanOrEqual(largest - smallest, 4)
-
-        for style in TitlebarControlsStyle.allCases {
-            let config = style.config
-            let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
-
-            checkEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
-            for (index, range) in ranges.enumerated() {
-                let slot = MinimalModeSidebarControlActionSlot(rawValue: index)
-                let expectedWidth: CGFloat = switch slot {
-                case .some(.newTab):
-                    TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
-                case .some(.cloudVM):
-                    TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
-                case .some(.toggleSidebar), .some(.showNotifications), .some(.focusHistoryBack), .some(.focusHistoryForward), nil:
-                    config.buttonSize
-                }
-                checkEqual(
-                    range.upperBound - range.lowerBound,
-                    expectedWidth,
-                    accuracy: 0.001,
-                    "Expected titlebar hit lane width to match its visible control for style \(style)"
-                )
-            }
-        }
-    }
-
-    @Test
     func testHoverAndPressedStatesHaveVisibleDelta() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config

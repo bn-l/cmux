@@ -1289,39 +1289,6 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(AgentIntegrationSettingsStore(defaults: defaults).suppressesSubagentNotifications)
     }
 
-    func testTelemetryDefaultsToEnabledWhenUnset() {
-        let suiteName = "cmux.tests.telemetry.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated user defaults suite")
-            return
-        }
-        defer {
-            defaults.removePersistentDomain(forName: suiteName)
-        }
-
-        let telemetry = AppCatalogSection().sendAnonymousTelemetry
-        defaults.removeObject(forKey: telemetry.userDefaultsKey)
-        XCTAssertTrue(telemetry.value(in: defaults))
-    }
-
-    func testTelemetryRespectsStoredPreference() {
-        let suiteName = "cmux.tests.telemetry.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated user defaults suite")
-            return
-        }
-        defer {
-            defaults.removePersistentDomain(forName: suiteName)
-        }
-
-        let telemetry = AppCatalogSection().sendAnonymousTelemetry
-        defaults.set(true, forKey: telemetry.userDefaultsKey)
-        XCTAssertTrue(telemetry.value(in: defaults))
-
-        defaults.set(false, forKey: telemetry.userDefaultsKey)
-        XCTAssertFalse(telemetry.value(in: defaults))
-    }
-
     private func rgb255(_ color: NSColor) -> RGB {
         let srgb = color.usingColorSpace(.sRGB)!
         var red: CGFloat = 0

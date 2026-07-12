@@ -1878,26 +1878,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(snapshot.selectedWorkspaceIndex)
     }
 
-    func testSessionSnapshotSkipsCloudVMLoadingWorkspaces() {
-        let manager = TabManager()
-        let localWorkspace = manager.tabs[0]
-        localWorkspace.setCustomTitle("Local")
-        _ = manager.addWorkspace(
-            title: "Cloud VM",
-            initialSurface: .cloudVMLoading,
-            inheritWorkingDirectory: false,
-            select: true,
-            autoWelcomeIfNeeded: false
-        )
-
-        let snapshot = manager.sessionSnapshot(includeScrollback: false)
-
-        XCTAssertEqual(snapshot.workspaces.count, 1)
-        XCTAssertEqual(snapshot.workspaces.first?.customTitle, "Local")
-        XCTAssertEqual(snapshot.workspaces.first?.workspaceId, localWorkspace.id)
-        XCTAssertNil(snapshot.selectedWorkspaceIndex)
-    }
-
     func testSessionSnapshotRestoresManagedWebSocketCloudVMWorkspace() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)

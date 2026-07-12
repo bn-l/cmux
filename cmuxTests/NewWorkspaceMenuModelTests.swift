@@ -35,7 +35,6 @@ struct NewWorkspaceMenuModelTests {
         let model = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: [],
             agentChatAction: nil,
-            cloudSectionEnabled: false,
             templateNames: [],
             loadedActions: [],
             newWorkspaceActionID: nil,
@@ -104,7 +103,6 @@ struct NewWorkspaceMenuModelTests {
         let model = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: store.newWorkspaceContextMenuItems,
             agentChatAction: agent,
-            cloudSectionEnabled: true,
             templateNames: ["Template A"],
             loadedActions: store.loadedActions,
             newWorkspaceActionID: store.newWorkspaceActionID,
@@ -117,14 +115,14 @@ struct NewWorkspaceMenuModelTests {
             sectionOrder: store.newWorkspaceMenuSectionOrder
         )
 
-        // customFirst keeps the whole custom block (create actions + the
-        // Layouts section, both sourced from ui.newWorkspace.contextMenu)
-        // above the built-in Cloud VM section, per docs/configuration.md.
+        // The custom block (create actions + the Layouts section, both sourced
+        // from ui.newWorkspace.contextMenu) leads, followed by templates and the
+        // always-present management tail. The former built-in Cloud VM section
+        // was removed, so both section orders produce this same shape.
         guard case .create(let createRows) = model.sections[0],
               case .layouts(let layoutRows) = model.sections[1],
-              case .cloud = model.sections[2],
-              case .templates(let templates) = model.sections[3],
-              case .management(let management) = model.sections[4] else {
+              case .templates(let templates) = model.sections[2],
+              case .management(let management) = model.sections[3] else {
             Issue.record("Unexpected model sections: \(model.sections)")
             return
         }
@@ -151,23 +149,22 @@ struct NewWorkspaceMenuModelTests {
             Issue.record("Expected hand-edited default command in create rows")
         }
 
-        // The default cloudFirst order keeps the built-in Cloud VM section on
-        // top, followed by the custom block (create actions, then layouts).
+        // The legacy `.cloudFirst` order no longer reorders anything now that the
+        // built-in Cloud VM section is gone: it produces the same custom-block-led
+        // shape as `.customFirst` (create, then layouts, templates, management).
         let cloudFirstModel = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: store.newWorkspaceContextMenuItems,
             agentChatAction: agent,
-            cloudSectionEnabled: true,
             templateNames: ["Template A"],
             loadedActions: store.loadedActions,
             newWorkspaceActionID: store.newWorkspaceActionID,
             deletable: { $0.id == "review-layout" },
             sectionOrder: .cloudFirst
         )
-        guard case .cloud = cloudFirstModel.sections[0],
-              case .create = cloudFirstModel.sections[1],
-              case .layouts = cloudFirstModel.sections[2],
-              case .templates = cloudFirstModel.sections[3],
-              case .management = cloudFirstModel.sections[4] else {
+        guard case .create = cloudFirstModel.sections[0],
+              case .layouts = cloudFirstModel.sections[1],
+              case .templates = cloudFirstModel.sections[2],
+              case .management = cloudFirstModel.sections[3] else {
             Issue.record("Unexpected cloudFirst sections: \(cloudFirstModel.sections)")
             return
         }

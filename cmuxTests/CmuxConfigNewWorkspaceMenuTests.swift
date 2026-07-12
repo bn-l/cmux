@@ -167,10 +167,6 @@ struct CmuxConfigNewWorkspaceMenuTests {
             ))
             #expect(!store.newWorkspaceContextMenuIsConfigured)
             #expect(store.newWorkspaceMenuSectionOrder == .cloudFirst)
-            let cloudOpenTitle = String(localized: "command.cloudVM.open.title", defaultValue: "Open Base")
-            let cloudOpenIndex = try #require(menu.items.firstIndex { item in
-                !item.isSeparatorItem && item.title == cloudOpenTitle
-            })
             let newWorkspaceIndex = try #require(menu.items.firstIndex { item in
                 (item.representedObject as? NewWorkspaceContextMenuActionBox)?.action.id
                     == CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID
@@ -181,7 +177,6 @@ struct CmuxConfigNewWorkspaceMenuTests {
             let agentChatIndex = try #require(menu.items.firstIndex { $0 === agentChatItem })
             let agentChatBox = try #require(agentChatItem.representedObject as? NewWorkspaceContextMenuActionBox)
 
-            #expect(cloudOpenIndex < newWorkspaceIndex)
             #expect(newWorkspaceIndex < agentChatIndex)
             let target = try #require(agentChatItem.target as? AppDelegate)
             #expect(target === appDelegate)
