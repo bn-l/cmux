@@ -162,6 +162,25 @@ final class MainWindowFocusController {
         publishFeedFocusSnapshot()
     }
 
+    @discardableResult
+    func showRightSidebarWithoutTakingFocus(mode: RightSidebarMode) -> Bool {
+        guard let state = fileExplorerState, mode.isAvailable() else { return false }
+
+        _ = restoreFocusedPanelFocusFromRightSidebarIfNeeded(currentResponder: window?.firstResponder)
+        rightSidebarFocusState = .inactive
+        rememberedRightSidebarMode = mode
+        if mode != .feed {
+            feedSelectedItemId = nil
+        }
+        publishFeedFocusSnapshot()
+
+        state.setVisible(true)
+        if state.mode != mode {
+            state.mode = mode
+        }
+        return true
+    }
+
     func noteTerminalInteraction(workspaceId: UUID, panelId: UUID) {
         noteMainPanelInteraction(workspaceId: workspaceId, panelId: panelId)
     }
@@ -465,7 +484,9 @@ final class MainWindowFocusController {
             return focusRightSidebar(mode: .files, focusFirstItem: focusFirstItem)
         }
         let mode = desiredMode
-        let target = rightSidebarFocusTarget(mode: mode, focusFirstItem: focusFirstItem)
+        guard let target = rightSidebarFocusTarget(mode: mode, focusFirstItem: focusFirstItem) else {
+            return showRightSidebarWithoutTakingFocus(mode: mode)
+        }
         return focusRightSidebar(mode: mode, target: target, terminalYieldReason: "rightSidebarFocus")
     }
 
@@ -706,13 +727,15 @@ final class MainWindowFocusController {
     private func rightSidebarFocusTarget(
         mode: RightSidebarMode,
         focusFirstItem: Bool
-    ) -> RightSidebarFocusTarget {
+    ) -> RightSidebarFocusTarget? {
         switch mode {
         case .files:
             return .outline
         case .find:
             return .searchField
-        case .sessions, .customSidebar:
+        case .sessions:
+            return nil
+        case .customSidebar:
             return .host
         case .feed:
             return focusFirstItem ? .firstItem : .host

@@ -6466,9 +6466,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     return .failure(String(localized: "rightSidebar.remote.error.focusFailed", defaultValue: "ERROR: Failed to focus right sidebar"))
                 }
             } else {
-                state.setVisible(true)
-                state.mode = mode
-                context?.keyboardFocusCoordinator.rememberRightSidebarMode(mode)
+                if context?.keyboardFocusCoordinator.showRightSidebarWithoutTakingFocus(mode: mode) != true {
+                    state.setVisible(true)
+                    state.mode = mode
+                }
             }
             return .ok
         case .getState:

@@ -1446,7 +1446,7 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
-    func testPendingSessionsFocusSurvivesStaleFeedResponderDuringModeSwitch() {
+    func testShowingVaultPreservesMainPanelFocusIntent() {
         let fileExplorerState = FileExplorerState()
         let controller = MainWindowFocusController(
             windowId: UUID(),
@@ -1454,22 +1454,20 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             tabManager: TabManager(),
             fileExplorerState: fileExplorerState
         )
-        let staleFeedResponder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        let workspaceId = UUID()
+        let panelId = UUID()
 
-        XCTAssertTrue(controller.selectFeedItem(UUID(), focusFeed: false))
+        controller.noteMainPanelInteraction(workspaceId: workspaceId, panelId: panelId)
         XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
-        XCTAssertEqual(controller.intent, .rightSidebar(mode: .sessions))
+        XCTAssertTrue(fileExplorerState.isVisible)
         XCTAssertEqual(fileExplorerState.mode, .sessions)
-        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
-
-        controller.debugSyncAfterResponderChange(responder: staleFeedResponder)
-
-        XCTAssertEqual(controller.intent, .rightSidebar(mode: .sessions))
-        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
+        XCTAssertEqual(controller.intent, .mainPanel(workspaceId: workspaceId, panelId: panelId))
+        XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
     }
 
     @MainActor
-    func testPendingSessionsFocusCompletesWhenRightSidebarHostRegisters() {
+    func testShowingVaultDoesNotFocusFallbackHost() {
         let fileExplorerState = FileExplorerState()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
@@ -1485,9 +1483,13 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             tabManager: TabManager(),
             fileExplorerState: fileExplorerState
         )
+        let existingResponder = NSButton(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(existingResponder)
+        XCTAssertTrue(window.makeFirstResponder(existingResponder))
 
         XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
-        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
+        XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
+        XCTAssertTrue(window.firstResponder === existingResponder)
 
         let focusHost = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
         defer {
@@ -1500,7 +1502,7 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         controller.registerRightSidebarHost(focusHost)
 
         XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
-        XCTAssertTrue(window.firstResponder === focusHost)
+        XCTAssertTrue(window.firstResponder === existingResponder)
     }
 
     @MainActor
