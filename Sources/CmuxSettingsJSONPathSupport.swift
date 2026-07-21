@@ -174,6 +174,11 @@ enum TerminalSettingsFileMapping {
             invalidPath: "terminal.showScrollBar"
         ),
         .init(
+            jsonKey: "smoothScrolling",
+            defaultsKey: TerminalSmoothScrollingSettings.enabledKey,
+            invalidPath: "terminal.smoothScrolling"
+        ),
+        .init(
             jsonKey: "copyOnSelect",
             defaultsKey: TerminalCopyOnSelectSettings.copyOnSelectKey,
             invalidPath: "terminal.copyOnSelect"
@@ -367,6 +372,7 @@ extension CmuxSettingsFileStore {
         "app.commandPaletteSearchesAllSurfaces",
         "workspaceGroups.newWorkspacePlacement",
         "terminal.showScrollBar",
+        "terminal.smoothScrolling",
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",

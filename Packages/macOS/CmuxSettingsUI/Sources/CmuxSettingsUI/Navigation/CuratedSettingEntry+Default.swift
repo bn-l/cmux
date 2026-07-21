@@ -97,6 +97,14 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .terminal, id: "scrollbar", title: "Show Terminal Scroll Bar", synonyms: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
             .init(
                 section: .terminal,
+                id: "smooth-scrolling",
+                title: String(localized: "settings.terminal.smoothScrolling", defaultValue: "Smooth Terminal Scrolling"),
+                detailText: String(localized: "settings.terminal.smoothScrolling.subtitleOn", defaultValue: "Uses native pixel-precise scrollback for trackpads and Magic Mouse gestures. Mouse-reporting terminal apps keep their own wheel handling."),
+                paths: ["terminal.smoothScrolling"],
+                synonyms: "terminal.smoothScrolling smooth scroll scrolling pixel precise trackpad magic mouse scrollback"
+            ),
+            .init(
+                section: .terminal,
                 id: "scroll-speed",
                 title: String(localized: "settings.terminal.scrollSpeed", defaultValue: "Scroll Speed"),
                 detailText: String(localized: "settings.terminal.scrollSpeed.subtitle", defaultValue: "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher scrolls faster."),

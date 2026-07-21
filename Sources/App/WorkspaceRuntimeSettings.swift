@@ -109,6 +109,20 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum TerminalSmoothScrollingSettings {
+    static let enabledKey = "terminal.smoothScrolling"
+    static let defaultEnabled = true
+    static let didChangeNotification = Notification.Name("cmux.terminalSmoothScrollingSettingsDidChange")
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 enum TerminalTextBoxInputSettings {
     static let showOnNewTerminalsKey = "terminal.showTextBoxOnNewTerminals"
     static let focusOnNewTerminalsKey = "terminal.focusTextBoxOnNewTerminals"

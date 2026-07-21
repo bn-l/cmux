@@ -42,6 +42,42 @@ struct TerminalScrollSpeedSettingsFileStoreTests {
         }
     }
 
+    @Test
+    func settingsFileStoreAppliesTerminalSmoothScrollingSetting() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            TerminalSmoothScrollingSettings.enabledKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: TerminalSmoothScrollingSettings.enabledKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "terminal": {
+                "smoothScrolling": false
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.object(forKey: TerminalSmoothScrollingSettings.enabledKey) as? Bool == false)
+            #expect(!TerminalSmoothScrollingSettings.isEnabled(defaults: defaults))
+        }
+    }
+
     private func loadScrollSpeedSetting(_ value: Double, verify: (UserDefaults) throws -> Void) throws {
         let defaults = UserDefaults.standard
         try preservingDefaults(keys: [

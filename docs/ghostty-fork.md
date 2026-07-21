@@ -12,17 +12,31 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `e215e78bf`. It combines the previous cmux pin
-`dd726a9a6`, current fork `main` (`8495e581a`), and upstream
-`ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
-render-grid preserved-page OOM fix, lock-free selection notifications, and
-compressed-storage-preserving full scrollback reads.
-Published via
-https://github.com/manaflow-ai/ghostty/pull/96 and
-https://github.com/manaflow-ai/ghostty/pull/99 and
-https://github.com/manaflow-ai/ghostty/pull/104 and
-https://github.com/manaflow-ai/ghostty/pull/105 and
-https://github.com/manaflow-ai/ghostty/pull/106.
+### Fractional embedded scrollback
+
+- Adds `ghostty_surface_scroll_to_offset`, an embedder API that accepts an
+  absolute fractional row offset while keeping terminal state row based.
+- Carries the fractional pixel transform through Metal and OpenGL cell,
+  background, and image shaders.
+- Snapshots one real row below the integer viewport while a fractional offset
+  is active, so the newly exposed strip is rendered content rather than
+  padding. The GPU cell buffer keeps visible grid dimensions separate from its
+  one-row overscan allocation.
+- Extends the scrollback compression viewport guard across that overscan row.
+  Direct Ghostty wheel scrolling, selection autoscroll, prompt jumps, binding
+  scrolls, resize/reflow, typing-driven bottom jumps, screen switches, and
+  output-driven bottom following all clear fractional state.
+- Applies the inverse fractional transform in Ghostty's shared surface-to-grid
+  mouse conversion and keeps the IME anchor aligned with shifted cell content.
+- Conflict note: changes near `RenderState.beginUpdate`, renderer uniform
+  layouts, `CompressionIterator`, and embedded surface wheel APIs must be
+  reconciled with upstream renderer/compression changes as one unit.
+
+Current cmux pinned fork head: `3f9183b1e`. It layers the fractional embedded
+scrollback changes above on the previous cmux pin `e215e78bf` and is published
+from the fork branch `cmux-smooth-scroll`.
+Prebuilt archive:
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3f9183b1e967ff485f671a815e6c7d9f9fdfc163-crashsubdir-cmux-crash-v1
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -83,12 +97,9 @@ the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
 build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
 `gsel2`, and live accessibility reads across select-all, endpoint adjustment,
 and clearing.
-Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e215e78bf04df3f7cecbef665eec051a203baf6a-crashsubdir-cmux-crash-v1
-
 ### Previous pin
 
-The previous cmux pin was `1ae98c991`. It was superseded by `e215e78bf` after
+The previous cmux pin was `e215e78bf`. It superseded `1ae98c991` after
 full scrollback formatting was changed to preserve compressed storage and
 selection notifications moved to a lock-free terminal-wide epoch. The initial
 compression merge for this update was `870ed36f9`; it was superseded by
@@ -97,6 +108,14 @@ the selection notification callback fix, then by `1ae98c991` after preserving
 public action tag values. The fork's prior `main` head was
 `cc31d54ee`, which merged upstream through `d560c645`; both histories are
 ancestors of `e215e78bf`.
+Published via
+https://github.com/manaflow-ai/ghostty/pull/96 and
+https://github.com/manaflow-ai/ghostty/pull/99 and
+https://github.com/manaflow-ai/ghostty/pull/104 and
+https://github.com/manaflow-ai/ghostty/pull/105 and
+https://github.com/manaflow-ai/ghostty/pull/106.
+Prebuilt archive:
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e215e78bf04df3f7cecbef665eec051a203baf6a-crashsubdir-cmux-crash-v1
 
 ### Earlier pin
 

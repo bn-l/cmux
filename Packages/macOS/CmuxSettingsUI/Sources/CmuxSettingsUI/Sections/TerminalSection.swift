@@ -3,7 +3,7 @@ import CmuxSettings
 import SwiftUI
 
 /// **Terminal** section — mirrors the legacy in-app section
-/// row-for-row: scroll bar, copy on selection, resume agent sessions,
+/// row-for-row: scrolling, copy on selection, resume agent sessions,
 /// agent hibernation enable + idle seconds + max live terminals, plus
 /// the JSON-backed Resume Commands editor.
 @MainActor
@@ -18,6 +18,7 @@ public struct TerminalSection: View {
     @State private var scrollSpeed: DefaultsValueModel<Double>
     @State private var activeScrollSpeedDragValue: Double?
     @State private var scrollBar: DefaultsValueModel<Bool>
+    @State private var smoothScrolling: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
@@ -41,6 +42,7 @@ public struct TerminalSection: View {
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
         _scrollSpeed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
+        _smoothScrolling = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.smoothScrolling))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
@@ -66,6 +68,7 @@ public struct TerminalSection: View {
         let models: [any SettingObservationStarting] = [
             scrollSpeed,
             scrollBar,
+            smoothScrolling,
             copyOnSelect,
             autoResume,
             hibernation,
@@ -210,10 +213,37 @@ public struct TerminalSection: View {
                     ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces.")
                     : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
             ) {
-                Toggle("", isOn: Binding(get: { scrollBar.current }, set: { scrollBar.set($0) }))
+                Toggle("", isOn: Binding(get: { scrollBar.current }, set: { value in
+                    scrollBar.set(value) {
+                        NotificationCenter.default.post(
+                            name: Notification.Name("cmux.terminalScrollBarSettingsDidChange"),
+                            object: nil
+                        )
+                    }
+                }))
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.smoothScrolling"),
+                String(localized: "settings.terminal.smoothScrolling", defaultValue: "Smooth Terminal Scrolling"),
+                subtitle: smoothScrolling.current
+                    ? String(localized: "settings.terminal.smoothScrolling.subtitleOn", defaultValue: "Uses native pixel-precise scrollback for trackpads and Magic Mouse gestures. Mouse-reporting terminal apps keep their own wheel handling.")
+                    : String(localized: "settings.terminal.smoothScrolling.subtitleOff", defaultValue: "Uses Ghostty's row-based scrollback handling for terminal wheel gestures.")
+            ) {
+                Toggle("", isOn: Binding(get: { smoothScrolling.current }, set: { value in
+                    smoothScrolling.set(value) {
+                        NotificationCenter.default.post(
+                            name: Notification.Name("cmux.terminalSmoothScrollingSettingsDidChange"),
+                            object: nil
+                        )
+                    }
+                }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalSmoothScrollingToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

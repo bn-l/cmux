@@ -15,6 +15,12 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.showScrollBar"
     )
 
+    public let smoothScrolling = DefaultsKey<Bool>(
+        id: "terminal.smoothScrolling",
+        defaultValue: true,
+        userDefaultsKey: "terminal.smoothScrolling"
+    )
+
     public let copyOnSelect = DefaultsKey<Bool>(
         id: "terminal.copyOnSelect",
         defaultValue: false,

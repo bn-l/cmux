@@ -125,6 +125,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.focusTextBoxOnNewTerminals",
         "terminal.scrollSpeed",
         "terminal.showScrollBar",
+        "terminal.smoothScrolling",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.textBoxDefaultSubmitAction",
         "terminal.textBoxMaxLines",

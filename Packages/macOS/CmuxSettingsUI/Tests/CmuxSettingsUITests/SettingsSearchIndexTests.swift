@@ -206,6 +206,14 @@ struct SettingsSearchIndexTests {
         #expect(index.entries.contains { $0.id == anchor })
     }
 
+    @Test func smoothScrollingPathResolvesToItsVisibleRow() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        #expect(
+            index.anchorID(forSettingsPath: "terminal.smoothScrolling") ==
+                "setting:terminal:smooth-scrolling"
+        )
+    }
+
     /// The auto-naming card renders two rows: the toggle and, when
     /// enabled, the Naming Agent picker. Only the toggle's path may anchor
     /// the workspace-auto-naming entry; the picker's `automation.autoNamingAgent`

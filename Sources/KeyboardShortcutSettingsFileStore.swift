@@ -1593,6 +1593,10 @@ final class CmuxSettingsFileStore {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
                 }
 
+                if change.defaultsKey == TerminalSmoothScrollingSettings.enabledKey {
+                    TerminalSmoothScrollingSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
                 if change.defaultsKey == PaneChromeSettings.paneBorderColorKey ||
                     change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey {
                     paneChromeDidChange = true

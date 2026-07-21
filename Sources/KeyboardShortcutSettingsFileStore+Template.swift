@@ -89,6 +89,7 @@ extension CmuxSettingsFileStore {
             [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
+                    "smoothScrolling": TerminalSmoothScrollingSettings.defaultEnabled,
                     "scrollSpeed": TerminalScrollSpeedSettings.defaultMultiplier,
                     "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,

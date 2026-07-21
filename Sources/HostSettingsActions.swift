@@ -88,6 +88,8 @@ final class HostSettingsActions: SettingsHostActions {
     func resetAllSettingsSideEffects() {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
+        TerminalScrollBarSettings.notifyDidChange()
+        TerminalSmoothScrollingSettings.notifyDidChange()
     }
 
     func applyLanguageOverride(_ language: AppLanguage) {
