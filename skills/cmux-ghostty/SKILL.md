@@ -15,7 +15,7 @@ cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -
 
 ## Submodule workflow
 
-Ghostty changes must be committed in the `ghostty` submodule and pushed to the `manaflow-ai/ghostty` fork. Keep `docs/ghostty-fork.md` up to date with any fork changes and conflict notes.
+Ghostty changes must be committed in the `ghostty` submodule and pushed to the `bn-l/ghostty` fork. Keep `manaflow-ai/ghostty` as the upstream remote and keep `docs/ghostty-fork.md` up to date with any fork changes and conflict notes.
 
 ```bash
 cd ghostty

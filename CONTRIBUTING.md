@@ -101,7 +101,7 @@ ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project cmux.xcodeproj -scheme c
 
 ## Ghostty Submodule
 
-The `ghostty` submodule points to [manaflow-ai/ghostty](https://github.com/manaflow-ai/ghostty), a fork of the upstream Ghostty project.
+The `ghostty` submodule points to [bn-l/ghostty](https://github.com/bn-l/ghostty), the personal fork used for cmux-specific Ghostty patches. [manaflow-ai/ghostty](https://github.com/manaflow-ai/ghostty) is retained as its upstream.
 
 ### Making changes to ghostty
 

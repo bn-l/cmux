@@ -1,4 +1,4 @@
-# Ghostty Fork Changes (manaflow-ai/ghostty)
+# Ghostty Fork Changes (bn-l/ghostty)
 
 This repo uses a fork of Ghostty for local patches that aren't upstream yet.
 When we change the fork, update this document and the parent submodule SHA.
@@ -6,7 +6,7 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Fork update checklist
 
 1) Make changes in `ghostty/`.
-2) Commit and push to `manaflow-ai/ghostty`.
+2) Commit and push to `bn-l/ghostty`; keep `manaflow-ai/ghostty` as upstream.
 3) Update this file with the new change summary + conflict notes.
 4) In the parent repo: `git add ghostty` and commit the submodule SHA.
 
@@ -36,7 +36,7 @@ Current cmux pinned fork head: `3f9183b1e`. It layers the fractional embedded
 scrollback changes above on the previous cmux pin `e215e78bf` and is published
 from the fork branch `cmux-smooth-scroll`.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3f9183b1e967ff485f671a815e6c7d9f9fdfc163-crashsubdir-cmux-crash-v1
+https://github.com/bn-l/ghostty/releases/tag/xcframework-3f9183b1e967ff485f671a815e6c7d9f9fdfc163-crashsubdir-cmux-crash-v1
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 

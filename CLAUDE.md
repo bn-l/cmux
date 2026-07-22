@@ -169,7 +169,7 @@ Notify through `cmux notify` so the user can leave and return. At handoff the ma
 
 ## Ghostty submodule workflow
 
-Ghostty changes must be committed in the `ghostty` submodule and pushed to the `manaflow-ai/ghostty` fork.
+Ghostty changes must be committed in the `ghostty` submodule and pushed to the `bn-l/ghostty` fork. Keep `manaflow-ai/ghostty` as the upstream remote; never publish personal cmux changes there.
 Keep `docs/ghostty-fork.md` up to date with any fork changes and conflict notes.
 
 ```bash
