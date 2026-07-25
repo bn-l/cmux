@@ -20,7 +20,14 @@ extension GhosttySurfaceScrollView {
         let rowFromBottom = max(0, position.row + currentTotalRows - capturedTotalRows)
         allowExplicitScrollbarSync = true
         userScrolledAwayFromBottom = rowFromBottom > 0
-        let didRestore = surfaceView.performBindingAction("scroll_to_row:\(rowFromBottom)")
+        // `scroll_to_row` is absolute from the top of scrollback (0 is the oldest row),
+        // while the captured position is measured from the bottom.
+        let rowFromTop = GhosttyTerminalScrollGeometry.topOriginRow(
+            rowFromBottom: rowFromBottom,
+            totalRows: currentTotalRows,
+            viewportRows: Int(clamping: scrollbar.len)
+        )
+        let didRestore = surfaceView.performBindingAction("scroll_to_row:\(rowFromTop)")
         if !didRestore {
             allowExplicitScrollbarSync = false
         }

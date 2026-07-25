@@ -7440,18 +7440,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func scrollWheel(with event: NSEvent) {
-        guard shouldForwardWheelToGhostty(event) else {
-            recordWheelScrollActivity(event)
-            super.scrollWheel(with: event)
+        // The enclosing scroll view owns the native/direct routing decision and latches
+        // it for the duration of a gesture, so resolve the route in exactly one place.
+        guard let scrollView = enclosingScrollView as? GhosttyScrollView else {
+            sendWheelScrollToGhostty(event)
             return
         }
-        sendWheelScrollToGhostty(event)
+        scrollView.routeWheelFromSurface(event)
     }
 
-    fileprivate func shouldForwardWheelToGhostty(_: NSEvent) -> Bool {
+    fileprivate var usesNativeScrolling: Bool {
         let hasScrollback = scrollbar.map { $0.total > $0.len } ?? false
         let mouseCaptured = surface.map { ghostty_surface_mouse_captured($0) } ?? false
-        return !GhosttyTerminalScrollRouting.usesNativeScrolling(
+        return GhosttyTerminalScrollRouting.usesNativeScrolling(
             smoothScrollingEnabled: TerminalSmoothScrollingSettings.isEnabled(),
             hasSurface: surface != nil,
             hasScrollback: hasScrollback,
@@ -7904,7 +7905,31 @@ extension Notification.Name {
 
 // MARK: - Scroll View Wrapper (Ghostty-style scrollbar)
 
-struct GhosttyTerminalScrollRouting {
+enum GhosttyTerminalScrollRouting {
+    /// How a wheel event interacts with the route latched for the current gesture.
+    ///
+    /// The route must not be re-resolved mid-gesture: if a TUI grabs the alt screen or
+    /// scrollback appears while momentum is still running, flipping routes leaves the
+    /// clip view and the terminal viewport disagreeing for the rest of the scroll. The
+    /// latch therefore survives `.ended` — that is the finger lifting, not the end of
+    /// the physical scroll — and is dropped only once momentum finishes.
+    static func wheelLatch(
+        phase: NSEvent.Phase,
+        momentumPhase: NSEvent.Phase,
+        hasLatchedRoute: Bool
+    ) -> (resolvesRoute: Bool, clearsLatchAfterEvent: Bool) {
+        guard phase != [] || momentumPhase != [] else {
+            // Legacy wheels carry no phases, so there is no gesture to latch onto.
+            return (resolvesRoute: true, clearsLatchAfterEvent: true)
+        }
+        return (
+            resolvesRoute: phase == .began || phase == .mayBegin || !hasLatchedRoute,
+            clearsLatchAfterEvent: phase == .cancelled
+                || momentumPhase == .ended
+                || momentumPhase == .cancelled
+        )
+    }
+
     static func usesNativeScrolling(
         smoothScrollingEnabled: Bool,
         hasSurface: Bool,
@@ -7920,7 +7945,7 @@ struct GhosttyTerminalScrollRouting {
     }
 }
 
-struct GhosttyTerminalScrollGeometry {
+enum GhosttyTerminalScrollGeometry {
     static func maximumRowOffset(
         documentHeight: CGFloat,
         viewportHeight: CGFloat,
@@ -7959,10 +7984,116 @@ struct GhosttyTerminalScrollGeometry {
         let clampedOffset = min(max(rowOffset, 0), maximum)
         return max(documentHeight - (clampedOffset * cellHeight) - viewportHeight, 0)
     }
+
+    /// The knob rect to draw for a scroller with a non-standard width.
+    ///
+    /// AppKit keeps its own 11pt knob metric when `scrollerWidth` is overridden and
+    /// right-aligns it in the wider gutter, so only the vertical extent of
+    /// `rect(for: .knob)` is usable. Taking the width from it as well collapses the
+    /// drawn knob to a sliver.
+    static func knobRect(
+        appKitKnobRect: CGRect,
+        scrollerBounds: CGRect,
+        knobWidth: CGFloat,
+        verticalInset: CGFloat
+    ) -> CGRect {
+        let width = min(knobWidth, scrollerBounds.width)
+        return CGRect(
+            x: scrollerBounds.midX - width / 2,
+            y: appKitKnobRect.minY + verticalInset,
+            width: width,
+            height: appKitKnobRect.height - verticalInset * 2
+        )
+    }
+
+    /// Convert a scrollback position measured from the bottom into the absolute
+    /// top-origin row that libghostty's `scroll_to_row` expects. Passing a
+    /// bottom-origin value straight through mirrors the target: a position captured
+    /// at the bottom lands at the top of scrollback and vice versa.
+    static func topOriginRow(rowFromBottom: Int, totalRows: Int, viewportRows: Int) -> Int {
+        let maximumRow = max(0, totalRows - viewportRows)
+        return min(max(maximumRow - rowFromBottom, 0), maximumRow)
+    }
+}
+
+/// Attributes each delivered scrollbar packet to either this view's own last commit
+/// or a viewport move libghostty made by itself, so scrollback eviction, keyboard
+/// scrolling and prompt jumps can be followed without an absolute row offset going
+/// stale underneath the reader.
+///
+/// The renderer samples the viewport row inside the state-mutex critical section of
+/// `drawFrame` but only publishes it to the surface mailbox in a `defer` at the end of
+/// that frame, outside the mutex (`renderer/generic.zig`). A commit can therefore land
+/// between a sample and its publication, and because the renderer re-publishes on every
+/// change, several such samples can be in flight at once. Counting packets is not
+/// enough to identify them.
+///
+/// What does identify them: an in-flight sample can only carry a row the viewport has
+/// actually held recently. A row that has never been committed or reported cannot be a
+/// stale sample, so it is libghostty moving its own viewport — eviction, a keyboard
+/// scroll, a prompt jump — and is attributed immediately rather than being swallowed.
+struct GhosttyTerminalScrollReportTracker {
+    /// Enough history to cover the samples one frame can have in flight, bounded so a
+    /// long scroll cannot retain rows forever and start ignoring genuine returns.
+    private static let observedRowLimit = 16
+
+    /// Where libghostty's viewport is believed to be, in whole rows from the top.
+    private(set) var expectedRowOffset: Double?
+    /// A commit has not yet been separated from older in-flight samples.
+    private(set) var isAwaitingCommitAcknowledgement = false
+    /// Rows the viewport has recently held, newest last.
+    private var observedRows: [Double] = []
+
+    /// Record an offset just written to libghostty. `maximumRowOffset` mirrors the
+    /// clamp libghostty applies (`total - len`) so the expectation cannot drift a row
+    /// when the view's own geometry disagrees by a fraction.
+    mutating func noteCommit(rowOffset: Double, maximumRowOffset: Double?) {
+        let clamped = min(max(rowOffset, 0), maximumRowOffset ?? rowOffset)
+        let row = clamped.rounded(.down)
+        observe(row)
+        expectedRowOffset = row
+        isAwaitingCommitAcknowledgement = true
+    }
+
+    /// Record a delivered packet. Returns the rows libghostty moved its own viewport,
+    /// or `nil` when the packet reports no movement or is a stale in-flight sample.
+    mutating func noteReport(rowOffset: Double) -> Double? {
+        defer { observe(rowOffset) }
+
+        if isAwaitingCommitAcknowledgement {
+            if rowOffset == expectedRowOffset {
+                // The commit came back unchanged: nothing else moved the viewport.
+                isAwaitingCommitAcknowledgement = false
+                return nil
+            }
+            if observedRows.contains(rowOffset) {
+                // A row the viewport recently held, sampled before the commit and
+                // published after it. Leave the expectation on the committed row so
+                // the next genuine move is still measured from there.
+                return nil
+            }
+            // Never held before, so it cannot be an in-flight sample.
+            isAwaitingCommitAcknowledgement = false
+        }
+
+        let previousRowOffset = expectedRowOffset
+        expectedRowOffset = rowOffset
+        guard let previousRowOffset, rowOffset != previousRowOffset else { return nil }
+        return rowOffset - previousRowOffset
+    }
+
+    private mutating func observe(_ row: Double) {
+        observedRows.removeAll { $0 == row }
+        observedRows.append(row)
+        if observedRows.count > Self.observedRowLimit {
+            observedRows.removeFirst(observedRows.count - Self.observedRowLimit)
+        }
+    }
 }
 
 private final class GhosttyTerminalScroller: NSScroller {
     static let gutterWidth: CGFloat = 24
+    static let knobWidth: CGFloat = 9
 
     var presentsKnob = true {
         didSet {
@@ -7984,7 +8115,12 @@ private final class GhosttyTerminalScroller: NSScroller {
 
     override func drawKnob() {
         guard presentsKnob else { return }
-        let knobRect = rect(for: .knob).insetBy(dx: 5, dy: 2)
+        let knobRect = GhosttyTerminalScrollGeometry.knobRect(
+            appKitKnobRect: rect(for: .knob),
+            scrollerBounds: bounds,
+            knobWidth: Self.knobWidth,
+            verticalInset: 2
+        )
         guard knobRect.width > 0, knobRect.height > 0 else { return }
         NSColor.tertiaryLabelColor.withAlphaComponent(isHighlighted ? 0.72 : 0.5).setFill()
         NSBezierPath(
@@ -8002,26 +8138,69 @@ private final class GhosttyTerminalScroller: NSScroller {
 private final class GhosttyScrollView: NSScrollView {
     weak var surfaceView: GhosttyNSView?
 
+    private enum WheelRoute {
+        case native
+        case ghostty
+    }
+
+    /// The route the in-flight phased gesture started with. Re-resolving mid-gesture
+    /// (a TUI grabbing the alt screen, scrollback appearing or vanishing) would leave
+    /// the clip view and the terminal viewport disagreeing for the rest of the momentum.
+    private var latchedWheelRoute: WheelRoute?
+
     // Keep keyboard routing on the terminal surface; this wrapper is viewport plumbing.
     override var acceptsFirstResponder: Bool { false }
 
     override func scrollWheel(with event: NSEvent) {
+        handleWheel(event, focusesSurface: true)
+    }
+
+    /// Route a wheel event that the terminal surface received first. Focus stays where
+    /// it is: scrolling a background pane must not move the first responder.
+    func routeWheelFromSurface(_ event: NSEvent) {
+        handleWheel(event, focusesSurface: false)
+    }
+
+    private func handleWheel(_ event: NSEvent, focusesSurface: Bool) {
         guard let surfaceView else {
             super.scrollWheel(with: event)
             return
         }
 
-        guard surfaceView.shouldForwardWheelToGhostty(event) || !hasValidNativeScrollGeometry else {
+        switch wheelRoute(for: event) {
+        case .native:
             surfaceView.recordWheelScrollActivity(event)
             scrollNatively(with: event)
-            return
+        case .ghostty:
+            GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: surface scroll")
+            if focusesSurface, window?.firstResponder !== surfaceView {
+                window?.makeFirstResponder(surfaceView)
+            }
+            surfaceView.sendWheelScrollToGhostty(event)
         }
+    }
 
-        GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: surface scroll")
-        if window?.firstResponder !== surfaceView {
-            window?.makeFirstResponder(surfaceView)
+    private func wheelRoute(for event: NSEvent) -> WheelRoute {
+        let latch = GhosttyTerminalScrollRouting.wheelLatch(
+            phase: event.phase,
+            momentumPhase: event.momentumPhase,
+            hasLatchedRoute: latchedWheelRoute != nil
+        )
+        if latch.resolvesRoute {
+            latchedWheelRoute = resolvedWheelRoute()
         }
-        surfaceView.sendWheelScrollToGhostty(event)
+        let route = latchedWheelRoute ?? .ghostty
+        if latch.clearsLatchAfterEvent {
+            latchedWheelRoute = nil
+        }
+        return route
+    }
+
+    private func resolvedWheelRoute() -> WheelRoute {
+        guard let surfaceView,
+              surfaceView.usesNativeScrolling,
+              hasValidNativeScrollGeometry else { return .ghostty }
+        return .native
     }
 
     private var hasValidNativeScrollGeometry: Bool {
@@ -8340,10 +8519,20 @@ final class GhosttySurfaceScrollView: NSView {
     private var windowObservers: [NSObjectProtocol] = []
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
-    private var lastSentOffset: Double?
-    private var nativeScrollUpdateScheduled = false
+    /// The last row offset committed to libghostty, used to drop redundant writes.
+    private var lastCommittedRowOffset: Double?
+    private var scrollReportTracker = GhosttyTerminalScrollReportTracker()
+    /// Rows libghostty moved its own viewport since the last reconciliation, awaiting
+    /// application to the clip view. Accumulated so several packets between two
+    /// synchronization passes cannot lose a move.
+    private var pendingGhosttyRowDelta: Double?
+    private var liveScrollUpdateGeneration = 0
+    /// Generation of the coalesced update currently queued, if any. A generation
+    /// rather than a flag so a cancelled update cannot swallow its replacement.
+    private var pendingLiveScrollUpdateGeneration: Int?
     // Programmatic AppKit synchronization must not echo back into libghostty.
-    private var isSynchronizingScrollView = false
+    private var scrollViewSynchronizationDepth = 0
+    private var isSynchronizingScrollView: Bool { scrollViewSynchronizationDepth > 0 }
     /// Tracks whether the user has scrolled away from the bottom to review scrollback.
     /// When true, auto-scroll should be suspended to prevent the "doomscroll" bug
     /// where the terminal fights the user's scroll position.
@@ -8352,6 +8541,11 @@ final class GhosttySurfaceScrollView: NSView {
     var allowExplicitScrollbarSync = false
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
+    /// Distance from the bottom, in rows, within which a commit snaps to the exact
+    /// bottom row so libghostty drops the fractional remainder on the live screen.
+    private static let bottomCommitEpsilonRows: CGFloat = 0.05
+    /// Row-offset change below which a commit to libghostty is redundant.
+    private static let rowOffsetCommitEpsilon: Double = 0.01
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var lastRequestedPortalOcclusionVisible: Bool?
@@ -8809,7 +9003,9 @@ final class GhosttySurfaceScrollView: NSView {
             object: scrollView,
             queue: .main
         ) { [weak self] _ in
-            self?.handleLiveScroll()
+            // Bounds changes already drive this; go through the same coalescing so a
+            // live gesture does not commit twice per step.
+            self?.scheduleLiveScrollUpdate()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -11480,10 +11676,29 @@ final class GhosttySurfaceScrollView: NSView {
         ) else { return }
         let targetOrigin = CGPoint(x: 0, y: originY)
         guard !pointApproximatelyEqual(scrollView.contentView.bounds.origin, targetOrigin) else { return }
-        isSynchronizingScrollView = true
-        defer { isSynchronizingScrollView = false }
-        scrollView.contentView.scroll(to: targetOrigin)
-        scrollView.reflectScrolledClipView(scrollView.contentView)
+        withScrollViewSynchronization {
+            scrollView.contentView.scroll(to: targetOrigin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+    }
+
+    /// Move the clip view to a scrollback anchor without writing back to libghostty:
+    /// the terminal viewport is already there, so a commit would be redundant. The
+    /// commit baseline follows so a later user scroll is not deduplicated against a
+    /// row offset the anchor has since left behind.
+    private func anchorScrollback(to rowOffset: CGFloat) {
+        scroll(toRowOffset: rowOffset)
+        lastCommittedRowOffset = currentRowOffset().map(Double.init)
+    }
+
+    /// Mark every AppKit mutation this view makes on its own scroll view. `NSClipView`
+    /// posts its bounds-change notification synchronously, so without this the
+    /// reconciliation would be read back as a user scroll and echoed to libghostty.
+    /// Depth-counted because `synchronizeScrollView()` nests `scroll(toRowOffset:)`.
+    private func withScrollViewSynchronization(_ body: () -> Void) {
+        scrollViewSynchronizationDepth += 1
+        defer { scrollViewSynchronizationDepth -= 1 }
+        body()
     }
 
     /// Match upstream Ghostty behavior: use content area width (excluding non-content
@@ -11546,18 +11761,48 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func synchronizeScrollView() {
+        withScrollViewSynchronization {
+            synchronizeScrollViewGeometry()
+        }
+    }
+
+    private func synchronizeScrollViewGeometry() {
         var didChangeGeometry = false
         let previousRowOffset = currentRowOffset()
         let previousMaxRowOffset = maxRowOffset()
+        let ghosttyRowDelta = pendingGhosttyRowDelta
+        pendingGhosttyRowDelta = nil
+
         let targetDocumentHeight = documentHeight()
         if abs(documentView.frame.height - targetDocumentHeight) > 0.5 {
             documentView.frame.size.height = targetDocumentHeight
             didChangeGeometry = true
-            if isLiveScrolling,
-               let previousRowOffset,
-               let previousMaxRowOffset,
-               let maximum = maxRowOffset() {
-                scroll(toRowOffset: previousRowOffset + maximum - previousMaxRowOffset)
+        }
+
+        // Hold the row the user is reading. The clip view addresses scrollback by an
+        // absolute offset from the top, which scrollback eviction invalidates, so the
+        // anchor has to be re-derived rather than left where AppKit put it.
+        if userScrolledAwayFromBottom, let previousRowOffset {
+            if let ghosttyRowDelta {
+                // libghostty reported a move it made itself — eviction, a keyboard
+                // scroll, a prompt jump. The delta is exact, so follow it.
+                anchorScrollback(to: previousRowOffset + CGFloat(ghosttyRowDelta))
+            } else if didChangeGeometry,
+                      let previousMaxRowOffset,
+                      let maximum = maxRowOffset(),
+                      maximum < previousMaxRowOffset {
+                // No packet to attribute — a layout or cell-size pass, or a report
+                // whose row collided with one recently held — and scrollback capacity
+                // fell, so rows were pruned above the anchor and it moved up by the
+                // shortfall. Approximate: a prune that arrives with appends in the same
+                // packet understates by the appended count. Prunes reported as an exact
+                // delta above do not come through here.
+                anchorScrollback(to: previousRowOffset + maximum - previousMaxRowOffset)
+            } else if didChangeGeometry {
+                // Rows were appended below the anchor, which leaves its offset from the
+                // top alone. AppKit's default holds a fixed distance from the *bottom*,
+                // which would instead drag the viewport toward the newest output.
+                anchorScrollback(to: previousRowOffset)
             }
         }
 
@@ -11585,7 +11830,7 @@ final class GhosttySurfaceScrollView: NSView {
                 if shouldAutoScroll {
                     scroll(toRowOffset: targetRowOffset)
                 }
-                lastSentOffset = Double(scrollbar.offset)
+                lastCommittedRowOffset = Double(scrollbar.offset)
             }
         }
 
@@ -11598,60 +11843,76 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollChange() {
         synchronizeSurfaceView()
-        if !isSynchronizingScrollView {
-            scheduleLiveScrollUpdate()
-        }
+        guard !isSynchronizingScrollView else { return }
+        // This bounds change came from the user, not from our own reconciliation.
+        // `synchronizeScrollView()` gates auto-follow on `userScrolledAwayFromBottom`
+        // and can run from an in-flight libghostty scrollbar packet before the
+        // coalesced commit below, so update the flag now: deferring it lets a stale
+        // packet re-assert the pre-scroll offset and snap the viewport to the bottom.
+        updateUserScrolledAwayFromBottom()
+        // A native gesture supersedes any direct-wheel packet we were still waiting on.
+        pendingExplicitWheelScroll = false
+        scheduleLiveScrollUpdate()
+    }
+
+    private func updateUserScrolledAwayFromBottom() {
+        let cellHeight = surfaceView.cellSize.height
+        guard cellHeight > 0, let rowOffset = currentRowOffset() else { return }
+        let maximum = maxRowOffset() ?? rowOffset
+        let distanceFromBottom = max(maximum - rowOffset, 0) * cellHeight
+        userScrolledAwayFromBottom = distanceFromBottom > Self.scrollToBottomThreshold
     }
 
     private func scheduleLiveScrollUpdate() {
-        guard !nativeScrollUpdateScheduled else { return }
-        nativeScrollUpdateScheduled = true
+        guard pendingLiveScrollUpdateGeneration == nil else { return }
+        liveScrollUpdateGeneration &+= 1
+        let generation = liveScrollUpdateGeneration
+        pendingLiveScrollUpdateGeneration = generation
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.nativeScrollUpdateScheduled else { return }
-            self.nativeScrollUpdateScheduled = false
+            guard let self, self.pendingLiveScrollUpdateGeneration == generation else { return }
+            self.pendingLiveScrollUpdateGeneration = nil
             self.handleLiveScroll()
         }
     }
 
+    private func cancelPendingLiveScrollUpdate() {
+        pendingLiveScrollUpdateGeneration = nil
+    }
+
     private func handleLiveScroll(force: Bool = false) {
-        let cellHeight = surfaceView.cellSize.height
-        guard cellHeight > 0 else { return }
+        guard surfaceView.cellSize.height > 0 else { return }
         guard let rowOffset = currentRowOffset() else { return }
+        updateUserScrolledAwayFromBottom()
+
+        // `currentRowOffset()` already clamps to the maximum, so the bottom needs no
+        // separate commit path. It does need rounding: the maximum is derived from
+        // `documentVisibleRect` while the document height is derived from
+        // `contentSize`, and a fractional disagreement between the two would leave
+        // libghostty holding a sub-row offset on the live screen.
         let maximum = maxRowOffset() ?? rowOffset
-        let distanceFromBottom = max(maximum - rowOffset, 0)
-        let reachedBottom = distanceFromBottom <= 0.001
+        let offset = maximum - rowOffset <= Self.bottomCommitEpsilonRows
+            ? Double(maximum.rounded())
+            : Double(rowOffset)
 
-        // Track if user has scrolled away from bottom to review scrollback
-        if distanceFromBottom * cellHeight > Self.scrollToBottomThreshold {
-            userScrolledAwayFromBottom = true
-        } else {
-            userScrolledAwayFromBottom = false
-        }
-
-        let offset = Double(rowOffset)
         if !force,
-           let lastSentOffset,
-           abs(lastSentOffset - offset) < 0.01 {
-            let needsBottomCommit = reachedBottom && abs(lastSentOffset - offset) > 0.000001
-            guard needsBottomCommit else { return }
-        }
-
-        if reachedBottom,
-           let lastSentOffset,
-           abs(lastSentOffset - Double(maximum)) > 0.000001 {
-            let bottomOffset = Double(maximum)
-            self.lastSentOffset = bottomOffset
-            surfaceView.scrollToOffset(bottomOffset)
+           let lastCommittedRowOffset,
+           abs(lastCommittedRowOffset - offset) < Self.rowOffsetCommitEpsilon {
             return
         }
-
-        lastSentOffset = offset
+        lastCommittedRowOffset = offset
+        scrollReportTracker.noteCommit(
+            rowOffset: offset,
+            maximumRowOffset: surfaceView.scrollbar.map {
+                Double($0.total > $0.len ? $0.total - $0.len : 0)
+            }
+        )
+        pendingGhosttyRowDelta = nil
         surfaceView.scrollToOffset(offset)
     }
 
     private func handleEndLiveScroll() {
         isLiveScrolling = false
-        nativeScrollUpdateScheduled = false
+        cancelPendingLiveScrollUpdate()
         handleLiveScroll(force: true)
     }
 
@@ -11660,6 +11921,9 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         let wasVisible = (scrollView.verticalScroller as? GhosttyTerminalScroller)?.presentsKnob ?? false
+        if let delta = scrollReportTracker.noteReport(rowOffset: Double(scrollbar.offset)) {
+            pendingGhosttyRowDelta = (pendingGhosttyRowDelta ?? 0) + delta
+        }
         if pendingExplicitWheelScroll {
             userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
             allowExplicitScrollbarSync = true
@@ -11729,7 +11993,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard !TerminalSmoothScrollingSettings.isEnabled() else { return }
 
         isLiveScrolling = false
-        nativeScrollUpdateScheduled = false
+        cancelPendingLiveScrollUpdate()
         let snappedOffset = CGFloat((currentRowOffset() ?? 0).rounded())
         scroll(toRowOffset: snappedOffset)
         handleLiveScroll(force: true)
