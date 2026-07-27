@@ -296,6 +296,11 @@ tend to conflict together during rebases.
 - Summary:
   - Keeps Ghostty's mode 2031 color-scheme response aligned with the surface's actual conditional state after config reloads.
   - Sends the initial DSR 997 report as soon as mode 2031 is enabled, which cmux relies on for immediate color-scheme awareness.
+- Conflict note (high regression risk):
+  - The `termio_config_ptr.conditional_state = self.config_conditional_state;` line in `Surface.updateConfig` sits in a block upstream edits often, and it was silently dropped by an upstream merge (`fec0e6bc0` / `cc6f4c287` / `9fa02f69a`) before being restored.
+  - Without it every surface reports `CSI ?997;2n` (light) forever, because cmux pre-resolves the theme so `changeConditionalState` returns null and the termio config inherits the app-level default of `.light`.
+  - Symptom: TUIs that trust the mode 2031 payload (Helix, opencode) never follow light/dark; ones that re-query OSC 11 on the notification (Neovim) still work, which makes the bug look app-specific.
+  - After any upstream merge, verify with: enable `CSI ?2031h` in a cmux surface, toggle macOS appearance, and confirm a `CSI ?997;1n` arrives in dark.
 
 ### 6) Keyboard copy mode selection C API
 
