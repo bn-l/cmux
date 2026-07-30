@@ -259,4 +259,13 @@ if [[ -f "$MACOS_ARCHIVE" ]]; then
 fi
 
 echo "==> Creating symlink for GhosttyKit.xcframework..."
+# ln -sfn cannot replace a real directory: it would create the symlink INSIDE
+# it, leaving Xcode silently linking the stale directory contents. Fail loudly
+# so the stale copy never produces a wrong build.
+if [[ -e GhosttyKit.xcframework && ! -L GhosttyKit.xcframework ]]; then
+  echo "error: GhosttyKit.xcframework exists but is not a symlink." >&2
+  echo "A stale real directory here silently overrides the cached framework." >&2
+  echo "Remove it (e.g. 'trash GhosttyKit.xcframework') and re-run." >&2
+  exit 1
+fi
 ln -sfn "$CACHE_XCFRAMEWORK" GhosttyKit.xcframework
