@@ -290,6 +290,7 @@ tend to conflict together during rebases.
 - Commits:
   - `2be58ee0e` (Fix DECRPM mode 2031 reporting wrong color scheme)
   - `74709c29b` (Send initial color scheme report when mode 2031 is enabled)
+  - `2c54fb03c` (fix: apply surface conditional state to termio config at surface init)
 - Files:
   - `src/Surface.zig`
   - `src/termio/stream_handler.zig`
@@ -297,10 +298,12 @@ tend to conflict together during rebases.
   - Keeps Ghostty's mode 2031 color-scheme response aligned with the surface's actual conditional state after config reloads.
   - Sends the initial DSR 997 report as soon as mode 2031 is enabled, which cmux relies on for immediate color-scheme awareness.
 - Conflict note (high regression risk):
-  - The `termio_config_ptr.conditional_state = self.config_conditional_state;` line in `Surface.updateConfig` sits in a block upstream edits often, and it was silently dropped by an upstream merge (`fec0e6bc0` / `cc6f4c287` / `9fa02f69a`) before being restored.
-  - Without it every surface reports `CSI ?997;2n` (light) forever, because cmux pre-resolves the theme so `changeConditionalState` returns null and the termio config inherits the app-level default of `.light`.
-  - Symptom: TUIs that trust the mode 2031 payload (Helix, opencode) never follow light/dark; ones that re-query OSC 11 on the notification (Neovim) still work, which makes the bug look app-specific.
-  - After any upstream merge, verify with: enable `CSI ?2031h` in a cmux surface, toggle macOS appearance, and confirm a `CSI ?997;1n` arrives in dark.
+  - The patch is TWO `conditional_state = self.config_conditional_state` overrides on the termio DerivedConfig in `src/Surface.zig`: one in `Surface.init` (steady state) and one in `Surface.updateConfig` (theme changes). Both are required; losing either reintroduces the bug in one of the two scenarios.
+  - The `updateConfig` line sits in a block upstream edits often, and it was silently dropped by an upstream merge (`fec0e6bc0` / `cc6f4c287` / `9fa02f69a`) before being restored.
+  - Without the `init` override, a surface created while the OS is already dark reports light: the surface inherits the correct theme from app state (cmux keeps it current via `ghostty_app_set_color_scheme`), so `colorSchemeCallback` early-returns and `updateConfig` never runs to correct the termio config (shipped broken in cmux 1.44.2, fixed by `2c54fb03c`).
+  - Without the `updateConfig` override, every surface reports `CSI ?997;2n` (light) forever after a theme change, because cmux pre-resolves the theme so `changeConditionalState` returns null and the termio config inherits the app-level default of `.light`.
+  - Symptom: TUIs that trust the mode 2031 payload or query DSR 996 at startup (Helix sends `CSI ?996n` on launch; opencode) never follow light/dark; ones that re-query OSC 11 on the notification (Neovim) still work, which makes the bug look app-specific.
+  - After any upstream merge, verify BOTH scenarios with `CSI ?996n` + `CSI ?2031h` in a cmux surface: (a) fresh surface while the OS is already dark must answer `CSI ?997;1n` immediately, and (b) toggling macOS appearance must deliver matching `997;2`/`997;1` reports.
 
 ### 6) Keyboard copy mode selection C API
 
