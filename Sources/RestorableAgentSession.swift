@@ -1105,14 +1105,16 @@ struct RestorableAgentSessionIndex: Sendable {
     // synchronous callers are cold-cache fallbacks guarded by a nil cache check.
     static func load(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         return load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: [:]
+            detectedSnapshots: [:],
+            environment: environment
         )
     }
 

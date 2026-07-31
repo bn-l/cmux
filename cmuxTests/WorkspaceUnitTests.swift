@@ -6008,6 +6008,13 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let hookStateRoot = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-session-drop-hook-state-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: hookStateRoot, withIntermediateDirectories: true)
+        // The only remaining process-global hook-state export in cmuxTests, and it is
+        // load-bearing: this exercises `Workspace`, which reaches the index through
+        // `SharedLiveAgentIndex.shared` / `RestorableAgentSessionIndex.load()` with no
+        // injection seam (Sources/Workspace.swift:749), so the env var is the only way to
+        // keep the test off the developer's real ~/.cmuxterm. Everywhere a seam exists,
+        // pass `environment:` instead -- exporting this redirects the hook-store lookup of
+        // any test running concurrently.
         let previousHookStateDir = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
         setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateRoot.path, 1)
         defer {

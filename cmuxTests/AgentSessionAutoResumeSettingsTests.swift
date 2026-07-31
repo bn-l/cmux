@@ -738,16 +738,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     ) throws -> RestorableAgentSessionIndex {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-auto-resume-\(UUID().uuidString)", isDirectory: true)
-        let previousHookStateDir = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
-        setenv("CMUX_AGENT_HOOK_STATE_DIR", home.appendingPathComponent("hook-state", isDirectory: true).path, 1)
-        defer {
-            if let previousHookStateDir {
-                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDir, 1)
-            } else {
-                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
-            }
-        }
-        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
+        // No setenv: `CMUX_AGENT_HOOK_STATE_DIR` outranks `homeDirectory:` inside
+        // `hookStoreFileURL`, so exporting it here would redirect the hook-store lookup of
+        // every other test running at the same time. Passing an empty environment binds
+        // both the write and the read below to this fixture's own home.
+        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path, environment: [:])
         try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -774,7 +769,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
         try data.write(to: storeURL, options: .atomic)
-        return RestorableAgentSessionIndex.load(homeDirectory: home.path)
+        return RestorableAgentSessionIndex.load(homeDirectory: home.path, environment: [:])
     }
 }
 

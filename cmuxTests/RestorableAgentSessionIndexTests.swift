@@ -1148,9 +1148,16 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertEqual(Set(commands.compactMap { $0 }).count, 1, "resume command must be stable across reloads")
     }
 
-    // A session whose recorded process is no longer alive (the agent was killed) must NOT restore
-    // from the hook index, even though the record is still on disk.
-    func testKilledSessionWithDeadProcessDoesNotRestore() throws {
+    // A session whose recorded process is no longer alive (the agent was killed) still
+    // restores -- the record and transcript outlive the process, and dropping the entry
+    // cost users their resume/fork after a crash (`Keep forkable sessions with stale
+    // pids`, 9374b139e1, which superseded this test's original "must not restore"
+    // assertion and is regression-covered by RestorableAgentSessionStalePIDTests).
+    //
+    // What must NOT survive is the liveness claim: a dead saved pid may not be reported
+    // as a running process, or every consumer that gates on `hasLiveProcess` (fork
+    // availability, agent status pills, hibernation) treats a corpse as a live agent.
+    func testKilledSessionRestoresWithoutClaimingItsDeadProcessIsLive() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-killed-\(UUID().uuidString)", isDirectory: true)
@@ -1180,9 +1187,24 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             detectedSnapshots: [:],
             processArgumentsProvider: { _ in nil }
         )
-        XCTAssertNil(
-            index.snapshot(workspaceId: ws, panelId: panel, directory: nil),
-            "a killed session whose recorded process is dead must not restore"
+        XCTAssertEqual(
+            index.snapshot(workspaceId: ws, panelId: panel, directory: nil)?.sessionId,
+            sid,
+            "a killed session's record still restores; the process dying does not delete the conversation"
+        )
+        XCTAssertEqual(
+            index.processIDs(workspaceId: ws, panelId: panel, directory: nil),
+            [],
+            "pid 999999 is not running, so it must not be reported as this panel's process"
+        )
+        XCTAssertEqual(
+            index.agentProcessIDs(workspaceId: ws, panelId: panel, directory: nil),
+            [],
+            "a dead pid must not be reported as a live agent process"
+        )
+        XCTAssertFalse(
+            index.hasLiveProcess(workspaceId: ws, panelId: panel, directory: nil),
+            "a killed session must never report a live process"
         )
     }
 
