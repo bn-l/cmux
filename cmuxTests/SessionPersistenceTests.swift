@@ -969,7 +969,13 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNotEqual(firstFingerprint, secondFingerprint)
     }
 
-    func testRestorableAgentIndexSkipsHookRecordWithDeadRecordedPID() throws {
+    // A hook record whose recorded pid is dead is still restorable: the conversation lives
+    // in the agent's own transcript, not in the process, and dropping the record cost users
+    // their resume/fork after a crash (`Keep forkable sessions with stale pids`,
+    // 9374b139e1, which retired this test's original "skips the record" assertion).
+    // The dead pid must not be laundered into a liveness claim, though -- fork availability,
+    // status pills and hibernation all gate on that.
+    func testRestorableAgentIndexKeepsHookRecordWithDeadRecordedPIDButReportsNoLiveProcess() throws {
         let workspaceId = UUID()
         let panelId = UUID()
         let index = try makeRestorableAgentIndex(
@@ -984,7 +990,25 @@ final class SessionPersistenceTests: XCTestCase {
             pid: Int(Int32.max)
         )
 
-        XCTAssertNil(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil))
+        XCTAssertEqual(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil)?.sessionId,
+            "codex-dead-pid-session",
+            "the record outlives the process it was recorded from"
+        )
+        XCTAssertEqual(
+            index.processIDs(workspaceId: workspaceId, panelId: panelId, directory: nil),
+            [],
+            "Int32.max is not a running pid, so it must not be reported as this panel's process"
+        )
+        XCTAssertEqual(
+            index.agentProcessIDs(workspaceId: workspaceId, panelId: panelId, directory: nil),
+            [],
+            "nor as a live agent process"
+        )
+        XCTAssertFalse(
+            index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId, directory: nil),
+            "a dead recorded pid must never make the panel look like it hosts a running agent"
+        )
     }
 
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
@@ -1746,7 +1770,11 @@ final class SessionPersistenceTests: XCTestCase {
     ) throws -> RestorableAgentSessionIndex {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hook-store-\(UUID().uuidString)", isDirectory: true)
-        let storeURL = kind.hookStoreFileURL(homeDirectory: home.path)
+        // `CMUX_AGENT_HOOK_STATE_DIR` outranks `homeDirectory:` inside `hookStoreFileURL`,
+        // so an ambient value would send this fixture's write -- and the matching read
+        // below -- to whatever store another suite exported. An empty environment binds
+        // both ends to this fixture's own home.
+        let storeURL = kind.hookStoreFileURL(homeDirectory: home.path, environment: [:])
         try FileManager.default.createDirectory(
             at: storeURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -1826,7 +1854,7 @@ final class SessionPersistenceTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
         try data.write(to: storeURL, options: .atomic)
 
-        return RestorableAgentSessionIndex.load(homeDirectory: home.path)
+        return RestorableAgentSessionIndex.load(homeDirectory: home.path, environment: [:])
     }
 
     private func makeSnapshot(version: Int) -> AppSessionSnapshot {
@@ -4503,11 +4531,19 @@ extension SessionPersistenceTests {
         )
     }
 
+    // Panel ids outlive workspace ids -- workspace ids are re-minted every launch and a
+    // panel can be dragged between workspaces -- so a binding recorded under some other
+    // workspace id must still reach this panel by panel id alone. It may not reach it
+    // unconditionally: that ungated fallback is what handed one project's resume command
+    // to another project's pane after a restart, so the panel's own directory now has to
+    // vouch for the binding. Both halves are asserted here; the negative half is the
+    // regression, and `CrossProjectAgentSessionIdentityTests` covers the ranking rules.
     @MainActor
     func testSnapshotUsesProcessDetectedSurfaceResumeBindingAfterWorkspaceMove() throws {
         let originalWorkspaceId = UUID()
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.panelDirectories[panelId] = "/tmp/moved"
         let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
             SurfaceResumeBindingIndex.PanelKey(workspaceId: originalWorkspaceId, panelId: panelId): SurfaceResumeBindingSnapshot(
                 name: "tmux",
@@ -4529,6 +4565,38 @@ extension SessionPersistenceTests {
         XCTAssertEqual(
             workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.checkpointId,
             "moved"
+        )
+    }
+
+    @MainActor
+    func testSnapshotRejectsProcessDetectedSurfaceResumeBindingFromAnotherProject() throws {
+        let otherWorkspaceId = UUID()
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.panelDirectories[panelId] = "/tmp/this-project"
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: otherWorkspaceId, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t other-project",
+                cwd: "/tmp/other-project",
+                checkpointId: "other-project",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        XCTAssertNil(
+            snapshot.panels.first?.terminal?.resumeBinding,
+            "a sibling project's binding must not reach this panel just because the panel id matches"
+        )
+        XCTAssertNil(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding,
+            "and it must not have been adopted into the workspace's own binding table either"
         )
     }
 
@@ -5372,13 +5440,14 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
-        XCTAssertTrue(input.contains("config set model.provider"))
-        XCTAssertTrue(input.contains("config set model.base_url"))
-        XCTAssertTrue(input.contains("config set model.api_mode"))
-        XCTAssertTrue(input.contains("codex_responses"))
-        XCTAssertTrue(input.contains("gpt-5.5"))
-        XCTAssertTrue(input.contains("'--provider' '\\''custom'\\'''") || input.contains("'--provider' 'custom'"))
-        XCTAssertFalse(input.contains("openai-codex"))
+        let command = try shellCommand(inStartupInput: input)
+        XCTAssertTrue(command.contains("config set model.provider"), command)
+        XCTAssertTrue(command.contains("config set model.base_url"), command)
+        XCTAssertTrue(command.contains("config set model.api_mode"), command)
+        XCTAssertTrue(command.contains("codex_responses"), command)
+        XCTAssertTrue(command.contains("gpt-5.5"), command)
+        XCTAssertTrue(command.contains("'--provider' 'custom'"), command)
+        XCTAssertFalse(command.contains("openai-codex"), command)
     }
 
     func testHermesAgentHookSurfaceResumeBootstrapUsesCapturedExecutable() throws {
@@ -5399,8 +5468,9 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
-        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.provider"))
-        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.base_url"))
+        let command = try shellCommand(inStartupInput: input)
+        XCTAssertTrue(command.contains("'/opt/homebrew/bin/hermes' config set model.provider"), command)
+        XCTAssertTrue(command.contains("'/opt/homebrew/bin/hermes' config set model.base_url"), command)
     }
 
     func testHermesAgentHookSurfaceResumeBootstrapStaysInsideCwdGuard() throws {
@@ -5421,11 +5491,12 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
-        let cdRange = try XCTUnwrap(input.range(of: "cd --"))
-        let bootstrapRange = try XCTUnwrap(input.range(of: "config set model.provider"))
-        XCTAssertLessThan(cdRange.lowerBound, bootstrapRange.lowerBound)
-        XCTAssertTrue(input.contains("'./hermes' config set model.provider"))
-        XCTAssertTrue(input.contains("'./hermes' '--provider' 'custom' '--resume'"))
+        let command = try shellCommand(inStartupInput: input)
+        let cdRange = try XCTUnwrap(command.range(of: "cd --"), command)
+        let bootstrapRange = try XCTUnwrap(command.range(of: "config set model.provider"), command)
+        XCTAssertLessThan(cdRange.lowerBound, bootstrapRange.lowerBound, command)
+        XCTAssertTrue(command.contains("'./hermes' config set model.provider"), command)
+        XCTAssertTrue(command.contains("'./hermes' '--provider' 'custom' '--resume'"), command)
     }
 
     func testHermesAgentHookSurfaceResumeReplacesExistingBootstrap() throws {
@@ -5490,8 +5561,74 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
-        XCTAssertFalse(input.contains("config set model.provider"))
-        XCTAssertTrue(input.contains("'--provider' '\\''anthropic'\\'''") || input.contains("'--provider' 'anthropic'"))
+        let command = try shellCommand(inStartupInput: input)
+        XCTAssertFalse(command.contains("config set model.provider"), command)
+        XCTAssertTrue(command.contains("'--provider' 'anthropic'"), command)
+    }
+
+    /// The command a resume startup input actually hands to the shell.
+    ///
+    /// `startupInput` wraps a binding that carries environment as
+    /// `'/usr/bin/env' 'K=V'... '/bin/zsh' '-lc' '<command>'`, so every quote inside
+    /// `<command>` arrives escaped as `'\''`. Matching substrings against the wrapped text
+    /// asserts on the escaping rather than on the command, which is how these tests came to
+    /// look for `'./hermes' config set ...` in a string that (correctly) reads
+    /// `'\''./hermes'\'' config set ...`. Unwrapping keeps each assertion pointed at the
+    /// behaviour it names and lets a quoting change fail the quoting tests only.
+    private func shellCommand(inStartupInput input: String) throws -> String {
+        let words = Self.shellWords(in: input)
+        let shellFlagIndex = try XCTUnwrap(
+            words.firstIndex(of: "-lc"),
+            "resume startup input should exec a shell with -lc: \(input)"
+        )
+        let commandIndex = words.index(after: shellFlagIndex)
+        XCTAssertLessThan(commandIndex, words.endIndex, "-lc must be followed by a command: \(input)")
+        return words[commandIndex]
+    }
+
+    /// Splits on whitespace, honouring single quotes and backslash escapes -- enough to
+    /// undo `shellQuote`, which is all these tests wrap with.
+    private static func shellWords(in command: String) -> [String] {
+        var words: [String] = []
+        var current = ""
+        var isInWord = false
+        var index = command.startIndex
+        while index < command.endIndex {
+            let character = command[index]
+            if character.isWhitespace {
+                if isInWord {
+                    words.append(current)
+                    current = ""
+                    isInWord = false
+                }
+                index = command.index(after: index)
+                continue
+            }
+            isInWord = true
+            if character == "'" {
+                index = command.index(after: index)
+                while index < command.endIndex, command[index] != "'" {
+                    current.append(command[index])
+                    index = command.index(after: index)
+                }
+                if index < command.endIndex {
+                    index = command.index(after: index)
+                }
+                continue
+            }
+            if character == "\\", command.index(after: index) < command.endIndex {
+                let next = command.index(after: index)
+                current.append(command[next])
+                index = command.index(after: next)
+                continue
+            }
+            current.append(character)
+            index = command.index(after: index)
+        }
+        if isInWord {
+            words.append(current)
+        }
+        return words
     }
 
     private func makeSurfaceResumeApprovalStoreURL() throws -> URL {
@@ -5595,8 +5732,19 @@ extension SessionPersistenceTests {
             XCTAssertTrue(startupPayload.contains("codex resume session-duplicate-turn -c check_for_update_on_startup=false --yolo"), startupPayload)
             // The guard is the fish-safe, brace-free form (https://github.com/manaflow-ai/cmux/issues/6285):
             // `cd -- '<dir>' 2>/dev/null || [ ! -d '<dir>' ] && <cmd>`.
-            XCTAssertFalse(startupPayload.contains("{ cd -- "), startupPayload)
+            //
+            // Scoped to the guard itself rather than the whole payload: when the resume runs
+            // from a launcher script, that script also ends with a brace-wrapped
+            // `{ cd -- '<dir>' 2>/dev/null || true; }` that returns the outer shell to the
+            // session directory once the agent exits (Sources/SessionPersistence.swift:1300).
+            // That one is inside a `#!/bin/zsh` script, so braces are safe there, and it is
+            // not the construct #6285 is about -- a whole-payload search conflates the two.
             let guardStart = try XCTUnwrap(startupPayload.range(of: "cd -- "), startupPayload)
+            XCTAssertNotEqual(
+                String(startupPayload[..<guardStart.lowerBound].suffix(2)),
+                "{ ",
+                "the resume guard must not be brace-wrapped: \(startupPayload)"
+            )
             let guardSuffix = String(startupPayload[guardStart.lowerBound...])
             let guardEnd = try XCTUnwrap(guardSuffix.range(of: "] &&")?.upperBound, guardSuffix)
             let guardSnippet = String(guardSuffix[..<guardEnd])
