@@ -192,8 +192,18 @@ struct WorkspaceForkConversationContextMenuTests {
                     processSnapshotProvider: { snapshot },
                     capturedAtProvider: { snapshot.sampledAt.timeIntervalSince1970 },
                     processArgumentsProvider: { pid in
+                        // Fork validation re-reads the scope from the process's OWN
+                        // environment, so it has to carry the same ids the snapshot
+                        // reports — in production both come from the same env.
                         pid == processId
-                            ? CmuxTopProcessArguments(arguments: [executable, "--session", sessionId], environment: ["PWD": cwd.path])
+                            ? CmuxTopProcessArguments(
+                                arguments: [executable, "--session", sessionId],
+                                environment: [
+                                    "PWD": cwd.path,
+                                    "CMUX_WORKSPACE_ID": liveWorkspaceId.uuidString,
+                                    "CMUX_SURFACE_ID": livePanelId.uuidString,
+                                ]
+                            )
                             : nil
                     },
                     processIdentityProvider: { $0 == processId ? processIdentity : nil }

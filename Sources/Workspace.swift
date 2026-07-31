@@ -1415,12 +1415,27 @@ extension Workspace {
                 !startupHandlesWorkingDirectory
                 ? (suppressWorkspaceRemoteStartupCommand ? savedWorkingDirectory : workingDirectory)
                 : nil
+            // The `startupHandlesWorkingDirectory` fallback records the directory a
+            // self-cd'ing launcher is about to enter. That only means something for a
+            // LOCAL pane: a remote-workspace terminal execs ssh immediately, so a path
+            // from this Mac names nothing on the other side. Handing one over made a
+            // restored remote pane request e.g. /Users/<me> as its working directory.
             let requestedWorkingDirectory =
-                localWorkingDirectory ?? (startupHandlesWorkingDirectory ? workingDirectory : nil)
-            let restoredAgentWillRunStartupCommand = restorableAgent != nil && (
-                restoredAgentResumeLaunch?.initialCommand != nil ||
+                localWorkingDirectory
+                ?? (startupHandlesWorkingDirectory && !restoresRemoteWorkspaceTerminalSnapshot
+                    ? workingDirectory
+                    : nil)
+            // The agent-hook branch must NOT require a restorable-agent snapshot: a pane
+            // can auto-resume from the resume binding alone (the hook store has the
+            // session, the snapshot has no `agent`). Gating the whole expression on
+            // `restorableAgent != nil` made that branch unreachable, so binding-only
+            // restores never seeded `.autoResumeCommandRunning` and never armed the
+            // #7155 cwd rescue below -- a split off such a pane inherited whatever the
+            // shell reported before the resume command cd'd itself. Note the sibling
+            // `restoredAgentWillRunStartupInput` never had the extra conjunct.
+            let restoredAgentWillRunStartupCommand =
+                (restorableAgent != nil && restoredAgentResumeLaunch?.initialCommand != nil) ||
                 (restoredBindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true)
-            )
             let restoredAgentWillRunStartupInput =
                 restoredAgentResumeLaunch?.initialInput != nil ||
                 (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)

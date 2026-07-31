@@ -187,6 +187,14 @@ final class SharedLiveAgentIndex {
     }
 
     private func reloadIfLiveAgentProcessFingerprintChanged() async -> Bool {
+        // An in-flight background reload sampled the world BEFORE this caller asked, so
+        // adopting its result would answer a question about the past. Callers of this
+        // path awaited it precisely because they need a reading taken now — drain the
+        // background pass first, then take our own. Returning early here left the
+        // caller reading pre-refresh state until the ~5s deferred reload fired.
+        if let inFlight = refreshTask {
+            await inFlight.value
+        }
         guard refreshTask == nil else {
             changePending = true
             return false
