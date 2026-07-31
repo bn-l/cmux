@@ -1011,6 +1011,99 @@ struct CrossProjectAgentSessionIdentityTests {
         )
     }
 
+    // MARK: - Cross-project binding stripping
+
+    // A lone binding pointing at another project used to pass straight through: the
+    // dedupe pass only consults directory affinity to pick between panes claiming the
+    // SAME session id, and there is no competitor here. Restore then read it back
+    // verbatim and the pane ran `cd '<other project>' && claude --resume <their
+    // session>`; because the pane saved the same binding again at quit, the poison
+    // outlived every restart. Caught driving the tagged dev build against a session file
+    // seeded with exactly this shape.
+    @Test func snapshotStripsABindingRootedInAnotherWorkspacesProject() throws {
+        let stripped = TabManager.strippingCrossProjectResumeBindings([
+            Self.workspaceSnapshot(
+                currentDirectory: "/tmp/alpha-project",
+                panels: [
+                    Self.terminalPanelSnapshot(
+                        id: try #require(UUID(uuidString: "77777777-8888-8888-8888-888888888888")),
+                        directory: "/tmp/alpha-project",
+                        binding: Self.binding(
+                            sessionId: "cross-project-session",
+                            cwd: "/tmp/gamma-project",
+                            updatedAt: 2000
+                        )
+                    ),
+                ]
+            ),
+            Self.workspaceSnapshot(currentDirectory: "/tmp/gamma-project", panels: []),
+        ])
+
+        #expect(
+            stripped[0].panels[0].terminal?.resumeBinding == nil,
+            "alpha's pane may not carry gamma's resume command"
+        )
+        #expect(stripped[0].panels[0].terminal?.agent == nil)
+        #expect(stripped[0].panels[0].terminal?.wasAgentRunning == false)
+    }
+
+    // The signal is "this cwd is another workspace in this same file", not "this cwd
+    // differs from the pane's directory". A binding's cwd routinely differs from its
+    // pane's last tracked directory -- a stale report, a scratch dir, an agent launched
+    // from elsewhere -- and `testRestoreRunsSurfaceResumeBindingFromBindingCwd` pins that
+    // such a pane still resumes from the binding's own cwd.
+    @Test func snapshotKeepsABindingWhoseCwdIsNoOtherWorkspacesProject() throws {
+        let stripped = TabManager.strippingCrossProjectResumeBindings([
+            Self.workspaceSnapshot(
+                currentDirectory: "/tmp/alpha-project",
+                panels: [
+                    Self.terminalPanelSnapshot(
+                        id: try #require(UUID(uuidString: "88888888-9999-9999-9999-999999999999")),
+                        directory: "/tmp/alpha-project",
+                        binding: Self.binding(
+                            sessionId: "scratch-session",
+                            cwd: "/tmp/some-scratch-checkout",
+                            updatedAt: 2000
+                        )
+                    ),
+                ]
+            ),
+            Self.workspaceSnapshot(currentDirectory: "/tmp/gamma-project", panels: []),
+        ])
+
+        #expect(
+            stripped[0].panels[0].terminal?.resumeBinding?.checkpointId == "scratch-session",
+            "a cwd that belongs to no other workspace is not evidence of misattribution"
+        )
+    }
+
+    // Containment both ways: an agent working inside a subdirectory of its own project is
+    // the normal case and must survive.
+    @Test func snapshotKeepsABindingRootedInASubdirectoryOfItsOwnProject() throws {
+        let stripped = TabManager.strippingCrossProjectResumeBindings([
+            Self.workspaceSnapshot(
+                currentDirectory: "/tmp/alpha-project",
+                panels: [
+                    Self.terminalPanelSnapshot(
+                        id: try #require(UUID(uuidString: "99999999-AAAA-AAAA-AAAA-AAAAAAAAAAAA")),
+                        directory: "/tmp/alpha-project",
+                        binding: Self.binding(
+                            sessionId: "nested-session",
+                            cwd: "/tmp/alpha-project/packages/core",
+                            updatedAt: 2000
+                        )
+                    ),
+                ]
+            ),
+            Self.workspaceSnapshot(currentDirectory: "/tmp/gamma-project", panels: []),
+        ])
+
+        #expect(
+            stripped[0].panels[0].terminal?.resumeBinding?.checkpointId == "nested-session",
+            "a nested working directory is the same project, not a different one"
+        )
+    }
+
     // MARK: - Fixtures
 
     private static func binding(

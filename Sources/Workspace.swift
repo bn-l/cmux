@@ -1415,16 +1415,15 @@ extension Workspace {
                 !startupHandlesWorkingDirectory
                 ? (suppressWorkspaceRemoteStartupCommand ? savedWorkingDirectory : workingDirectory)
                 : nil
-            // The `startupHandlesWorkingDirectory` fallback records the directory a
-            // self-cd'ing launcher is about to enter. That only means something for a
-            // LOCAL pane: a remote-workspace terminal execs ssh immediately, so a path
-            // from this Mac names nothing on the other side. Handing one over made a
-            // restored remote pane request e.g. /Users/<me> as its working directory.
-            let requestedWorkingDirectory =
-                localWorkingDirectory
-                ?? (startupHandlesWorkingDirectory && !restoresRemoteWorkspaceTerminalSnapshot
-                    ? workingDirectory
-                    : nil)
+            // Nothing beyond `localWorkingDirectory`: it is already nil in exactly the
+            // cases the comment above describes, and `bd0b24b741` (#6409) appended
+            // `?? (startupHandlesWorkingDirectory ? workingDirectory : nil)`, which handed
+            // Ghostty back the very directory the line above had just withheld. That
+            // reached the runtime two ways -- a saved directory that no longer exists
+            // fails the spawn before the guarded command can cd itself, and a remote
+            // workspace got a path from this Mac that names nothing on the far side of
+            // the ssh.
+            let requestedWorkingDirectory = localWorkingDirectory
             // The agent-hook branch must NOT require a restorable-agent snapshot: a pane
             // can auto-resume from the resume binding alone (the hook store has the
             // session, the snapshot has no `agent`). Gating the whole expression on

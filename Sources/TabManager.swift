@@ -5864,9 +5864,11 @@ extension TabManager {
         }()
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
-            workspaces: Self.deduplicatingAgentSessionClaims(
-                workspaceSnapshots,
-                restorableAgentIndex: restorableAgentIndex
+            workspaces: Self.strippingCrossProjectResumeBindings(
+                Self.deduplicatingAgentSessionClaims(
+                    workspaceSnapshots,
+                    restorableAgentIndex: restorableAgentIndex
+                )
             ),
             workspaceGroups: groupSnapshots
         )
@@ -5954,6 +5956,59 @@ extension TabManager {
                 workspaces[loser.workspaceIndex]
                     .panels[loser.panelIndex]
                     .terminal?.wasAgentRunning = false
+            }
+        }
+        return workspaces
+    }
+
+    /// Strips a resume binding whose cwd belongs to a *different workspace in this same
+    /// snapshot*.
+    ///
+    /// `deduplicatingAgentSessionClaims` only uses directory affinity to pick a winner
+    /// among panes claiming one session id, so a lone binding pointing at another project
+    /// passed straight through: restore read it back verbatim, the pane ran
+    /// `cd '<other project>' && claude --resume <their session>`, and because the pane
+    /// then saved the same binding again at quit, the poison outlived every restart
+    /// instead of decaying (the reported 3 duplicated / 8 cross-project going to 5 / 12
+    /// across one restart). Found by driving the tagged dev build against a session file
+    /// seeded with this shape.
+    ///
+    /// The test is deliberately "belongs to another workspace here", not "differs from
+    /// this pane's directory". A binding's cwd routinely differs from its pane's last
+    /// tracked directory for entirely ordinary reasons -- a stale report, a scratch
+    /// directory, an agent launched from elsewhere -- and rejecting on mere difference
+    /// costs those panes their resume. Naming another workspace in the same file is the
+    /// signal that this is misattribution rather than a pane that simply moved.
+    nonisolated static func strippingCrossProjectResumeBindings(
+        _ workspaces: some Sequence<SessionWorkspaceSnapshot>
+    ) -> [SessionWorkspaceSnapshot] {
+        var workspaces = Array(workspaces)
+        let workspaceDirectories = workspaces.map {
+            AgentSessionDirectoryAffinity.standardized($0.currentDirectory)
+        }
+
+        for (workspaceIndex, workspace) in workspaces.enumerated() {
+            guard let ownDirectory = workspaceDirectories[workspaceIndex] else { continue }
+            for (panelIndex, panel) in workspace.panels.enumerated() {
+                guard let binding = panel.terminal?.resumeBinding,
+                      let bindingDirectory = AgentSessionDirectoryAffinity.standardized(binding.cwd),
+                      !AgentSessionDirectoryAffinity.isAffine(bindingDirectory, ownDirectory) else {
+                    continue
+                }
+                let belongsToAnotherWorkspace = workspaceDirectories.enumerated().contains { candidate in
+                    guard candidate.offset != workspaceIndex,
+                          let otherDirectory = candidate.element else { return false }
+                    return AgentSessionDirectoryAffinity.isAffine(bindingDirectory, otherDirectory)
+                }
+                guard belongsToAnotherWorkspace else { continue }
+                cmuxDebugLog(
+                    "session.binding.cross-project-stripped " +
+                    "workspace=\(ownDirectory) binding=\(bindingDirectory) " +
+                    "checkpoint=\(binding.checkpointId ?? "nil")"
+                )
+                workspaces[workspaceIndex].panels[panelIndex].terminal?.resumeBinding = nil
+                workspaces[workspaceIndex].panels[panelIndex].terminal?.agent = nil
+                workspaces[workspaceIndex].panels[panelIndex].terminal?.wasAgentRunning = false
             }
         }
         return workspaces
@@ -6060,8 +6115,13 @@ extension TabManager {
             snapshot.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow),
             selectedWorkspaceIndex: snapshot.selectedWorkspaceIndex
         )
-        let workspaceSnapshots = normalizedWorkspaceSnapshots
-            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        // Also on the way IN, not just on the way out: the save-side pass only ever ran in
+        // a build that already had it, so a file written by an older build still carries
+        // one project's binding on another project's pane. Stripping here means such a
+        // file heals on the first launch instead of replaying the poison once more.
+        let workspaceSnapshots = Self.strippingCrossProjectResumeBindings(
+            normalizedWorkspaceSnapshots.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        )
         var restoredOriginalWorkspaceIds: [UUID?] = []
         // One tracker for the whole pass: a session id duplicated across two WORKSPACES
         // must resume in only one of them, so the claim cannot be per-workspace.
