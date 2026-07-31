@@ -53,7 +53,7 @@ struct RestorableCodexForkTagTests {
 
         let snapshot = try #require(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                .snapshot(workspaceId: workspaceId, panelId: panelId)
+                .snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil)
         )
         let fork = try #require(snapshot.forkCommand)
         #expect(

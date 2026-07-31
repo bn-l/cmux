@@ -26,12 +26,12 @@ struct ForkParentFallbackGeneralizationTests {
         )
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
 
-        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
+        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil))
         #expect(forkSnapshot.kind == .codex)
         #expect(forkSnapshot.sessionId == fixture.parentCodexId)
         #expect(forkSnapshot.forkCommand?.contains(fixture.parentCodexId) == true)
         #expect(forkSnapshot.forkCommand?.contains("'fork'") == true)
-        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId)?.sessionId == fixture.parentCodexId)
+        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId, directory: nil)?.sessionId == fixture.parentCodexId)
     }
 
     @Test func codexPaneHookIdentityWinsWhenProcessIdentityIsUnavailable() throws {
@@ -51,9 +51,9 @@ struct ForkParentFallbackGeneralizationTests {
         )
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected, processIdentityProvider: { _ in nil })
 
-        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
+        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil))
         #expect(forkSnapshot.sessionId == fixture.childCodexId)
-        #expect(index.processIDs(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId) == [fixture.forkProcessID])
+        #expect(index.processIDs(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil) == [fixture.forkProcessID])
     }
 
     @Test func codexFallbackYieldsToOtherKindSamePaneHookEntry() throws {
@@ -72,7 +72,7 @@ struct ForkParentFallbackGeneralizationTests {
         )
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
 
-        let paneSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
+        let paneSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil))
         #expect(paneSnapshot.kind == .opencode)
         #expect(paneSnapshot.sessionId == "oc-session")
     }
@@ -97,8 +97,8 @@ struct ForkParentFallbackGeneralizationTests {
         #expect(entry.sessionIDSource == .forkParentFallback)
 
         let index = loadIndex(fixture: fixture, registry: registry, detectedSnapshots: detected)
-        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId)?.sessionId == fixture.parentPiPath)
-        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId)?.sessionId == fixture.parentPiPath)
+        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId, directory: nil)?.sessionId == fixture.parentPiPath)
+        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil)?.sessionId == fixture.parentPiPath)
     }
 
     @Test func piPaneHookIdentityWinsAfterForkMintsOwnSession() throws {
@@ -120,7 +120,7 @@ struct ForkParentFallbackGeneralizationTests {
         )
         let index = loadIndex(fixture: fixture, registry: registry, detectedSnapshots: detected)
 
-        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId)?.sessionId == fixture.childPiPath)
+        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil)?.sessionId == fixture.childPiPath)
     }
 
     @Test func customRegistryForkTemplateWithConstantFlagDemotesParent() throws {
@@ -207,7 +207,7 @@ struct ForkParentFallbackGeneralizationTests {
         )
         let index = loadIndex(fixture: fixture, registry: registry, detectedSnapshots: detected)
 
-        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId)?.sessionId == fixture.childCodexId)
+        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil)?.sessionId == fixture.childCodexId)
     }
 
     @Test func openCodeForkFallbackSolePaneAndAmbiguousBehaviorRemainLocked() {

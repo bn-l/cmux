@@ -1232,7 +1232,7 @@ struct AgentSessionAutoResumeSwiftTests {
 
         let snapshot = try #require(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fileManager)
-                .snapshot(workspaceId: workspaceId, panelId: panelId)
+                .snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil)
         )
         #expect(snapshot.sessionId == sessionId)
         #expect(snapshot.workingDirectory == launchCwd.path)
@@ -1280,7 +1280,7 @@ struct AgentSessionAutoResumeSwiftTests {
 
         let snapshot = try #require(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fileManager)
-                .snapshot(workspaceId: workspaceId, panelId: panelId)
+                .snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil)
         )
         #expect(snapshot.workingDirectory == transcriptCwd.path)
         #expect(snapshot.resumeCommand?.contains("cd -- '\(transcriptCwd.path)'") == true)

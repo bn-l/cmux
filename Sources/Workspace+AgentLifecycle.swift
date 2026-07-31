@@ -14,7 +14,8 @@ extension Workspace {
             panelId: panelId,
             observation: SharedLiveAgentIndex.shared.index?.entry(
                 workspaceId: id,
-                panelId: panelId
+                panelId: panelId,
+                directory: agentSessionAffinityDirectory(panelId: panelId)
             ),
             currentProcessIdentity: Self.agentPIDProcessIdentity(pid:)
         )
@@ -42,7 +43,8 @@ extension Workspace {
             panelId: panelId,
             observation: SharedLiveAgentIndex.shared.index?.entry(
                 workspaceId: id,
-                panelId: panelId
+                panelId: panelId,
+                directory: agentSessionAffinityDirectory(panelId: panelId)
             ),
             runtimeProcessIdentities: runtimeProcessIdentities
         )

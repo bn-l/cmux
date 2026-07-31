@@ -919,6 +919,39 @@ private enum AgentResumeScriptStore {
     }
 }
 
+/// Whether a stored agent session may be attributed to a panel, judged on directories.
+///
+/// Workspace ids are minted fresh on every launch while panel ids persist, so after a
+/// restart every `(workspaceId, panelId)` lookup misses and degrades to a panel-id-only
+/// one. That fallback merges records saved under a DIFFERENT workspace — i.e. a different
+/// project — onto whichever panel asks, which is how a pane ended up auto-resuming
+/// another repo's claude session. The panel's own directory is the one piece of identity
+/// that does survive the restart, so it is the guard: a candidate is accepted only when
+/// its recorded cwd is the panel's directory or one contains the other (worktrees,
+/// subdirectories, a repo root vs. a package inside it).
+nonisolated enum AgentSessionDirectoryAffinity {
+    /// Fails closed: an unknown directory on either side is NOT affine. The cost of a
+    /// false negative is "no auto-resume / no restored badge"; the cost of a false
+    /// positive is one project's agent taking over another project's pane.
+    static func isAffine(_ lhs: String?, _ rhs: String?) -> Bool {
+        guard let lhs = standardized(lhs), let rhs = standardized(rhs) else { return false }
+        if lhs == rhs { return true }
+        return lhs.hasPrefix(rhs + "/") || rhs.hasPrefix(lhs + "/")
+    }
+
+    static func standardized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        var path = ((trimmed as NSString).expandingTildeInPath as NSString).standardizingPath
+        while path.count > 1, path.hasSuffix("/") {
+            path.removeLast()
+        }
+        return path.isEmpty ? nil : path
+    }
+}
+
 struct RestorableAgentSessionIndex: Sendable {
     static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
 
@@ -934,6 +967,31 @@ struct RestorableAgentSessionIndex: Sendable {
         let processIDs: Set<Int>
         let agentProcessIDs: Set<Int>
         let agentProcessIdentities: [Int: AgentPIDProcessIdentity]
+        /// True when this panel key was read off a *running* process's own
+        /// `CMUX_WORKSPACE_ID`/`CMUX_SURFACE_ID` environment (`VaultAgentProcessScanner`)
+        /// instead of a hook record's routing. The process names the pane it is in right
+        /// now, so the panel-id fallback can accept it across a workspace id change
+        /// without a directory check — unlike a hook record, it cannot be pointing at
+        /// another project's pane.
+        let keyedByLiveProcessEnvironment: Bool
+
+        init(
+            snapshot: SessionRestorableAgentSnapshot,
+            lifecycle: AgentHibernationLifecycleState?,
+            updatedAt: TimeInterval,
+            processIDs: Set<Int>,
+            agentProcessIDs: Set<Int>,
+            agentProcessIdentities: [Int: AgentPIDProcessIdentity],
+            keyedByLiveProcessEnvironment: Bool = false
+        ) {
+            self.snapshot = snapshot
+            self.lifecycle = lifecycle
+            self.updatedAt = updatedAt
+            self.processIDs = processIDs
+            self.agentProcessIDs = agentProcessIDs
+            self.agentProcessIdentities = agentProcessIdentities
+            self.keyedByLiveProcessEnvironment = keyedByLiveProcessEnvironment
+        }
     }
 
     enum ProcessDetectedSessionIDSource: Equatable, Sendable {
@@ -961,40 +1019,65 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private let entriesByPanel: [PanelKey: Entry]
-    private let entriesByPanelId: [UUID: Entry]
+    /// Every workspace's entry for a panel id, best candidate first. A list rather than
+    /// one collapsed winner because the cross-restart fallback must be able to skip a
+    /// candidate the directory guard rejects and still find this panel's real record.
+    private let entriesByPanelId: [UUID: [Entry]]
 
-    func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
-        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
+    /// The entry recorded for this exact `(workspaceId, panelId)`, or — when the candidate
+    /// is provably this panel's — the entry another workspace recorded for the same panel id.
+    ///
+    /// The panel-id-only path exists because a restart mints new workspace ids while
+    /// panel ids persist, so a restored pane's own record can only be found by panel id.
+    /// Ungated it also finds every OTHER project's record for that panel id, which is how
+    /// panes came back auto-resuming a sibling repo's session. Two proofs are accepted:
+    /// a live process that names this panel in its own environment, or a recorded cwd in
+    /// the same project tree as `directory` (the panel's current/restored directory; pass
+    /// `nil` only where the caller genuinely has none, and accept that a dead record's
+    /// cross-workspace fallback is then refused).
+    func entry(workspaceId: UUID, panelId: UUID, directory: String?) -> Entry? {
+        if let exact = entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] {
+            return exact
+        }
+        return entriesByPanelId[panelId]?.first {
+            Self.panelIdFallbackAccepts($0, directory: directory)
+        }
     }
 
-    func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        entry(workspaceId: workspaceId, panelId: panelId)?.snapshot
+    /// Whether a candidate filed under another workspace may serve this panel.
+    static func panelIdFallbackAccepts(_ entry: Entry, directory: String?) -> Bool {
+        if entry.keyedByLiveProcessEnvironment, !entry.processIDs.isEmpty { return true }
+        return AgentSessionDirectoryAffinity.isAffine(entry.snapshot.workingDirectory, directory)
     }
 
-    func lifecycle(workspaceId: UUID, panelId: UUID) -> AgentHibernationLifecycleState? {
-        entry(workspaceId: workspaceId, panelId: panelId)?.lifecycle
+    func snapshot(workspaceId: UUID, panelId: UUID, directory: String?) -> SessionRestorableAgentSnapshot? {
+        entry(workspaceId: workspaceId, panelId: panelId, directory: directory)?.snapshot
     }
 
-    func updatedAt(workspaceId: UUID, panelId: UUID) -> TimeInterval? {
-        entry(workspaceId: workspaceId, panelId: panelId)?.updatedAt
+    func lifecycle(workspaceId: UUID, panelId: UUID, directory: String?) -> AgentHibernationLifecycleState? {
+        entry(workspaceId: workspaceId, panelId: panelId, directory: directory)?.lifecycle
     }
 
-    func processIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
-        entry(workspaceId: workspaceId, panelId: panelId)?.processIDs ?? []
+    func updatedAt(workspaceId: UUID, panelId: UUID, directory: String?) -> TimeInterval? {
+        entry(workspaceId: workspaceId, panelId: panelId, directory: directory)?.updatedAt
     }
 
-    func agentProcessIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
-        entry(workspaceId: workspaceId, panelId: panelId)?.agentProcessIDs ?? []
+    func processIDs(workspaceId: UUID, panelId: UUID, directory: String?) -> Set<Int> {
+        entry(workspaceId: workspaceId, panelId: panelId, directory: directory)?.processIDs ?? []
     }
 
-    func agentProcessIdentities(workspaceId: UUID, panelId: UUID) -> [Int: AgentPIDProcessIdentity] {
-        entry(workspaceId: workspaceId, panelId: panelId)?.agentProcessIdentities ?? [:]
+    func agentProcessIDs(workspaceId: UUID, panelId: UUID, directory: String?) -> Set<Int> {
+        entry(workspaceId: workspaceId, panelId: panelId, directory: directory)?.agentProcessIDs ?? []
+    }
+
+    func agentProcessIdentities(workspaceId: UUID, panelId: UUID, directory: String?) -> [Int: AgentPIDProcessIdentity] {
+        entry(workspaceId: workspaceId, panelId: panelId, directory: directory)?.agentProcessIdentities ?? [:]
     }
 
     func forkValidationEntries() -> [(PanelKey, Entry)] { Array(entriesByPanel) }
 
-    func hasLiveProcess(workspaceId: UUID, panelId: UUID) -> Bool {
-        !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
+    func hasLiveProcess(workspaceId: UUID, panelId: UUID, directory: String?) -> Bool {
+        !processIDs(workspaceId: workspaceId, panelId: panelId, directory: directory).isEmpty
     }
 
     func liveAgentProcessFingerprint() -> Set<String> {
@@ -1073,7 +1156,11 @@ struct RestorableAgentSessionIndex: Sendable {
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
-        }
+        },
+        // `CMUX_AGENT_HOOK_STATE_DIR` outranks `homeDirectory`, so a test that exports it
+        // redirects every concurrently running test's store lookup. Pass `[:]` to bind the
+        // lookup to `homeDirectory` alone.
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
         var resolved: [PanelKey: Entry] = [:]
@@ -1094,7 +1181,7 @@ struct RestorableAgentSessionIndex: Sendable {
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
 
         for (kind, registration) in hookKinds {
-            let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
+            let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory, environment: environment)
             guard fileManager.fileExists(atPath: fileURL.path),
                   let data = try? Data(contentsOf: fileURL),
                   let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
@@ -1192,7 +1279,8 @@ struct RestorableAgentSessionIndex: Sendable {
                 agentProcessIdentities: agentProcessIdentities(
                     for: detected.agentProcessIDs,
                     processIdentityProvider: processIdentityProvider
-                )
+                ),
+                keyedByLiveProcessEnvironment: true
             )
         }
 
@@ -1411,6 +1499,12 @@ struct RestorableAgentSessionIndex: Sendable {
             projectDirs.append(standardized)
         }
 
+        // ONLY the project directories that encode this record's own cwd. The search used
+        // to also walk every directory under `projects/`, so a record whose transcript had
+        // been deleted could adopt an unrelated project's session id and transcript path —
+        // silently rewriting which conversation the pane resumes, across projects. A
+        // record with no usable cwd has nothing to scope the search to and is left alone
+        // (it stays non-restorable) rather than adopting a stranger's session.
         let cwdCandidates = [
             normalizedWorkingDirectory(record.launchCommand?.workingDirectory),
             normalizedWorkingDirectory(record.cwd),
@@ -1420,11 +1514,6 @@ struct RestorableAgentSessionIndex: Sendable {
             for cwd in cwdCandidates {
                 appendIfWorkflowContainer(
                     projectRoot: (projectsRoot as NSString).appendingPathComponent(encodeClaudeProjectDir(cwd))
-                )
-            }
-            for projectDir in lookup.projectDirs(configRoot: root) {
-                appendIfWorkflowContainer(
-                    projectRoot: (projectsRoot as NSString).appendingPathComponent(projectDir)
                 )
             }
         }
@@ -1502,21 +1591,29 @@ struct RestorableAgentSessionIndex: Sendable {
         let roots = lookup.configRoots(for: record)
         guard !roots.isEmpty else { return false }
 
-        let cwd = normalizedWorkingDirectory(record.cwd)
-            ?? normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
+        // Claude stores a session under the project directory encoding the cwd it was
+        // launched in, so a record's own cwd candidates are where its transcript must be.
+        // The any-project sweep below runs ONLY when the record carries no cwd at all:
+        // with one, a hit in a different project's directory means some other project's
+        // session happens to share this id, and treating that as "restorable" is what let
+        // one workspace's pane resume a sibling project's conversation.
+        let cwdCandidates = [
+            normalizedWorkingDirectory(record.cwd),
+            normalizedWorkingDirectory(record.launchCommand?.workingDirectory),
+        ].compactMap { $0 }
         for root in roots {
-            if let cwd,
-               lookup.transcriptPath(
-                   configRoot: root,
-                   projectDirName: encodeClaudeProjectDir(cwd),
-                   sessionId: sessionId
-               ) != nil {
-                return true
-            }
-            if lookup.transcriptPathInAnyProject(
+            for cwd in cwdCandidates where lookup.transcriptPath(
                 configRoot: root,
+                projectDirName: encodeClaudeProjectDir(cwd),
                 sessionId: sessionId
             ) != nil {
+                return true
+            }
+            if cwdCandidates.isEmpty,
+               lookup.transcriptPathInAnyProject(
+                   configRoot: root,
+                   sessionId: sessionId
+               ) != nil {
                 return true
             }
         }
@@ -2181,14 +2278,36 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private init(entriesByPanel: [PanelKey: Entry]) {
         self.entriesByPanel = entriesByPanel
-        var entriesByPanelId: [UUID: Entry] = [:]
+        // Order the per-workspace entries for one panel id, best first, for the
+        // cross-restart fallback. A live process beats a newer timestamp: `updatedAt`
+        // alone happily crowns a long-dead record from another project that happened to
+        // be touched last. Dictionary iteration order is nondeterministic, so equal
+        // candidates are ordered by workspace id — otherwise the same snapshot resolves
+        // differently between launches.
+        var entriesByPanelId: [UUID: [(key: PanelKey, entry: Entry)]] = [:]
         for (key, entry) in entriesByPanel {
-            let existing = entriesByPanelId[key.panelId]
-            if existing == nil || entry.updatedAt >= (existing?.updatedAt ?? 0) {
-                entriesByPanelId[key.panelId] = entry
-            }
+            entriesByPanelId[key.panelId, default: []].append((key, entry))
         }
-        self.entriesByPanelId = entriesByPanelId
+        self.entriesByPanelId = entriesByPanelId.mapValues { candidates in
+            candidates
+                .sorted { Self.panelIdFallbackOutranks($0, $1) }
+                .map(\.entry)
+        }
+    }
+
+    private static func panelIdFallbackOutranks(
+        _ lhs: (key: PanelKey, entry: Entry),
+        _ rhs: (key: PanelKey, entry: Entry)
+    ) -> Bool {
+        let lhsIsLive = !lhs.entry.processIDs.isEmpty
+        let rhsIsLive = !rhs.entry.processIDs.isEmpty
+        if lhsIsLive != rhsIsLive {
+            return lhsIsLive
+        }
+        if lhs.entry.updatedAt != rhs.entry.updatedAt {
+            return lhs.entry.updatedAt > rhs.entry.updatedAt
+        }
+        return lhs.key.workspaceId.uuidString < rhs.key.workspaceId.uuidString
     }
 }
 

@@ -16,17 +16,6 @@ struct RestorableAgentSessionStalePIDTests {
         defer { try? fm.removeItem(at: root) }
         let dir = root.appendingPathComponent("repo", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        let previousHookStateDir = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
-        let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
-        setenv("CMUX_AGENT_HOOK_STATE_DIR", stateDir.path, 1)
-        defer {
-            if let previousHookStateDir {
-                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDir, 1)
-            } else {
-                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
-            }
-        }
-
         let ws = UUID()
         let panel = UUID()
         let sid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -51,16 +40,17 @@ struct RestorableAgentSessionStalePIDTests {
             fileManager: fm,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
-            processArgumentsProvider: { _ in nil }
+            processArgumentsProvider: { _ in nil },
+            environment: [:]
         )
         let snapshot = try #require(
-            index.snapshot(workspaceId: ws, panelId: panel),
+            index.snapshot(workspaceId: ws, panelId: panel, directory: nil),
             "A dead saved PID must not erase the restorable/forkable session snapshot."
         )
 
         #expect(snapshot.sessionId == sid)
-        #expect(index.processIDs(workspaceId: ws, panelId: panel) == [])
-        #expect(!index.hasLiveProcess(workspaceId: ws, panelId: panel))
+        #expect(index.processIDs(workspaceId: ws, panelId: panel, directory: nil) == [])
+        #expect(!index.hasLiveProcess(workspaceId: ws, panelId: panel, directory: nil))
         let fork = try #require(snapshot.forkCommand)
         #expect(fork.contains("'fork' '\(sid)'"), "codex fork command expected; got: \(fork)")
     }
@@ -72,17 +62,6 @@ struct RestorableAgentSessionStalePIDTests {
         defer { try? fm.removeItem(at: root) }
         let dir = root.appendingPathComponent("repo", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        let previousHookStateDir = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
-        let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
-        setenv("CMUX_AGENT_HOOK_STATE_DIR", stateDir.path, 1)
-        defer {
-            if let previousHookStateDir {
-                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDir, 1)
-            } else {
-                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
-            }
-        }
-
         let ws = UUID()
         let panel = UUID()
         let livePID = 12_345
@@ -131,16 +110,17 @@ struct RestorableAgentSessionStalePIDTests {
                         "CMUX_SURFACE_ID": panel.uuidString,
                     ]
                 )
-            }
+            },
+            environment: [:]
         )
         let snapshot = try #require(
-            index.snapshot(workspaceId: ws, panelId: panel),
+            index.snapshot(workspaceId: ws, panelId: panel, directory: nil),
             "A newer dead hook record must not overwrite scoped live process evidence."
         )
 
         #expect(snapshot.sessionId == liveSID)
-        #expect(index.processIDs(workspaceId: ws, panelId: panel) == [livePID])
-        #expect(index.hasLiveProcess(workspaceId: ws, panelId: panel))
+        #expect(index.processIDs(workspaceId: ws, panelId: panel, directory: nil) == [livePID])
+        #expect(index.hasLiveProcess(workspaceId: ws, panelId: panel, directory: nil))
     }
 
     private func driftedAgentHookRecord(

@@ -20,7 +20,7 @@ struct ForkParentFallbackSessionIndexTests {
         )
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
 
-        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
+        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil))
         #expect(forkSnapshot.kind == .claude)
         #expect(forkSnapshot.sessionId == fixture.parentSessionId)
         #expect(forkSnapshot.workingDirectory == fixture.cwd.path)
@@ -29,7 +29,7 @@ struct ForkParentFallbackSessionIndexTests {
         #expect(forkCommand.contains(fixture.parentSessionId), "\(forkCommand)")
         #expect(forkCommand.contains("--fork-session"), "\(forkCommand)")
 
-        let parentSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId))
+        let parentSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId, directory: nil))
         #expect(parentSnapshot.sessionId == fixture.parentSessionId)
     }
 
@@ -43,10 +43,10 @@ struct ForkParentFallbackSessionIndexTests {
         )
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
 
-        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
+        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil))
         let forkedSessionId = try #require(fixture.forkedSessionId)
         #expect(forkSnapshot.sessionId == forkedSessionId)
-        #expect(index.processIDs(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId) == [fixture.forkProcessID])
+        #expect(index.processIDs(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil) == [fixture.forkProcessID])
     }
 
     @Test func forkParentFallbackIgnoresNonClaudeProcessWithInheritedLaunchEnvironment() throws {
@@ -137,7 +137,7 @@ struct ForkParentFallbackSessionIndexTests {
             }
         )
 
-        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
+        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil))
         #expect(forkSnapshot.sessionId == fixture.parentSessionId)
     }
 
@@ -176,7 +176,7 @@ struct ForkParentFallbackSessionIndexTests {
         )
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
 
-        let paneSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
+        let paneSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil))
         #expect(paneSnapshot.kind == .opencode)
         #expect(paneSnapshot.sessionId == "oc-session-1")
     }
@@ -202,7 +202,7 @@ struct ForkParentFallbackSessionIndexTests {
             }
         )
 
-        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
+        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil))
         let forkedSessionId = try #require(fixture.forkedSessionId)
         #expect(forkSnapshot.sessionId == forkedSessionId)
     }
@@ -238,11 +238,11 @@ struct ForkParentFallbackSessionIndexTests {
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
 
         #expect(
-            index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId)?.sessionId
+            index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId, directory: nil)?.sessionId
                 == fixture.parentSessionId
         )
         #expect(
-            index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId)?.sessionId
+            index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId, directory: nil)?.sessionId
                 == fixture.parentSessionId
         )
     }

@@ -39,7 +39,12 @@ extension AppDelegate {
                         continue
                     }
                     let key = AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panelId)
-                    let indexActivity = index.updatedAt(workspaceId: workspace.id, panelId: panelId) ?? 0
+                    let affinityDirectory = workspace.agentSessionAffinityDirectory(panelId: panelId)
+                    let indexActivity = index.updatedAt(
+                        workspaceId: workspace.id,
+                        panelId: panelId,
+                        directory: affinityDirectory
+                    ) ?? 0
                     let localActivity = activityByPanel[key] ?? 0
                     let terminalInputAt = terminalInputByPanel[key] ?? 0
                     let lifecycleChangeAt = lifecycleChangeByPanel[key] ?? 0
@@ -47,7 +52,11 @@ extension AppDelegate {
                         ?? terminalPanel.surface.debugCreatedAt().timeIntervalSince1970
                     let lifecycle = workspace.agentHibernationLifecycleState(
                         panelId: panelId,
-                        fallback: index.lifecycle(workspaceId: workspace.id, panelId: panelId)
+                        fallback: index.lifecycle(
+                            workspaceId: workspace.id,
+                            panelId: panelId,
+                            directory: affinityDirectory
+                        )
                     )
                     records.append(
                         AgentHibernationRecord(
@@ -59,8 +68,16 @@ extension AppDelegate {
                             hasUnconfirmedTerminalInput: terminalInputAt > lifecycleChangeAt,
                             lastActivityAt: max(indexActivity, localActivity, createdAt),
                             isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId),
-                            hasLiveProcess: index.hasLiveProcess(workspaceId: workspace.id, panelId: panelId),
-                            processIDs: index.processIDs(workspaceId: workspace.id, panelId: panelId)
+                            hasLiveProcess: index.hasLiveProcess(
+                                workspaceId: workspace.id,
+                                panelId: panelId,
+                                directory: affinityDirectory
+                            ),
+                            processIDs: index.processIDs(
+                                workspaceId: workspace.id,
+                                panelId: panelId,
+                                directory: affinityDirectory
+                            )
                         )
                     )
                 }

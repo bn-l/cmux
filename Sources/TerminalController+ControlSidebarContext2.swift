@@ -291,7 +291,7 @@ extension TerminalController {
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
-            tab.surfaceTTYNames[scope.panelID] = ttyName
+            tab.recordVerifiedSurfaceTTY(panelId: scope.panelID, ttyName: ttyName)
             if tab.isRemoteWorkspace {
                 tab.syncRemotePortScanTTYs()
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: scope.panelID)
@@ -308,7 +308,7 @@ extension TerminalController {
             prune: false,
             requireLiveSurface: true
         ) { tab, surfaceId in
-            tab.surfaceTTYNames[surfaceId] = ttyName
+            tab.recordVerifiedSurfaceTTY(panelId: surfaceId, ttyName: ttyName)
             if tab.isRemoteWorkspace {
                 tab.syncRemotePortScanTTYs()
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)

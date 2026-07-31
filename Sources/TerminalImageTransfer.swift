@@ -507,7 +507,9 @@ extension TerminalSurface {
         if let target = AppDelegate.shared?.remoteTmuxController.remoteUploadTarget(forSurfaceId: id) {
             return .remote(target)
         }
-        if let ttyName = workspace.surfaceTTYNames[id],
+        // Verified-only: a snapshot-restored (recycled) tty name would detect a SIBLING
+        // pane's ssh session and upload the image to the wrong host.
+        if let ttyName = workspace.verifiedSurfaceTTYName(panelId: id),
            let session = TerminalSSHSessionDetector.detect(forTTY: ttyName) {
             return .remote(.detectedSSH(session))
         }

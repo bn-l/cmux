@@ -9,8 +9,9 @@ extension CMUXCLI {
         workspaceArg: String?,
         surfaceArg: String?,
         hookSurfaceFlagIsExplicit: Bool,
-        preferCallerTTYRouting: Bool,
-        callerTTYBindingProvider: (() -> CallerTerminalBinding?)?,
+        preferCallerBindingRouting: Bool,
+        callerBindingProvider: (() -> CallerTerminalBinding?)?,
+        lookupMappedSession: () -> ClaudeHookSessionRecord?,
         markFeedTelemetryHandled: () -> Void,
         sendFeedTelemetry: (String?, String?) -> Void
     ) throws {
@@ -35,12 +36,12 @@ extension CMUXCLI {
             print("OK")
             return
         }
-        let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+        let mappedSession = lookupMappedSession()
         guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
             preferred: mappedSession?.workspaceId,
             fallback: workspaceArg,
-            preferCallerTTYOverFallback: preferCallerTTYRouting,
-            callerTerminalBinding: callerTTYBindingProvider,
+            preferCallerBindingOverRecord: preferCallerBindingRouting,
+            callerTerminalBinding: callerBindingProvider,
             client: client
         ) else {
             markFeedTelemetryHandled()
@@ -52,8 +53,9 @@ extension CMUXCLI {
             preferred: mappedSession?.surfaceId,
             fallback: surfaceArg,
             fallbackIsExplicit: hookSurfaceFlagIsExplicit,
+            preferCallerBindingOverRecord: preferCallerBindingRouting,
             workspaceId: workspaceId,
-            callerTerminalBinding: callerTTYBindingProvider,
+            callerTerminalBinding: callerBindingProvider,
             client: client
         )
         let surfaceId = resolvedSurface.surfaceId

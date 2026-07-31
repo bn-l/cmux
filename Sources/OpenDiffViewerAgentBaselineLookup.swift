@@ -71,7 +71,11 @@ extension AppDelegate {
             guard let workspace = context.tabManager.tabs.first(where: {
                 $0.id == workspaceId && $0.panels.keys.contains(surfaceId)
             }),
-                  let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspaceId, panelId: surfaceId),
+                  let snapshot = SharedLiveAgentIndex.shared.snapshot(
+                      workspaceId: workspaceId,
+                      panelId: surfaceId,
+                      directory: workspace.agentSessionAffinityDirectory(panelId: surfaceId)
+                  ),
                   Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) == sessionId else {
                 continue
             }

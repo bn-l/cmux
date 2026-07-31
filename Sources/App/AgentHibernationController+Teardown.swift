@@ -103,7 +103,11 @@ extension AgentHibernationController {
                 // tick will re-arm if still idle.
                 guard AgentHibernationTrackingGate.isEnabled(),
                       record.isStillOwnedByOriginalWorkspace,
-                      !postSnapshotIndex.hasLiveProcess(workspaceId: record.key.workspaceId, panelId: record.key.panelId),
+                      !postSnapshotIndex.hasLiveProcess(
+                          workspaceId: record.key.workspaceId,
+                          panelId: record.key.panelId,
+                          directory: record.workspace.agentSessionAffinityDirectory(panelId: record.key.panelId)
+                      ),
                       TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
                           TabManager.restorableAgentSnapshotFingerprint(record.agent),
                       !record.terminalPanel.isAgentHibernated,
@@ -272,7 +276,11 @@ extension AgentHibernationController {
     ) -> AgentHibernationLifecycleState {
         record.workspace.agentHibernationLifecycleState(
             panelId: record.key.panelId,
-            fallback: index.lifecycle(workspaceId: record.key.workspaceId, panelId: record.key.panelId)
+            fallback: index.lifecycle(
+                workspaceId: record.key.workspaceId,
+                panelId: record.key.panelId,
+                directory: record.workspace.agentSessionAffinityDirectory(panelId: record.key.panelId)
+            )
         )
     }
 
@@ -280,7 +288,11 @@ extension AgentHibernationController {
         for record: AgentHibernationRecord,
         index: RestorableAgentSessionIndex
     ) -> TimeInterval {
-        let indexActivity = index.updatedAt(workspaceId: record.key.workspaceId, panelId: record.key.panelId) ?? 0
+        let indexActivity = index.updatedAt(
+            workspaceId: record.key.workspaceId,
+            panelId: record.key.panelId,
+            directory: record.workspace.agentSessionAffinityDirectory(panelId: record.key.panelId)
+        ) ?? 0
         let localActivity = activityByPanel[record.key] ?? 0
         let createdAt = record.terminalPanel.surface.debugRuntimeSurfaceCreatedAt()?.timeIntervalSince1970
             ?? record.terminalPanel.surface.debugCreatedAt().timeIntervalSince1970

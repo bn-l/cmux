@@ -28,7 +28,8 @@ extension Workspace {
         if restoredAgentSnapshotForContinuation(panelId: panelId) == nil {
             guard SharedLiveAgentIndex.shared.prepareForkAvailabilityProbe(
                 workspaceId: id,
-                panelId: panelId
+                panelId: panelId,
+                directory: agentSessionAffinityDirectory(panelId: panelId)
             ) else {
                 return .agentIndexRefreshing
             }
@@ -42,15 +43,18 @@ extension Workspace {
         if let snapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
             return snapshot
         }
+        let affinityDirectory = agentSessionAffinityDirectory(panelId: panelId)
         guard let snapshot = SharedLiveAgentIndex.shared.snapshotForForkConversationCandidate(
             workspaceId: id,
-            panelId: panelId
+            panelId: panelId,
+            directory: affinityDirectory
         ) else {
             return nil
         }
         if let observation = SharedLiveAgentIndex.shared.index?.entry(
             workspaceId: id,
-            panelId: panelId
+            panelId: panelId,
+            directory: affinityDirectory
         ) {
             reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
         }

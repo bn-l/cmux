@@ -110,27 +110,28 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            index.snapshot(workspaceId: validWorkspaceId, panelId: validPanelId)?.sessionId,
+            index.snapshot(workspaceId: validWorkspaceId, panelId: validPanelId, directory: nil)?.sessionId,
             validSessionId
         )
         XCTAssertNil(
-            index.snapshot(workspaceId: missingWorkspaceId, panelId: missingPanelId),
+            index.snapshot(workspaceId: missingWorkspaceId, panelId: missingPanelId, directory: nil),
             "A Claude SessionStart without a transcript file must not be auto-restored because Claude cannot resume it."
         )
         XCTAssertEqual(
             index.snapshot(
                 workspaceId: startupOnlyWithTranscriptWorkspaceId,
-                panelId: startupOnlyWithTranscriptPanelId
+                panelId: startupOnlyWithTranscriptPanelId,
+                directory: nil
             )?.sessionId,
             startupOnlyWithTranscriptSessionId,
             "A transcript-backed Claude session remains restorable even before a new turn is observed in this process."
         )
         XCTAssertNil(
-            index.snapshot(workspaceId: startupOnlyMissingWorkspaceId, panelId: startupOnlyMissingPanelId),
+            index.snapshot(workspaceId: startupOnlyMissingWorkspaceId, panelId: startupOnlyMissingPanelId, directory: nil),
             "A startup-only Claude hook record without a transcript must stay non-restorable."
         )
         XCTAssertEqual(
-            index.snapshot(workspaceId: explicitTranscriptWorkspaceId, panelId: explicitTranscriptPanelId)?.sessionId,
+            index.snapshot(workspaceId: explicitTranscriptWorkspaceId, panelId: explicitTranscriptPanelId, directory: nil)?.sessionId,
             explicitTranscriptSessionId,
             "When Claude provides transcript_path, restore eligibility should use that exact file before reconstructing from cwd."
         )
@@ -148,7 +149,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         try setDirectoryModificationDate(Date(timeIntervalSince1970: 1_000), for: fixture.projectDir)
         let firstIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
         XCTAssertNil(
-            firstIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId),
+            firstIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil),
             "The first load should cache the missing transcript as absent."
         )
 
@@ -157,7 +158,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let secondIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
 
         XCTAssertEqual(
-            secondIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)?.sessionId,
+            secondIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil)?.sessionId,
             sessionId,
             "Changing the project directory mtime must invalidate the shared negative lookup."
         )
@@ -175,14 +176,14 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         try writeClaudeTranscript(sessionId: sessionId, transcriptURL: fixture.transcriptURL, cwd: fixture.cwd)
         try setDirectoryModificationDate(Date(timeIntervalSince1970: 3_000), for: fixture.projectDir)
         let firstIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
-        XCTAssertEqual(firstIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)?.sessionId, sessionId)
+        XCTAssertEqual(firstIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil)?.sessionId, sessionId)
 
         try fm.removeItem(at: fixture.transcriptURL)
         try setDirectoryModificationDate(Date(timeIntervalSince1970: 4_000), for: fixture.projectDir)
         let secondIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
 
         XCTAssertNil(
-            secondIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId),
+            secondIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil),
             "Changing the project directory mtime must invalidate the shared positive lookup."
         )
     }
@@ -201,11 +202,11 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
         let firstSnapshot = try XCTUnwrap(
             RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
-                .snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)
+                .snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil)
         )
         let secondSnapshot = try XCTUnwrap(
             RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
-                .snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)
+                .snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil)
         )
 
         XCTAssertEqual(secondSnapshot.kind, firstSnapshot.kind)
@@ -228,7 +229,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         try setDirectoryModificationDate(unchangedDirectoryDate, for: fixture.projectDir)
         let firstIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
         XCTAssertNil(
-            firstIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId),
+            firstIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil),
             "A zero-byte transcript should not make the Claude session restorable."
         )
 
@@ -237,7 +238,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let secondIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
 
         XCTAssertEqual(
-            secondIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)?.sessionId,
+            secondIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil)?.sessionId,
             sessionId,
             "Zero-byte negatives must be rechecked even when the directory mtime is unchanged."
         )
@@ -264,7 +265,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         try setDirectoryModificationDate(pinnedDirectoryDate, for: fixture.projectDir)
         let firstIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
         XCTAssertNil(
-            firstIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId),
+            firstIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil),
             "The first load should see no transcript for the session."
         )
 
@@ -273,7 +274,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let secondIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
 
         XCTAssertEqual(
-            secondIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)?.sessionId,
+            secondIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil)?.sessionId,
             sessionId,
             "A nested messages/ transcript must be found even when the project root mtime is unchanged."
         )
@@ -299,7 +300,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         try setDirectoryModificationDate(pinnedDirectoryDate, for: fixture.projectDir)
         let firstIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
         XCTAssertEqual(
-            firstIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)?.sessionId,
+            firstIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil)?.sessionId,
             sessionId
         )
 
@@ -308,7 +309,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let secondIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
 
         XCTAssertNil(
-            secondIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId),
+            secondIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil),
             "Deleting a nested messages/ transcript must stop resolving even when the project root mtime is unchanged."
         )
     }
@@ -368,11 +369,11 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            index.snapshot(workspaceId: oldWorkspaceId, panelId: panelId)?.sessionId,
+            index.snapshot(workspaceId: oldWorkspaceId, panelId: panelId, directory: nil)?.sessionId,
             oldSessionId
         )
         XCTAssertEqual(
-            index.snapshot(workspaceId: movedWorkspaceId, panelId: panelId)?.sessionId,
+            index.snapshot(workspaceId: movedWorkspaceId, panelId: panelId, directory: cwd.path)?.sessionId,
             latestSessionId
         )
     }
@@ -426,7 +427,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil))
 
         XCTAssertEqual(snapshot.workingDirectory, launchCwd.path)
         let forkCommand = try XCTUnwrap(snapshot.forkCommand)
@@ -483,7 +484,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil))
 
         XCTAssertEqual(snapshot.workingDirectory, launchCwd.path)
     }
@@ -535,7 +536,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil))
 
         XCTAssertEqual(snapshot.workingDirectory, launchCwd.path)
         let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
@@ -584,7 +585,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil))
 
         XCTAssertEqual(snapshot.kind, .gemini)
         XCTAssertEqual(snapshot.workingDirectory, launchCwd.path)
@@ -689,7 +690,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             processArgumentsProvider: { _ in nil }
         )
         let restoredSessionIds = try panels.map { panelId in
-            try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId)).sessionId
+            try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil)).sessionId
         }
 
         XCTAssertEqual(restoredSessionIds, sessionIds)
@@ -778,11 +779,11 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             ],
             processArgumentsProvider: { _ in nil }
         )
-        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil))
 
         XCTAssertEqual(snapshot.kind, .custom("pi"))
         XCTAssertEqual(snapshot.sessionId, piHookSessionId)
-        XCTAssertEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [123])
+        XCTAssertEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId, directory: nil), [123])
     }
 
     // RestorableAgentKind.cwdNamespacing delegates to the shared AgentResumeWorkingDirectory
@@ -843,7 +844,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil))
 
         XCTAssertEqual(snapshot.sessionId, resumableSessionId)
         XCTAssertEqual(snapshot.workingDirectory, cwd.path)
@@ -972,7 +973,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
                 registry: registry,
                 detectedSnapshots: [:],
                 processArgumentsProvider: { _ in nil }
-            ).snapshot(workspaceId: ws, panelId: panel),
+            ).snapshot(workspaceId: ws, panelId: panel, directory: nil),
             "custom agent snapshot"
         )
         XCTAssertEqual(
@@ -1020,7 +1021,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             )
             let snapshot = try XCTUnwrap(
                 RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                    .snapshot(workspaceId: ws, panelId: panel),
+                    .snapshot(workspaceId: ws, panelId: panel, directory: nil),
                 "\(testCase.launcher): snapshot"
             )
             let fork = try XCTUnwrap(snapshot.forkCommand, "\(testCase.launcher): forkCommand")
@@ -1066,7 +1067,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             )
             let snapshot = try XCTUnwrap(
                 RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                    .snapshot(workspaceId: ws, panelId: panel),
+                    .snapshot(workspaceId: ws, panelId: panel, directory: nil),
                 "\(launcher): snapshot"
             )
             // It still resumes; it just has no fork form.
@@ -1106,7 +1107,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                .snapshot(workspaceId: ws, panelId: panel)
+                .snapshot(workspaceId: ws, panelId: panel, directory: nil)
         )
         XCTAssertEqual(snapshot.sessionId, newId, "the surface must resume the newest session, not the replaced one")
     }
@@ -1139,7 +1140,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         var commands: [String?] = []
         for _ in 0..<3 {
             let snap = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                .snapshot(workspaceId: ws, panelId: panel)
+                .snapshot(workspaceId: ws, panelId: panel, directory: nil)
             ids.append(snap?.sessionId)
             commands.append(snap?.resumeCommand)
         }
@@ -1180,7 +1181,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             processArgumentsProvider: { _ in nil }
         )
         XCTAssertNil(
-            index.snapshot(workspaceId: ws, panelId: panel),
+            index.snapshot(workspaceId: ws, panelId: panel, directory: nil),
             "a killed session whose recorded process is dead must not restore"
         )
     }
@@ -1389,7 +1390,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                .snapshot(workspaceId: ws, panelId: panel)
+                .snapshot(workspaceId: ws, panelId: panel, directory: nil)
         )
         XCTAssertEqual(
             snapshot.workingDirectory,
@@ -1446,7 +1447,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                .snapshot(workspaceId: ws, panelId: panel)
+                .snapshot(workspaceId: ws, panelId: panel, directory: nil)
         )
         let resume = try XCTUnwrap(snapshot.resumeCommand)
         XCTAssertFalse(resume.contains("'sh'"), "codex resume must not run the hook shell wrapper; got: \(resume)")
@@ -1492,7 +1493,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                .snapshot(workspaceId: ws, panelId: panel)
+                .snapshot(workspaceId: ws, panelId: panel, directory: nil)
         )
         let fork = try XCTUnwrap(snapshot.forkCommand)
         XCTAssertTrue(

@@ -304,7 +304,7 @@ extension TerminalController {
             return .surfaceNotFound
         }
 
-        tab.surfaceTTYNames[surfaceId] = ttyName
+        tab.recordVerifiedSurfaceTTY(panelId: surfaceId, ttyName: ttyName)
         if tab.isRemoteWorkspace {
             tab.syncRemotePortScanTTYs()
             _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)

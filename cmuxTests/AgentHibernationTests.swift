@@ -308,8 +308,8 @@ struct AgentHibernationTests {
         try data.write(to: storeURL, options: .atomic)
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
-        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
-        expectEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId, sessionId)
+        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId, directory: nil), .idle)
+        expectEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil)?.sessionId, sessionId)
     }
 
     @Test
@@ -366,9 +366,9 @@ struct AgentHibernationTests {
             }
         )
 
-        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
-        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [pid])
-        expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
+        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId, directory: nil), .idle)
+        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId, directory: nil), [pid])
+        expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId, directory: nil))
     }
 
     @Test
@@ -442,9 +442,9 @@ struct AgentHibernationTests {
             }
         )
 
-        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
-        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [pid])
-        expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
+        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId, directory: nil), .idle)
+        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId, directory: nil), [pid])
+        expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId, directory: nil))
     }
 
     @Test
@@ -498,8 +498,8 @@ struct AgentHibernationTests {
         try data.write(to: storeURL, options: .atomic)
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
-        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .unknown)
-        expectEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId, sessionId)
+        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId, directory: nil), .unknown)
+        expectEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil)?.sessionId, sessionId)
     }
 
     @Test
@@ -563,11 +563,11 @@ struct AgentHibernationTests {
             ]
         )
 
-        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
-        expectEqual(index.updatedAt(workspaceId: workspaceId, panelId: panelId), hookUpdatedAt)
-        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [123, 456])
-        expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
-        expectEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.launchCommand?.executablePath, "/opt/homebrew/bin/opencode")
+        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId, directory: nil), .idle)
+        expectEqual(index.updatedAt(workspaceId: workspaceId, panelId: panelId, directory: nil), hookUpdatedAt)
+        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId, directory: nil), [123, 456])
+        expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId, directory: nil))
+        expectEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil)?.launchCommand?.executablePath, "/opt/homebrew/bin/opencode")
     }
 
     @Test
@@ -632,10 +632,10 @@ struct AgentHibernationTests {
             ]
         )
 
-        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
-        expectEqual(index.updatedAt(workspaceId: workspaceId, panelId: panelId), hookUpdatedAt)
-        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [321])
-        expectEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.launchCommand?.executablePath, "/opt/homebrew/bin/opencode")
+        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId, directory: nil), .idle)
+        expectEqual(index.updatedAt(workspaceId: workspaceId, panelId: panelId, directory: nil), hookUpdatedAt)
+        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId, directory: nil), [321])
+        expectEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil)?.launchCommand?.executablePath, "/opt/homebrew/bin/opencode")
     }
 
     @Test
@@ -702,10 +702,10 @@ struct AgentHibernationTests {
             ]
         )
 
-        expectNil(index.snapshot(workspaceId: oldWorkspaceId, panelId: oldPanelId))
-        expectEqual(index.lifecycle(workspaceId: currentWorkspaceId, panelId: currentPanelId), .idle)
-        expectEqual(index.updatedAt(workspaceId: currentWorkspaceId, panelId: currentPanelId), hookUpdatedAt)
-        expectEqual(index.processIDs(workspaceId: currentWorkspaceId, panelId: currentPanelId), [654])
+        expectNil(index.snapshot(workspaceId: oldWorkspaceId, panelId: oldPanelId, directory: nil))
+        expectEqual(index.lifecycle(workspaceId: currentWorkspaceId, panelId: currentPanelId, directory: nil), .idle)
+        expectEqual(index.updatedAt(workspaceId: currentWorkspaceId, panelId: currentPanelId, directory: nil), hookUpdatedAt)
+        expectEqual(index.processIDs(workspaceId: currentWorkspaceId, panelId: currentPanelId, directory: nil), [654])
     }
 
     @Test
@@ -739,10 +739,10 @@ struct AgentHibernationTests {
             ]
         )
 
-        expectEqual(index.updatedAt(workspaceId: workspaceId, panelId: panelId), 0)
-        expectNil(index.lifecycle(workspaceId: workspaceId, panelId: panelId))
-        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [789])
-        expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
+        expectEqual(index.updatedAt(workspaceId: workspaceId, panelId: panelId, directory: nil), 0)
+        expectNil(index.lifecycle(workspaceId: workspaceId, panelId: panelId, directory: nil))
+        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId, directory: nil), [789])
+        expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId, directory: nil))
     }
 
     @Test

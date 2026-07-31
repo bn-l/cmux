@@ -118,10 +118,10 @@ struct WorkspaceForkConversationContextMenuTests {
             }
         )
         let index = loader.loadSynchronously()
-        #expect(index.snapshot(workspaceId: staleWorkspaceId, panelId: stalePanelId) == nil)
+        #expect(index.snapshot(workspaceId: staleWorkspaceId, panelId: stalePanelId, directory: nil) == nil)
 
         let snapshot = try #require(
-            index.snapshot(workspaceId: liveWorkspaceId, panelId: livePanelId),
+            index.snapshot(workspaceId: liveWorkspaceId, panelId: livePanelId, directory: nil),
             "The live process scope should make the current panel forkable even when the hook record still points at an old panel."
         )
         #expect(snapshot.sessionId == sessionId)
@@ -129,7 +129,7 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(
             ContentView.commandPaletteSnapshotForkAvailability(snapshot) == .supportedWithoutProbe
         )
-        #expect(index.processIDs(workspaceId: liveWorkspaceId, panelId: livePanelId) == Set([processId]))
+        #expect(index.processIDs(workspaceId: liveWorkspaceId, panelId: livePanelId, directory: nil) == Set([processId]))
     }
 
     @Test
@@ -209,7 +209,8 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(
             sharedIndex.index?.snapshot(
                 workspaceId: staleWorkspaceId,
-                panelId: stalePanelId
+                panelId: stalePanelId,
+                directory: nil
             )?.sessionId == sessionId
         )
 
@@ -242,14 +243,16 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(
             sharedIndex.snapshotForForkAvailability(
                 workspaceId: staleWorkspaceId,
-                panelId: stalePanelId
+                panelId: stalePanelId,
+                directory: nil
             ) == nil
         )
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: liveWorkspaceId, panelId: livePanelId)
         #expect(
             sharedIndex.snapshotForForkAvailability(
                 workspaceId: liveWorkspaceId,
-                panelId: livePanelId
+                panelId: livePanelId,
+                directory: nil
             )?.sessionId == sessionId
         )
     }
@@ -324,27 +327,27 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
-        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
+        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId, directory: nil))
         #expect(
-            sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId)?.sessionId
+            sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId, directory: nil)?.sessionId
                 == sessionId
         )
 
         now.withLock { $0 = Date(timeIntervalSince1970: 1) }
         #expect(
-            sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
+            sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId, directory: nil),
             "A completed fork probe should stay briefly usable without another process scan."
         )
 
         now.withLock { $0 = Date(timeIntervalSince1970: 16) }
         #expect(
-            sharedIndex.snapshotForForkConversationCandidate(workspaceId: workspaceId, panelId: panelId)?.sessionId == sessionId
+            sharedIndex.snapshotForForkConversationCandidate(workspaceId: workspaceId, panelId: panelId, directory: nil)?.sessionId == sessionId
         )
         #expect(
-            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
+            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId, directory: nil),
             "Fork availability must fail closed once the panel-specific probe expires."
         )
-        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
+        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId, directory: nil) == nil)
     }
 
     @Test
@@ -382,12 +385,12 @@ struct WorkspaceForkConversationContextMenuTests {
         let missingWorkspaceId = UUID()
         let missingPanelId = UUID()
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: missingWorkspaceId, panelId: missingPanelId)
-        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: missingWorkspaceId, panelId: missingPanelId))
+        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: missingWorkspaceId, panelId: missingPanelId, directory: nil))
 
         let unvalidatedWorkspaceId = UUID()
         let unvalidatedPanelId = UUID()
         #expect(
-            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: unvalidatedWorkspaceId, panelId: unvalidatedPanelId),
+            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: unvalidatedWorkspaceId, panelId: unvalidatedPanelId, directory: nil),
             "A missing panel snapshot should trigger an off-main refresh even inside the cache window."
         )
     }

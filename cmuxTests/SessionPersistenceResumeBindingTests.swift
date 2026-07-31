@@ -670,3 +670,496 @@ import Testing
         return directory.appendingPathComponent(executableName, isDirectory: false).path
     }
 }
+
+/// Regression coverage for the cross-project session/notification mix-up after restart.
+///
+/// Workspace ids are re-minted on every launch while panel ids persist, so after a
+/// restart every `(workspaceId, panelId)` lookup misses and falls back to a panel-id-only
+/// one. Ungated, that fallback served another project's agent record for the same panel
+/// id — panes came back auto-resuming a sibling repo's conversation, and its hooks then
+/// drove that pane's status pill, notifications and resume binding.
+@Suite(.serialized)
+struct CrossProjectAgentSessionIdentityTests {
+    // MARK: - Directory affinity
+
+    @Test func directoryAffinityAcceptsSameTreeAndRejectsSiblingProjects() {
+        #expect(AgentSessionDirectoryAffinity.isAffine("/tmp/projA", "/tmp/projA"))
+        #expect(AgentSessionDirectoryAffinity.isAffine("/tmp/projA/pkg", "/tmp/projA"))
+        #expect(AgentSessionDirectoryAffinity.isAffine("/tmp/projA", "/tmp/projA/pkg"))
+        #expect(AgentSessionDirectoryAffinity.isAffine("/tmp/projA/", "/tmp/projA"))
+        #expect(!AgentSessionDirectoryAffinity.isAffine("/tmp/projA", "/tmp/projB"))
+        // "projA2" must not read as inside "projA".
+        #expect(!AgentSessionDirectoryAffinity.isAffine("/tmp/projA2", "/tmp/projA"))
+        // Fails closed when either side is unknown.
+        #expect(!AgentSessionDirectoryAffinity.isAffine(nil, "/tmp/projA"))
+        #expect(!AgentSessionDirectoryAffinity.isAffine("/tmp/projA", nil))
+        #expect(!AgentSessionDirectoryAffinity.isAffine("  ", "/tmp/projA"))
+    }
+
+    // MARK: - RestorableAgentSessionIndex panel-id fallback
+
+    @Test func panelIdFallbackServesOnlyTheDirectoryAffineProjectRecord() throws {
+        let fixture = try HookStoreFixture(prefix: "cmux-affinity-fallback")
+        defer { fixture.tearDown() }
+
+        let panelId = UUID()
+        let projectA = try fixture.makeProjectDirectory(named: "projA")
+        let projectB = try fixture.makeProjectDirectory(named: "projB")
+        let sessionA = "aaaaaaaa-1111-1111-1111-111111111111"
+        let sessionB = "bbbbbbbb-2222-2222-2222-222222222222"
+
+        try fixture.writeCodexHookStore(sessions: [
+            sessionA: fixture.record(
+                sessionId: sessionA,
+                workspaceId: UUID(),
+                panelId: panelId,
+                cwd: projectA,
+                updatedAt: 10
+            ),
+            sessionB: fixture.record(
+                sessionId: sessionB,
+                workspaceId: UUID(),
+                panelId: panelId,
+                cwd: projectB,
+                updatedAt: 20
+            ),
+        ])
+        let index = fixture.loadIndex()
+
+        // A relaunched workspace has a brand-new id, so only the panel-id fallback can
+        // resolve. Each project's pane must get its OWN record back.
+        let relaunchedWorkspaceId = UUID()
+        #expect(
+            index.snapshot(
+                workspaceId: relaunchedWorkspaceId,
+                panelId: panelId,
+                directory: projectA
+            )?.sessionId == sessionA
+        )
+        #expect(
+            index.snapshot(
+                workspaceId: relaunchedWorkspaceId,
+                panelId: panelId,
+                directory: projectB
+            )?.sessionId == sessionB
+        )
+        // A pane in a third project gets nothing rather than a stranger's session.
+        let projectC = try fixture.makeProjectDirectory(named: "projC")
+        #expect(
+            index.snapshot(
+                workspaceId: relaunchedWorkspaceId,
+                panelId: panelId,
+                directory: projectC
+            ) == nil
+        )
+        // Neither record has a running process, so with no directory to check there is no
+        // proof of ownership left and the fallback is refused.
+        #expect(
+            index.snapshot(workspaceId: relaunchedWorkspaceId, panelId: panelId, directory: nil) == nil
+        )
+    }
+
+    /// A workspace move re-keys a pane while its agent keeps running. The running process
+    /// carries this panel id in its own environment, which is proof of ownership that a
+    /// dead hook record can never have — so the fallback must still serve it even though
+    /// the caller has no directory to compare.
+    @Test func panelIdFallbackAcceptsLiveProcessAttributionWithoutADirectory() throws {
+        let entry = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "live-session",
+                workingDirectory: nil,
+                launchCommand: nil
+            ),
+            lifecycle: nil,
+            updatedAt: 0,
+            processIDs: [4_242],
+            agentProcessIDs: [4_242],
+            agentProcessIdentities: [:],
+            keyedByLiveProcessEnvironment: true
+        )
+        #expect(RestorableAgentSessionIndex.panelIdFallbackAccepts(entry, directory: nil))
+        #expect(RestorableAgentSessionIndex.panelIdFallbackAccepts(entry, directory: "/tmp/anything"))
+
+        // The same attribution without a running process proves nothing: the environment
+        // was read from a process that has since exited.
+        let exited = RestorableAgentSessionIndex.Entry(
+            snapshot: entry.snapshot,
+            lifecycle: nil,
+            updatedAt: 0,
+            processIDs: [],
+            agentProcessIDs: [],
+            agentProcessIdentities: [:],
+            keyedByLiveProcessEnvironment: true
+        )
+        #expect(!RestorableAgentSessionIndex.panelIdFallbackAccepts(exited, directory: nil))
+
+        // A hook record's panel id is the hook's routing guess, not the agent's own
+        // report, so a live pid does NOT excuse it from the directory check.
+        let hookRecorded = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "hook-session",
+                workingDirectory: "/tmp/other-project",
+                launchCommand: nil
+            ),
+            lifecycle: nil,
+            updatedAt: 0,
+            processIDs: [4_243],
+            agentProcessIDs: [4_243],
+            agentProcessIdentities: [:]
+        )
+        #expect(!RestorableAgentSessionIndex.panelIdFallbackAccepts(hookRecorded, directory: "/tmp/my-project"))
+        #expect(RestorableAgentSessionIndex.panelIdFallbackAccepts(hookRecorded, directory: "/tmp/other-project"))
+    }
+
+    @Test func panelIdFallbackPrefersLiveProcessOverNewerRecord() throws {
+        let fixture = try HookStoreFixture(prefix: "cmux-affinity-live-pid")
+        defer { fixture.tearDown() }
+
+        let panelId = UUID()
+        let project = try fixture.makeProjectDirectory(named: "repo")
+        let liveWorkspaceId = UUID()
+        let livePID = 4_242
+        let liveSession = "cccccccc-3333-3333-3333-333333333333"
+        let newerDeadSession = "dddddddd-4444-4444-4444-444444444444"
+
+        var liveRecord = fixture.record(
+            sessionId: liveSession,
+            workspaceId: liveWorkspaceId,
+            panelId: panelId,
+            cwd: project,
+            updatedAt: 10
+        )
+        liveRecord["pid"] = livePID
+        var deadRecord = fixture.record(
+            sessionId: newerDeadSession,
+            workspaceId: UUID(),
+            panelId: panelId,
+            cwd: project,
+            updatedAt: 99
+        )
+        deadRecord["pid"] = 987_654_321
+        try fixture.writeCodexHookStore(sessions: [
+            liveSession: liveRecord,
+            newerDeadSession: deadRecord,
+        ])
+
+        let index = fixture.loadIndex(processArgumentsProvider: { pid in
+            guard pid == livePID else { return nil }
+            return CmuxTopProcessArguments(
+                arguments: ["/usr/local/bin/codex"],
+                environment: [
+                    "CMUX_WORKSPACE_ID": liveWorkspaceId.uuidString,
+                    "CMUX_SURFACE_ID": panelId.uuidString,
+                ]
+            )
+        })
+
+        #expect(
+            index.snapshot(workspaceId: UUID(), panelId: panelId, directory: project)?.sessionId == liveSession,
+            "A running agent must outrank a newer record whose process is gone."
+        )
+    }
+
+    @Test func panelIdFallbackTieBreaksDeterministically() throws {
+        let panelId = UUID()
+        let project = "/tmp/cmux-tie-break-repo"
+        // Fixed ids so the expected winner is stated, not observed.
+        let lowerWorkspaceId = try #require(UUID(uuidString: "00000000-0000-0000-0000-00000000000A"))
+        let higherWorkspaceId = try #require(UUID(uuidString: "FFFFFFFF-0000-0000-0000-00000000000B"))
+
+        // Dictionary iteration order varies per process, so an arbitrary winner would
+        // make restore resolve differently between launches. Repeat to make an
+        // order-dependent implementation fail rather than flake.
+        for _ in 0..<32 {
+            let index = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: higherWorkspaceId, panelId: panelId):
+                    Self.binding(sessionId: "higher", cwd: project, updatedAt: 7),
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: lowerWorkspaceId, panelId: panelId):
+                    Self.binding(sessionId: "lower", cwd: project, updatedAt: 7),
+            ])
+            #expect(
+                index.binding(workspaceId: UUID(), panelId: panelId, directory: project)?.checkpointId == "lower"
+            )
+        }
+    }
+
+    // MARK: - SurfaceResumeBindingIndex panel-id fallback
+
+    @Test func resumeBindingPanelFallbackRefusesAnotherProjectsBinding() throws {
+        let panelId = UUID()
+        let index = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: UUID(), panelId: panelId):
+                Self.binding(sessionId: "other-project", cwd: "/tmp/other-project", updatedAt: 5),
+        ])
+
+        #expect(
+            index.binding(workspaceId: UUID(), panelId: panelId, directory: "/tmp/my-project") == nil,
+            "A binding recorded for another project must not resume in this pane."
+        )
+        #expect(
+            index.binding(workspaceId: UUID(), panelId: panelId, directory: "/tmp/other-project")?
+                .checkpointId == "other-project"
+        )
+    }
+
+    // MARK: - Save-side duplicate session claims
+
+    @Test func snapshotSaveKeepsOneClaimPerAgentSession() throws {
+        let sessionId = "eeeeeeee-5555-5555-5555-555555555555"
+        let winnerPanelId = try #require(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
+        let loserPanelId = try #require(UUID(uuidString: "22222222-2222-2222-2222-222222222222"))
+
+        let workspace = Self.workspaceSnapshot(
+            currentDirectory: "/tmp/real-project",
+            panels: [
+                // Real owner: the binding's cwd is this pane's own directory.
+                Self.terminalPanelSnapshot(
+                    id: winnerPanelId,
+                    directory: "/tmp/real-project",
+                    binding: Self.binding(sessionId: sessionId, cwd: "/tmp/real-project", updatedAt: 10)
+                ),
+                // Mis-routed duplicate: same session, different pane, newer binding.
+                Self.terminalPanelSnapshot(
+                    id: loserPanelId,
+                    directory: "/tmp/real-project",
+                    binding: Self.binding(sessionId: sessionId, cwd: "/tmp/real-project", updatedAt: 99)
+                ),
+            ]
+        )
+
+        let pruned = TabManager.deduplicatingAgentSessionClaims([workspace], restorableAgentIndex: .empty)
+        let panels = try #require(pruned.first?.panels)
+
+        // The newest binding wins on `updatedAt`; the point is that exactly one survives.
+        let survivors = panels.filter { $0.terminal?.resumeBinding != nil }
+        #expect(survivors.count == 1, "Only one pane may claim a session id.")
+        let dropped = try #require(panels.first { $0.terminal?.resumeBinding == nil })
+        #expect(dropped.terminal?.agent == nil)
+        #expect(dropped.terminal?.wasAgentRunning == false)
+    }
+
+    @Test func snapshotSavePrefersTheDirectoryAffineClaimant() throws {
+        let sessionId = "ffffffff-6666-6666-6666-666666666666"
+        let affinePanelId = try #require(UUID(uuidString: "33333333-3333-3333-3333-333333333333"))
+        let strayPanelId = try #require(UUID(uuidString: "44444444-4444-4444-4444-444444444444"))
+
+        let workspaces = [
+            Self.workspaceSnapshot(
+                currentDirectory: "/tmp/owner-project",
+                panels: [
+                    Self.terminalPanelSnapshot(
+                        id: affinePanelId,
+                        directory: "/tmp/owner-project",
+                        binding: Self.binding(sessionId: sessionId, cwd: "/tmp/owner-project", updatedAt: 1)
+                    ),
+                ]
+            ),
+            // A different WORKSPACE holding the same session with a foreign cwd — the
+            // shape a poisoned hook record produced. Newer, so `updatedAt` alone would
+            // pick it.
+            Self.workspaceSnapshot(
+                currentDirectory: "/tmp/bystander-project",
+                panels: [
+                    Self.terminalPanelSnapshot(
+                        id: strayPanelId,
+                        directory: "/tmp/bystander-project",
+                        binding: Self.binding(sessionId: sessionId, cwd: "/tmp/owner-project", updatedAt: 500)
+                    ),
+                ]
+            ),
+        ]
+
+        let pruned = TabManager.deduplicatingAgentSessionClaims(workspaces, restorableAgentIndex: .empty)
+
+        #expect(pruned[0].panels[0].terminal?.resumeBinding?.checkpointId == sessionId)
+        #expect(
+            pruned[1].panels[0].terminal?.resumeBinding == nil,
+            "A binding whose cwd is a different project than its pane must not be persisted."
+        )
+        #expect(pruned[1].panels[0].terminal?.wasAgentRunning == false)
+    }
+
+    // MARK: - Restore-side duplicate suppression
+
+    @MainActor
+    @Test func sessionRestoreResumesADuplicatedSessionOnlyOnce() throws {
+        let sessionId = "99999999-7777-7777-7777-777777777777"
+        let firstPanelId = try #require(UUID(uuidString: "55555555-5555-5555-5555-555555555555"))
+        let secondPanelId = try #require(UUID(uuidString: "66666666-6666-6666-6666-666666666666"))
+        let binding = Self.binding(sessionId: sessionId, cwd: "/tmp/dup-project", updatedAt: 42)
+
+        let snapshot = Self.workspaceSnapshot(
+            currentDirectory: "/tmp/dup-project",
+            panels: [
+                Self.terminalPanelSnapshot(id: firstPanelId, directory: "/tmp/dup-project", binding: binding),
+                Self.terminalPanelSnapshot(id: secondPanelId, directory: "/tmp/dup-project", binding: binding),
+            ]
+        )
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+
+        let restoredBindings = restoredPanelIds.values.compactMap {
+            restored.surfaceResumeBinding(panelId: $0)
+        }
+        #expect(restoredPanelIds.count == 2, "Both panes must still be restored, as plain shells if needed.")
+        #expect(
+            restoredBindings.count == 1,
+            "Two panes resuming one session id start two clients on one conversation, and the session-keyed hook store can name only one of them."
+        )
+    }
+
+    // MARK: - Fixtures
+
+    private static func binding(
+        sessionId: String,
+        cwd: String,
+        updatedAt: TimeInterval
+    ) -> SurfaceResumeBindingSnapshot {
+        SurfaceResumeBindingSnapshot(
+            name: "Claude",
+            kind: "claude",
+            command: "{ cd -- '\(cwd)' 2>/dev/null || [ ! -d '\(cwd)' ]; } && 'claude' '--resume' '\(sessionId)'",
+            cwd: cwd,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: updatedAt
+        )
+    }
+
+    private static func terminalPanelSnapshot(
+        id: UUID,
+        directory: String,
+        binding: SurfaceResumeBindingSnapshot
+    ) -> SessionPanelSnapshot {
+        SessionPanelSnapshot(
+            id: id,
+            type: .terminal,
+            title: "Terminal",
+            customTitle: nil,
+            directory: directory,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: directory,
+                resumeBinding: binding,
+                wasAgentRunning: true
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
+        )
+    }
+
+    private static func workspaceSnapshot(
+        currentDirectory: String,
+        panels: [SessionPanelSnapshot]
+    ) -> SessionWorkspaceSnapshot {
+        SessionWorkspaceSnapshot(
+            workspaceId: UUID(),
+            processTitle: "Tests",
+            customTitle: nil,
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            terminalScrollBarHidden: nil,
+            currentDirectory: currentDirectory,
+            focusedPanelId: panels.first?.id,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: panels.map(\.id),
+                selectedPanelId: panels.first?.id
+            )),
+            panels: panels,
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil,
+            remote: nil
+        )
+    }
+
+    /// A throwaway `$HOME` holding a codex hook store, so `load()` reads only fixture data.
+    /// Deliberately touches no process-wide state: the hook store is found through the
+    /// `homeDirectory:` argument, never `CMUX_AGENT_HOOK_STATE_DIR`. Suites run
+    /// concurrently, and a test that setenv's that variable redirects every other suite's
+    /// hook store lookup for as long as it runs.
+    private struct HookStoreFixture {
+        let root: URL
+
+        init(prefix: String) throws {
+            root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        }
+
+        func tearDown() {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        func makeProjectDirectory(named name: String) throws -> String {
+            let path = root.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+            return path.path
+        }
+
+        func record(
+            sessionId: String,
+            workspaceId: UUID,
+            panelId: UUID,
+            cwd: String,
+            updatedAt: TimeInterval
+        ) -> [String: Any] {
+            [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId.uuidString,
+                "surfaceId": panelId.uuidString,
+                "cwd": cwd,
+                "isRestorable": true,
+                "updatedAt": updatedAt,
+                "launchCommand": [
+                    "launcher": "codex",
+                    "executablePath": "/usr/local/bin/codex",
+                    "arguments": ["/usr/local/bin/codex"],
+                    "workingDirectory": cwd,
+                    "capturedAt": updatedAt,
+                    "source": "test",
+                ],
+            ]
+        }
+
+        func writeCodexHookStore(sessions: [String: [String: Any]]) throws {
+            let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+            try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+            let data = try JSONSerialization.data(
+                withJSONObject: ["version": 1, "sessions": sessions],
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            try data.write(
+                to: stateDir.appendingPathComponent("codex-hook-sessions.json", isDirectory: false),
+                options: .atomic
+            )
+        }
+
+        func loadIndex(
+            processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = { _ in nil }
+        ) -> RestorableAgentSessionIndex {
+            RestorableAgentSessionIndex.load(
+                homeDirectory: root.path,
+                fileManager: .default,
+                registry: CmuxVaultAgentRegistry(registrations: []),
+                detectedSnapshots: [:],
+                processArgumentsProvider: processArgumentsProvider,
+                processIdentityProvider: { _ in nil },
+                environment: [:]
+            )
+        }
+    }
+}

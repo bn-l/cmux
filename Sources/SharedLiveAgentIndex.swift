@@ -57,40 +57,52 @@ final class SharedLiveAgentIndex {
     }
 
     /// Read the cached snapshot for stale-tolerant callers. Never blocks.
-    func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+    ///
+    /// `directory` is the panel's directory, used to reject a same-panel-id record that
+    /// belongs to a different project (see `AgentSessionDirectoryAffinity`); it is only
+    /// consulted when no record exists for this exact `(workspaceId, panelId)`.
+    func snapshot(workspaceId: UUID, panelId: UUID, directory: String?) -> SessionRestorableAgentSnapshot? {
         scheduleRefreshIfStale()
-        return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
+        return index?.snapshot(workspaceId: workspaceId, panelId: panelId, directory: directory)
     }
 
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
-    func snapshotForForkConversationCandidate(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+    func snapshotForForkConversationCandidate(
+        workspaceId: UUID,
+        panelId: UUID,
+        directory: String?
+    ) -> SessionRestorableAgentSnapshot? {
         let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
         guard let index,
-              validatedForkPanelKey(for: panelKey) != nil else {
+              validatedForkPanelKey(for: panelKey, directory: directory) != nil else {
             return nil
         }
-        return index.snapshot(workspaceId: workspaceId, panelId: panelId)
+        return index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: directory)
     }
 
     /// Read the cached snapshot for an enabled Fork Conversation action. Never blocks.
-    func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+    func snapshotForForkAvailability(
+        workspaceId: UUID,
+        panelId: UUID,
+        directory: String?
+    ) -> SessionRestorableAgentSnapshot? {
         let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-        guard let validationKey = validatedForkPanelKey(for: panelKey),
+        guard let validationKey = validatedForkPanelKey(for: panelKey, directory: directory),
               hasFreshForkAvailabilityProbe(for: validationKey),
               let index else {
             return nil
         }
-        return index.snapshot(workspaceId: workspaceId, panelId: panelId)
+        return index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: directory)
     }
 
-    func prepareForkAvailabilityProbe(workspaceId: UUID, panelId: UUID) -> Bool {
+    func prepareForkAvailabilityProbe(workspaceId: UUID, panelId: UUID, directory: String?) -> Bool {
         let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
         scheduleRefreshIfStale(validating: panelKey)
         guard let index else {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
-        guard index.snapshot(workspaceId: workspaceId, panelId: panelId) != nil else {
+        guard index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: directory) != nil else {
             if let validatedAt = validatedMissingForkPanels[panelKey],
                dateProvider().timeIntervalSince(validatedAt) < Self.minEventReloadInterval {
                 return true
@@ -98,7 +110,7 @@ final class SharedLiveAgentIndex {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
-        guard let validationKey = validatedForkPanelKey(for: panelKey) else {
+        guard let validationKey = validatedForkPanelKey(for: panelKey, directory: directory) else {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
@@ -240,9 +252,11 @@ final class SharedLiveAgentIndex {
         }
         let now = dateProvider()
         for panelKey in pendingForkValidationPanels {
-            if index.snapshot(workspaceId: panelKey.workspaceId, panelId: panelKey.panelId) == nil {
+            // Exact keys straight from the pending set — no cross-workspace fallback is
+            // wanted here, so no directory is threaded.
+            if index.snapshot(workspaceId: panelKey.workspaceId, panelId: panelKey.panelId, directory: nil) == nil {
                 validatedMissingForkPanels[panelKey] = now
-            } else if let validationKey = validatedForkPanelKey(for: panelKey) {
+            } else if let validationKey = validatedForkPanelKey(for: panelKey, directory: nil) {
                 validatedForkPanelProbeCompletedAt[validationKey] = now
             }
         }
@@ -261,13 +275,33 @@ final class SharedLiveAgentIndex {
         return dateProvider().timeIntervalSince(completedAt) < Self.forkAvailabilityProbeTTL
     }
 
+    /// The validated fork key for this panel. The cross-workspace fallback exists because
+    /// workspace ids are re-minted on every launch, so after a restart a pane's own
+    /// validated key is only findable by panel id — but ungated it also matches other
+    /// projects' keys for that panel id, and `Set.first` picks between them by hash
+    /// order. Require the same proof the restore fallback requires (a live process that
+    /// names this panel, or directory affinity), then pick deterministically.
     private func validatedForkPanelKey(
-        for panelKey: RestorableAgentSessionIndex.PanelKey
+        for panelKey: RestorableAgentSessionIndex.PanelKey,
+        directory: String?
     ) -> RestorableAgentSessionIndex.PanelKey? {
         if validatedForkPanels.contains(panelKey) {
             return panelKey
         }
-        return validatedForkPanels.first { $0.panelId == panelKey.panelId }
+        guard let index else { return nil }
+        return validatedForkPanels
+            .filter { candidate in
+                guard candidate.panelId == panelKey.panelId,
+                      let entry = index.entry(
+                          workspaceId: candidate.workspaceId,
+                          panelId: candidate.panelId,
+                          directory: nil
+                      ) else {
+                    return false
+                }
+                return RestorableAgentSessionIndex.panelIdFallbackAccepts(entry, directory: directory)
+            }
+            .min { $0.workspaceId.uuidString < $1.workspaceId.uuidString }
     }
 
     private var isForkAvailabilityRefreshInFlight: Bool {

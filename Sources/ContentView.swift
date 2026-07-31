@@ -5677,6 +5677,7 @@ struct ContentView: View {
 
         let workspaceId = panelContext.workspace.id
         let panelId = panelContext.panelId
+        let panelDirectory = panelContext.workspace.agentSessionAffinityDirectory(panelId: panelId)
         let isRemoteTerminal = panelContext.workspace.isRemoteTerminalSurface(panelId)
         let panelKey = Self.commandPaletteForkableAgentPanelKey(workspaceId: workspaceId, panelId: panelId)
         let panelChanged = commandPaletteForkableAgentActivePanelKey != panelKey
@@ -5737,6 +5738,7 @@ struct ContentView: View {
                         panelKey: panelKey,
                         workspaceId: workspaceId,
                         panelId: panelId,
+                        panelDirectory: panelDirectory,
                         fallbackSnapshot: fallbackSnapshot,
                         fallbackFingerprint: fallbackFingerprint,
                         isRemoteTerminal: isRemoteTerminal
@@ -5780,6 +5782,7 @@ struct ContentView: View {
                     panelKey: panelKey,
                     workspaceId: workspaceId,
                     panelId: panelId,
+                    panelDirectory: panelDirectory,
                     fallbackSnapshot: fallbackSnapshot,
                     fallbackFingerprint: fallbackFingerprint,
                     isRemoteTerminal: isRemoteTerminal
@@ -5822,6 +5825,7 @@ struct ContentView: View {
             panelKey: panelKey,
             workspaceId: workspaceId,
             panelId: panelId,
+            panelDirectory: panelDirectory,
             fallbackSnapshot: nil,
             fallbackFingerprint: nil,
             isRemoteTerminal: isRemoteTerminal
@@ -5832,6 +5836,7 @@ struct ContentView: View {
         panelKey: String,
         workspaceId: UUID,
         panelId: UUID,
+        panelDirectory: String?,
         fallbackSnapshot: SessionRestorableAgentSnapshot?,
         fallbackFingerprint: String?,
         isRemoteTerminal: Bool
@@ -5851,7 +5856,11 @@ struct ContentView: View {
         commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
             let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
             guard !Task.isCancelled else { return }
-            let indexEntry = index.entry(workspaceId: workspaceId, panelId: panelId)
+            let indexEntry = index.entry(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                directory: panelDirectory
+            )
             let indexSnapshot = indexEntry?.snapshot
             let snapshot = indexSnapshot ?? fallbackSnapshot
             let supportsFork: Bool

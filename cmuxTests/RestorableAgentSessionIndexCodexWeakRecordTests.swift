@@ -94,7 +94,7 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                .snapshot(workspaceId: ws, panelId: panel)
+                .snapshot(workspaceId: ws, panelId: panel, directory: nil)
         )
         XCTAssertEqual(snapshot.sessionId, goodId)
         XCTAssertEqual(snapshot.workingDirectory, repo.path)
@@ -130,7 +130,7 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                .snapshot(workspaceId: ws, panelId: panel)
+                .snapshot(workspaceId: ws, panelId: panel, directory: nil)
         )
         XCTAssertEqual(snapshot.sessionId, sessionId)
         XCTAssertEqual(snapshot.workingDirectory, repo.path)
@@ -166,7 +166,7 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                .snapshot(workspaceId: ws, panelId: panel)
+                .snapshot(workspaceId: ws, panelId: panel, directory: nil)
         )
         XCTAssertEqual(snapshot.sessionId, sessionId)
         XCTAssertEqual(snapshot.workingDirectory, repo.path)

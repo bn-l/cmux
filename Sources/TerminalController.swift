@@ -3078,7 +3078,10 @@ class TerminalController {
                 "pane_id": v2OrNull(paneUUID?.uuidString),
                 "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
                 "index_in_pane": v2OrNull(indexInPaneByPanelId[panel.id]),
-                "tty": v2OrNull(workspace.surfaceTTYNames[panel.id]),
+                // Verified-only, for the same reason as `system.top`: this payload feeds
+                // tty-keyed process attribution, and a snapshot-restored (recycled) name
+                // denotes another pane's live terminal after a relaunch.
+                "tty": v2OrNull(workspace.verifiedSurfaceTTYName(panelId: panel.id)),
                 "webviews": []
             ]
 
@@ -4989,7 +4992,15 @@ class TerminalController {
                 let title = workspace?.panelTitle(panelId: panelId)
                 let paneId = mapped?.paneId
                 let treeVisible = mapped?.bonsplitTabId != nil && paneId != nil
-                let ttyName = workspace?.surfaceTTYNames[panelId]
+                // Verified-only: `debug.terminals` is the tty-to-pane table the CLI's
+                // agent-hook caller resolution matches against, so a snapshot-restored
+                // name (which after a relaunch usually denotes a DIFFERENT pane's live
+                // terminal — macOS recycles `ttysNNN`) must not be served here. The
+                // unverified name stays visible in the dedicated debug field below.
+                let ttyName = workspace?.verifiedSurfaceTTYName(panelId: panelId)
+                let unverifiedRestoredTTYName = workspace?.restoredUnverifiedTTYPanelIds.contains(panelId) == true
+                    ? workspace?.surfaceTTYNames[panelId]
+                    : nil
                 let currentDirectory = workspace.map { $0.effectivePanelDirectory(panelId: panelId, localFallback: nonEmpty(mapped?.terminalPanel.directory)) } ?? nonEmpty(mapped?.terminalPanel.directory)
                 let requestedWorkingDirectory = workspace?.allowsLocalDirectoryFallback(panelId: panelId) == false ? nil : nonEmpty(terminalSurface.requestedWorkingDirectory)
                 let teardownRequest = terminalSurface.debugTeardownRequest()
@@ -5059,6 +5070,7 @@ class TerminalController {
                     "portal_host_in_window": v2OrNull(portalHostLease.inWindow),
                     "portal_host_area": v2OrNull(portalHostLease.area.map(Double.init)),
                     "tty": v2OrNull(ttyName),
+                    "restored_unverified_tty": v2OrNull(unverifiedRestoredTTYName),
                     "current_directory": v2OrNull(currentDirectory),
                     "requested_working_directory": v2OrNull(requestedWorkingDirectory),
                     "initial_command": v2OrNull(nonEmpty(terminalSurface.debugInitialCommand())),

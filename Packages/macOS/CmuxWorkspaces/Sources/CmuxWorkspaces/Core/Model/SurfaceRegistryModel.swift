@@ -45,6 +45,18 @@ public final class SurfaceRegistryModel<TabSelectionRequest> {
     /// by panel id (legacy `Workspace.surfaceTTYNames`).
     public var surfaceTTYNames: [UUID: String] = [:]
 
+    /// Panel ids whose `surfaceTTYNames` entry was restored from a session
+    /// snapshot and has NOT been re-reported by a live shell yet.
+    ///
+    /// macOS recycles `ttysNNN` device names, and the shells a restored
+    /// workspace starts claim them in a different order than the previous run,
+    /// so a restored name routinely denotes a *different* pane's live terminal
+    /// until that pane's own `surface.report_tty` lands. The name is kept for
+    /// display, but callers that resolve "who is calling me" from a tty name
+    /// must skip these entries — matching one attributes an agent's hooks
+    /// (status, notifications, resume bindings) to an unrelated project's pane.
+    public var restoredUnverifiedTTYPanelIds: Set<UUID> = []
+
     /// The shell-activity classification reported for each terminal panel,
     /// keyed by panel id (legacy `Workspace.panelShellActivityStates`).
     public var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]

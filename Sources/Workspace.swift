@@ -74,7 +74,11 @@ extension Workspace {
                 sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    restorableAgentObservation: restorableAgentIndex?.entry(workspaceId: id, panelId: panelId),
+                    restorableAgentObservation: restorableAgentIndex?.entry(
+                        workspaceId: id,
+                        panelId: panelId,
+                        directory: agentSessionAffinityDirectory(panelId: panelId)
+                    ),
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -744,7 +748,11 @@ extension Workspace {
         // cmux-launched agents reopen correctly regardless of cache freshness.
         let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
-        let restorableAgentObservation = agentIndex.entry(workspaceId: id, panelId: panelId)
+        let restorableAgentObservation = agentIndex.entry(
+            workspaceId: id,
+            panelId: panelId,
+            directory: agentSessionAffinityDirectory(panelId: panelId)
+        )
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
@@ -1200,7 +1208,11 @@ extension Workspace {
     func reconcileSurfaceResumeBindings(using surfaceResumeBindingIndex: SurfaceResumeBindingIndex) {
         for panelId in panels.keys {
             let storedBinding = surfaceResumeBindingsByPanelId[panelId]
-            let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
+            let detectedBinding = surfaceResumeBindingIndex.binding(
+                workspaceId: id,
+                panelId: panelId,
+                directory: agentSessionAffinityDirectory(panelId: panelId)
+            )
 
             guard let storedBinding else {
                 if let detectedBinding, detectedBinding.isProcessDetected {
@@ -1231,7 +1243,11 @@ extension Workspace {
             return storedBinding
         }
 
-        let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
+        let detectedBinding = surfaceResumeBindingIndex.binding(
+            workspaceId: id,
+            panelId: panelId,
+            directory: agentSessionAffinityDirectory(panelId: panelId)
+        )
         guard let storedBinding else { return detectedBinding }
         guard let detectedBinding else { return storedBinding.isProcessDetected ? nil : storedBinding }
         if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) { return detectedBinding }
@@ -1251,14 +1267,27 @@ extension Workspace {
         switch snapshot.type {
         case .terminal:
             let snapshotRestorableAgent = snapshot.terminal?.agent
-            let resumeBinding = Self.resumeBindingForSessionRestore(
+            let unclaimedResumeBinding = Self.resumeBindingForSessionRestore(
                 snapshot.terminal?.resumeBinding,
                 restorableAgent: snapshotRestorableAgent
             )
-            let restorableAgent = Self.restorableAgentForSessionRestore(
-                snapshotRestorableAgent,
-                resumeBinding: resumeBinding
+            // Exactly one pane may resume a given agent session per restore pass. See
+            // `SessionRestoreAgentSessionClaims`: a duplicated session id would start one
+            // `--resume` per pane on a single conversation, and the session-keyed hook
+            // store can only name one of them, so the losers are mis-routed from their
+            // first hook onward. A later claimant comes back as a plain shell in its
+            // saved directory instead.
+            let claimsAgentSession = sessionRestoreAgentSessionClaims.claim(
+                kind: unclaimedResumeBinding?.kind ?? snapshotRestorableAgent?.kind.rawValue,
+                sessionId: unclaimedResumeBinding?.checkpointId ?? snapshotRestorableAgent?.sessionId
             )
+            let resumeBinding = claimsAgentSession ? unclaimedResumeBinding : nil
+            let restorableAgent = claimsAgentSession
+                ? Self.restorableAgentForSessionRestore(
+                    snapshotRestorableAgent,
+                    resumeBinding: resumeBinding
+                )
+                : nil
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
             // Only auto-resume if the agent was actively running when the snapshot was saved.
@@ -1678,9 +1707,18 @@ extension Workspace {
         surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
 
         if let ttyName = snapshot.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
+            // Restored for display only. The device name belonged to the PREVIOUS run's
+            // shell; the new shells claim recycled `ttysNNN` names in a different order,
+            // so until this pane's own `surface.report_tty` lands the name is very likely
+            // another pane's live terminal. Marking it unverified keeps it out of every
+            // tty-to-pane lookup — that mis-attribution is what routed one project's
+            // agent hooks (notifications, status, resume bindings) onto another project's
+            // tab after a restart, and the wrong binding then persisted and replayed.
             surfaceTTYNames[panelId] = ttyName
+            restoredUnverifiedTTYPanelIds.insert(panelId)
         } else {
             surfaceTTYNames.removeValue(forKey: panelId)
+            restoredUnverifiedTTYPanelIds.remove(panelId)
         }
         syncRemotePortScanTTYs()
 
@@ -2236,6 +2274,31 @@ final class Workspace: Identifiable, ObservableObject {
     var surfaceTTYNames: [UUID: String] {
         get { surfaceRegistry.surfaceTTYNames }
         set { surfaceRegistry.surfaceTTYNames = newValue }
+    }
+    /// Panel ids whose tty name came from a restored snapshot and has not been
+    /// re-reported by a live shell. See `SurfaceRegistryModel`.
+    var restoredUnverifiedTTYPanelIds: Set<UUID> {
+        get { surfaceRegistry.restoredUnverifiedTTYPanelIds }
+        set { surfaceRegistry.restoredUnverifiedTTYPanelIds = newValue }
+    }
+
+    /// Record a tty name observed on a LIVE shell (`surface.report_tty`, the remote
+    /// bootstrap relay, or a pane carried across a workspace move). This is the only
+    /// way an entry becomes usable for caller resolution.
+    func recordVerifiedSurfaceTTY(panelId: UUID, ttyName: String) {
+        surfaceTTYNames[panelId] = ttyName
+        restoredUnverifiedTTYPanelIds.remove(panelId)
+    }
+
+    /// The tty name for `panelId` only when a live shell reported it. Callers that map
+    /// a tty name back to a pane (agent-hook caller resolution, `notification.create`
+    /// `caller_tty`) must use this instead of reading `surfaceTTYNames` directly: a
+    /// restored, unverified name commonly belongs to another pane's live terminal after
+    /// a relaunch, and matching it mis-delivers that agent's state onto an unrelated
+    /// project's tab.
+    func verifiedSurfaceTTYName(panelId: UUID) -> String? {
+        guard !restoredUnverifiedTTYPanelIds.contains(panelId) else { return nil }
+        return surfaceTTYNames[panelId]
     }
     private var remoteSessionController: RemoteSessionCoordinator?
     private var pendingRemoteForegroundAuthToken: String?
@@ -3044,7 +3107,11 @@ final class Workspace: Identifiable, ObservableObject {
                         state == .completedAgentExit ? panelId : nil
                     }
                     for panelId in completedPanelIds {
-                        guard let observation = index.entry(workspaceId: self.id, panelId: panelId) else {
+                        guard let observation = index.entry(
+                            workspaceId: self.id,
+                            panelId: panelId,
+                            directory: self.agentSessionAffinityDirectory(panelId: panelId)
+                        ) else {
                             continue
                         }
                         self.reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
@@ -3228,6 +3295,11 @@ final class Workspace: Identifiable, ObservableObject {
     private var suppressClosedPanelHistory = false
     /// Stable identities not re-adopted by the in-flight snapshot restore.
     let sessionRestoreIdentityExclusions = SessionRestoreIdentityExclusions()
+    /// Agent sessions already claimed by an earlier pane in the current restore pass.
+    /// `TabManager.restoreSessionSnapshot` installs one shared instance across every
+    /// workspace it rebuilds so a duplicated session id cannot resume twice; a standalone
+    /// restore (reopening a closed workspace) keeps its own and dedupes within itself.
+    var sessionRestoreAgentSessionClaims = SessionRestoreAgentSessionClaims()
     private var tabStripCloseButtonByTabId: [TabID: Bool] = [:]
     private var remoteTmuxWorkspaceCloseButtonByTabId: [TabID: Bool] = [:]
     private var remoteTmuxKeepWorkspaceOpenTabIds: Set<TabID> = []
@@ -4464,7 +4536,11 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         index: RestorableAgentSessionIndex
     ) -> SessionRestorableAgentSnapshot? {
-        let observation = index.entry(workspaceId: id, panelId: panelId)
+        let observation = index.entry(
+            workspaceId: id,
+            panelId: panelId,
+            directory: agentSessionAffinityDirectory(panelId: panelId)
+        )
         if let observation {
             reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
         }
@@ -4782,6 +4858,7 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
+        restoredUnverifiedTTYPanelIds = restoredUnverifiedTTYPanelIds.filter { validSurfaceIds.contains($0) }
         restoredGuardedWorkingDirectoriesByPanelId = restoredGuardedWorkingDirectoriesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
@@ -6041,6 +6118,7 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: surfaceId)
         surfaceTTYNames.removeValue(forKey: surfaceId)
+        restoredUnverifiedTTYPanelIds.remove(surfaceId)
         let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(surfaceId) != nil; if removedTrustedDirectory { clearPanelGitBranch(panelId: surfaceId) }
         if activeRemoteTerminalSurfaceIds.remove(surfaceId) != nil {
             activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
@@ -6118,7 +6196,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let requestedSurfaceId = pendingRemoteSurfaceTTYSurfaceId, requestedSurfaceId != panelId {
             return
         }
-        surfaceTTYNames[panelId] = ttyName
+        recordVerifiedSurfaceTTY(panelId: panelId, ttyName: ttyName)
         pendingRemoteSurfaceTTYName = nil
         pendingRemoteSurfaceTTYSurfaceId = nil
         syncRemotePortScanTTYs()
@@ -6168,7 +6246,7 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
 
-        surfaceTTYNames[candidateSurfaceId] = trimmedTTY
+        recordVerifiedSurfaceTTY(panelId: candidateSurfaceId, ttyName: trimmedTTY)
         syncRemotePortScanTTYs()
         if !applyPendingRemoteSurfacePortKickIfNeeded(to: candidateSurfaceId) {
             kickRemotePortScan(panelId: candidateSurfaceId, reason: .command)
@@ -9041,9 +9119,11 @@ final class Workspace: Identifiable, ObservableObject {
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
         }
         if let ttyName = detached.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
-            surfaceTTYNames[detached.panelId] = ttyName
+            // A moved pane keeps the same live shell, so its reported tty stays verified.
+            recordVerifiedSurfaceTTY(panelId: detached.panelId, ttyName: ttyName)
         } else {
             surfaceTTYNames.removeValue(forKey: detached.panelId)
+            restoredUnverifiedTTYPanelIds.remove(detached.panelId)
         }
         syncRemotePortScanTTYs()
         if let cachedTitle = detached.cachedTitle {
@@ -9091,6 +9171,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelDirectories.removeValue(forKey: detached.panelId)
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
+            restoredUnverifiedTTYPanelIds.remove(detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
@@ -11045,15 +11126,18 @@ final class Workspace: Identifiable, ObservableObject {
         if let snapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
             return snapshot
         }
+        let affinityDirectory = agentSessionAffinityDirectory(panelId: panelId)
         guard let snapshot = SharedLiveAgentIndex.shared.snapshotForForkAvailability(
             workspaceId: id,
-            panelId: panelId
+            panelId: panelId,
+            directory: affinityDirectory
         ) else {
             return nil
         }
         if let observation = SharedLiveAgentIndex.shared.index?.entry(
             workspaceId: id,
-            panelId: panelId
+            panelId: panelId,
+            directory: affinityDirectory
         ) {
             reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
         }

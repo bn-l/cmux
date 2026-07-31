@@ -5607,7 +5607,8 @@ extension TabManager {
                 Self.hashRestorableAgentSnapshot(
                     restorableAgentIndex.snapshot(
                         workspaceId: workspace.id,
-                        panelId: panelId
+                        panelId: panelId,
+                        directory: workspace.agentSessionAffinityDirectory(panelId: panelId)
                     ),
                     into: &hasher
                 )
@@ -5863,9 +5864,99 @@ extension TabManager {
         }()
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
-            workspaces: workspaceSnapshots,
+            workspaces: Self.deduplicatingAgentSessionClaims(
+                workspaceSnapshots,
+                restorableAgentIndex: restorableAgentIndex
+            ),
             workspaceGroups: groupSnapshots
         )
+    }
+
+    /// One pane's claim on an agent session, scored for `deduplicatingAgentSessionClaims`.
+    private nonisolated struct AgentSessionClaimant {
+        let workspaceIndex: Int
+        let panelIndex: Int
+        let panelId: UUID
+        let hasLiveProcess: Bool
+        let isDirectoryAffine: Bool
+        let updatedAt: TimeInterval
+    }
+
+    /// Leave at most one pane claiming any given `(kind, sessionId)`.
+    ///
+    /// Panes accumulate duplicate claims because a mis-routed hook writes a session's
+    /// resume binding onto a pane that never hosted it while the real pane keeps its own.
+    /// Persisting both makes restore launch `<agent> --resume <same id>` twice; the
+    /// session-keyed hook store can then only point at one pane, so the other is
+    /// mis-routed from its first hook and saves the same duplicate again — the count grew
+    /// on every restart. Dropping the losers at save time stops the replay even for
+    /// snapshots written before the routing fix.
+    ///
+    /// The winner is the pane whose live process actually hosts the session; failing that
+    /// (nothing running at quit, the common case) the directory-affine pane with the most
+    /// recent binding, and finally the lowest panel id so the choice is reproducible.
+    nonisolated static func deduplicatingAgentSessionClaims(
+        _ workspaces: some Sequence<SessionWorkspaceSnapshot>,
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) -> [SessionWorkspaceSnapshot] {
+        var workspaces = Array(workspaces)
+        var claimantsByKey: [String: [AgentSessionClaimant]] = [:]
+        for (workspaceIndex, workspace) in workspaces.enumerated() {
+            for (panelIndex, panel) in workspace.panels.enumerated() {
+                guard let terminal = panel.terminal else { continue }
+                let kind = terminal.resumeBinding?.kind ?? terminal.agent?.kind.rawValue
+                let sessionId = terminal.resumeBinding?.checkpointId ?? terminal.agent?.sessionId
+                guard let key = SessionRestoreAgentSessionClaims.claimKey(kind: kind, sessionId: sessionId) else {
+                    continue
+                }
+                let panelDirectory = panel.directory
+                    ?? terminal.workingDirectory
+                    ?? workspace.currentDirectory
+                // No workspace id means the snapshot did not come from a live workspace
+                // (legacy or externally authored), so there is no live-process evidence
+                // to consult and the choice falls to directory affinity below.
+                let indexEntry = workspace.workspaceId.flatMap {
+                    restorableAgentIndex.entry(
+                        workspaceId: $0,
+                        panelId: panel.id,
+                        directory: panelDirectory
+                    )
+                }
+                claimantsByKey[key, default: []].append(AgentSessionClaimant(
+                    workspaceIndex: workspaceIndex,
+                    panelIndex: panelIndex,
+                    panelId: panel.id,
+                    hasLiveProcess: !(indexEntry?.processIDs.isEmpty ?? true)
+                        && indexEntry?.snapshot.sessionId == sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    isDirectoryAffine: AgentSessionDirectoryAffinity.isAffine(
+                        terminal.resumeBinding?.cwd ?? terminal.agent?.workingDirectory,
+                        panelDirectory
+                    ),
+                    updatedAt: terminal.resumeBinding?.updatedAt ?? indexEntry?.updatedAt ?? 0
+                ))
+            }
+        }
+
+        for (_, claimants) in claimantsByKey where claimants.count > 1 {
+            let winner = claimants.max { lhs, rhs in
+                if lhs.hasLiveProcess != rhs.hasLiveProcess { return rhs.hasLiveProcess }
+                if lhs.isDirectoryAffine != rhs.isDirectoryAffine { return rhs.isDirectoryAffine }
+                if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt < rhs.updatedAt }
+                return rhs.panelId.uuidString < lhs.panelId.uuidString
+            }
+            for loser in claimants where loser.panelId != winner?.panelId {
+                workspaces[loser.workspaceIndex]
+                    .panels[loser.panelIndex]
+                    .terminal?.resumeBinding = nil
+                workspaces[loser.workspaceIndex]
+                    .panels[loser.panelIndex]
+                    .terminal?.agent = nil
+                workspaces[loser.workspaceIndex]
+                    .panels[loser.panelIndex]
+                    .terminal?.wasAgentRunning = false
+            }
+        }
+        return workspaces
     }
 
     func sessionSnapshotWorkspaceIds() -> [UUID] {
@@ -5972,6 +6063,9 @@ extension TabManager {
         let workspaceSnapshots = normalizedWorkspaceSnapshots
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         var restoredOriginalWorkspaceIds: [UUID?] = []
+        // One tracker for the whole pass: a session id duplicated across two WORKSPACES
+        // must resume in only one of them, so the claim cannot be per-workspace.
+        let agentSessionClaims = SessionRestoreAgentSessionClaims()
         for workspaceSnapshot in workspaceSnapshots {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
@@ -5982,6 +6076,7 @@ extension TabManager {
                 closeTabWarningDefaults: closeTabWarningDefaults
             )
             workspace.owningTabManager = self
+            workspace.sessionRestoreAgentSessionClaims = agentSessionClaims
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)

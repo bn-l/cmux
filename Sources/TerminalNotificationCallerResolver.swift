@@ -130,8 +130,14 @@ extension TerminalController {
     ) -> TerminalCallerNotificationTarget? {
         for manager in tabManagers {
             for workspace in manager.tabs {
+                // Only names a live shell reported. A snapshot-restored name is a
+                // recycled `ttysNNN` from the previous run and after a relaunch usually
+                // denotes another pane's terminal, so matching it would deliver this
+                // caller's notification onto an unrelated project's tab.
                 for (surfaceId, candidateTTY) in workspace.surfaceTTYNames
-                    where workspace.panels[surfaceId] != nil && normalizedTTYName(candidateTTY) == ttyName {
+                    where workspace.panels[surfaceId] != nil
+                        && !workspace.restoredUnverifiedTTYPanelIds.contains(surfaceId)
+                        && normalizedTTYName(candidateTTY) == ttyName {
                     return TerminalCallerNotificationTarget(workspace: workspace, surfaceId: surfaceId)
                 }
             }

@@ -5896,7 +5896,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? FileManager.default.homeDirectoryForCurrentUser.path
         if preferAgentContext,
            let surfaceId = workspace.focusedPanelId,
-           let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId),
+           let snapshot = SharedLiveAgentIndex.shared.snapshot(
+               workspaceId: workspace.id,
+               panelId: surfaceId,
+               directory: workspace.agentSessionAffinityDirectory(panelId: surfaceId)
+           ),
            let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) {
             let snapshotWorkingDirectory = Self.normalizedOpenDiffViewerPath(
                 snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
@@ -5943,7 +5947,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func focusedAgentWorkingDirectoryContext(for workspace: Workspace) -> (cwd: String, sessionId: String?)? {
         guard let surfaceId = workspace.focusedPanelId else { return nil }
-        guard let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId) else {
+        guard let snapshot = SharedLiveAgentIndex.shared.snapshot(
+            workspaceId: workspace.id,
+            panelId: surfaceId,
+            directory: workspace.agentSessionAffinityDirectory(panelId: surfaceId)
+        ) else {
             return nil
         }
         let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId)

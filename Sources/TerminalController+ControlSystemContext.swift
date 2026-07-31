@@ -126,7 +126,12 @@ extension TerminalController: ControlSystemContext {
                 selectedInPane: surface.selectedInPane,
                 paneID: surface.paneID,
                 indexInPane: surface.indexInPane,
-                tty: workspace.surfaceTTYNames[surface.surfaceID],
+                // Verified-only. `v2AnnotateTopSurface` folds every process on this tty
+                // into the surface's `processes` / `top_level_pids`, and the CLI resolves
+                // an agent's owning pane from exactly that tree. A snapshot-restored
+                // (recycled) name would hand another pane's process tree to this surface
+                // and make the pid lookup — the one binding nothing else can fake — lie.
+                tty: workspace.verifiedSurfaceTTYName(panelId: surface.surfaceID),
                 isBrowser: browserPanel != nil,
                 url: browserPanel?.currentURL?.absoluteString
             )

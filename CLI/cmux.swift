@@ -21429,41 +21429,56 @@ struct CMUXCLI {
         let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         let hookSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-        let preferCallerTTYRouting = hookWsFlag == nil && hookSurfaceFlag == nil
-        var callerTTYBindingCache: CallerTerminalBinding?
-        var didResolveCallerTTYBinding = false
-        func callerTTYBinding() -> CallerTerminalBinding? {
-            if !didResolveCallerTTYBinding {
-                didResolveCallerTTYBinding = true
-                let ttyBinding = uniqueCallerTerminalBindingByTTY(
-                    client: client,
-                    includeAmbientTTY: workspaceArg == nil && surfaceArg == nil
-                )
-                if let ttyBinding,
-                   claudeHookSurfaceIsListed(ttyBinding.surfaceId, workspaceId: ttyBinding.workspaceId, client: client) {
-                    callerTTYBindingCache = ttyBinding
-                } else {
-                    let processBinding = resolveAgentProcessTerminalBinding(
-                        pid: claudeAgentPID(from: ProcessInfo.processInfo.environment),
-                        socketPath: client.socketPath,
-                        socketPassword: socketPassword
-                    )
-                    if let processBinding,
-                       claudeHookSurfaceIsListed(
-                           processBinding.surfaceId,
-                           workspaceId: processBinding.workspaceId,
-                           client: client
-                       ) {
-                        callerTTYBindingCache = processBinding
-                    }
+        let preferCallerBindingRouting = hookWsFlag == nil && hookSurfaceFlag == nil
+        var callerBindingCache: CallerTerminalBinding?
+        var didResolveCallerBinding = false
+        // The session record's own pid, noted by `lookupMappedSession()` before any
+        // routing runs. Async/detached hooks (auto-name, the fire-and-forget push
+        // bridge) can lose `CMUX_CLAUDE_PID`, and the recorded pid is then the only
+        // handle on the live agent process. Only the pid is borrowed from the record —
+        // never its stored pane, which is what routing is trying to verify.
+        var recordedAgentPID: Int?
+        func callerAgentBinding() -> CallerTerminalBinding? {
+            if !didResolveCallerBinding {
+                didResolveCallerBinding = true
+                let env = ProcessInfo.processInfo.environment
+                var agentPIDs: [Int] = []
+                for pid in [claudeAgentPID(from: env), recordedAgentPID].compactMap({ $0 })
+                where pid > 0 && !agentPIDs.contains(pid) {
+                    agentPIDs.append(pid)
                 }
+                callerBindingCache = resolveClaudeHookCallerBinding(
+                    env: env,
+                    includeAmbientTTY: workspaceArg == nil && surfaceArg == nil,
+                    agentPIDs: agentPIDs,
+                    client: client,
+                    // A second connection: `system.top` walks every window's process
+                    // tree and must not share this hook's request/response stream.
+                    processTerminalBinding: { pid in
+                        resolveAgentProcessTerminalBinding(
+                            pid: pid,
+                            socketPath: client.socketPath,
+                            socketPassword: socketPassword
+                        )
+                    }
+                )
             }
-            return callerTTYBindingCache
+            return callerBindingCache
         }
-        let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? = preferCallerTTYRouting ? callerTTYBinding : nil
+        let callerBindingProvider: (() -> CallerTerminalBinding?)? = preferCallerBindingRouting ? callerAgentBinding : nil
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
+        /// Read this hook's session record and note its pid for caller-binding
+        /// resolution. Must run before the first routing call so the hint is in place
+        /// while the binding is still unresolved (it is cached after the first call).
+        func lookupMappedSession() -> ClaudeHookSessionRecord? {
+            let record = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            if !didResolveCallerBinding, let pid = record?.pid, pid > 0 {
+                recordedAgentPID = pid
+            }
+            return record
+        }
         telemetry.breadcrumb(
             "claude-hook.input",
             data: [
@@ -21498,8 +21513,8 @@ struct CMUXCLI {
             guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: nil,
                 fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+                preferCallerBindingOverRecord: preferCallerBindingRouting,
+                callerTerminalBinding: callerBindingProvider,
                 client: client
             ) else {
                 didSendFeedTelemetry = true
@@ -21511,8 +21526,9 @@ struct CMUXCLI {
                 preferred: nil,
                 fallback: surfaceArg,
                 fallbackIsExplicit: hookSurfaceFlag != nil,
+                preferCallerBindingOverRecord: preferCallerBindingRouting,
                 workspaceId: workspaceId,
-                callerTerminalBinding: callerTTYBindingProvider,
+                callerTerminalBinding: callerBindingProvider,
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
@@ -21630,12 +21646,12 @@ struct CMUXCLI {
             do {
                 // Turn ended. Don't consume session or clear PID — Claude is still alive.
                 // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
-                let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                let mappedSession = lookupMappedSession()
                 guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
-                    preferCallerTTYOverFallback: preferCallerTTYRouting,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                    preferCallerBindingOverRecord: preferCallerBindingRouting,
+                    callerTerminalBinding: callerBindingProvider,
                     client: client
                 ) else {
                     didSendFeedTelemetry = true
@@ -21647,8 +21663,9 @@ struct CMUXCLI {
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
                     fallbackIsExplicit: hookSurfaceFlag != nil,
+                    preferCallerBindingOverRecord: preferCallerBindingRouting,
                     workspaceId: workspaceId,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                    callerTerminalBinding: callerBindingProvider,
                     client: client
                 )
                 let surfaceId = resolvedSurface.surfaceId
@@ -21773,12 +21790,12 @@ struct CMUXCLI {
 
         case "prompt-submit":
             telemetry.breadcrumb("claude-hook.prompt-submit")
-            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let mappedSession = lookupMappedSession()
             guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+                preferCallerBindingOverRecord: preferCallerBindingRouting,
+                callerTerminalBinding: callerBindingProvider,
                 client: client
             ) else {
                 didSendFeedTelemetry = true
@@ -21790,8 +21807,9 @@ struct CMUXCLI {
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
                 fallbackIsExplicit: hookSurfaceFlag != nil,
+                preferCallerBindingOverRecord: preferCallerBindingRouting,
                 workspaceId: workspaceId,
-                callerTerminalBinding: callerTTYBindingProvider,
+                callerTerminalBinding: callerBindingProvider,
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
@@ -21889,12 +21907,12 @@ struct CMUXCLI {
             // already covers turn telemetry for this turn.
             didSendFeedTelemetry = true
             do {
-                let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                let mappedSession = lookupMappedSession()
                 guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
-                    preferCallerTTYOverFallback: preferCallerTTYRouting,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                    preferCallerBindingOverRecord: preferCallerBindingRouting,
+                    callerTerminalBinding: callerBindingProvider,
                     client: client
                 ) else {
                     telemetry.breadcrumb("claude-hook.auto-name.unresolved")
@@ -21905,8 +21923,9 @@ struct CMUXCLI {
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
                     fallbackIsExplicit: hookSurfaceFlag != nil,
+                    preferCallerBindingOverRecord: preferCallerBindingRouting,
                     workspaceId: workspaceId,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                    callerTerminalBinding: callerBindingProvider,
                     client: client
                 )
                 runClaudeAutoNameHook(
@@ -21933,12 +21952,12 @@ struct CMUXCLI {
             // clients, nested payloads) can still gate under the right setting.
             let classifiedSubtitle = summary.subtitle
 
-            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let mappedSession = lookupMappedSession()
             guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+                preferCallerBindingOverRecord: preferCallerBindingRouting,
+                callerTerminalBinding: callerBindingProvider,
                 client: client
             ) else {
                 didSendFeedTelemetry = true
@@ -21955,8 +21974,9 @@ struct CMUXCLI {
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
                 fallbackIsExplicit: hookSurfaceFlag != nil,
+                preferCallerBindingOverRecord: preferCallerBindingRouting,
                 workspaceId: workspaceId,
-                callerTerminalBinding: callerTTYBindingProvider,
+                callerTerminalBinding: callerBindingProvider,
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
@@ -22081,7 +22101,7 @@ struct CMUXCLI {
             }
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
-        case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, workspaceArg: workspaceArg, surfaceArg: surfaceArg, hookSurfaceFlagIsExplicit: hookSurfaceFlag != nil, preferCallerTTYRouting: preferCallerTTYRouting, callerTTYBindingProvider: callerTTYBindingProvider, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
+        case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, workspaceArg: workspaceArg, surfaceArg: surfaceArg, hookSurfaceFlagIsExplicit: hookSurfaceFlag != nil, preferCallerBindingRouting: preferCallerBindingRouting, callerBindingProvider: callerBindingProvider, lookupMappedSession: lookupMappedSession, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
             // A fork launch that exits before its first prompt fires SessionEnd
@@ -22112,16 +22132,17 @@ struct CMUXCLI {
                    let forkWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
                        preferred: nil,
                        fallback: workspaceArg,
-                       preferCallerTTYOverFallback: preferCallerTTYRouting,
-                       callerTerminalBinding: callerTTYBindingProvider,
+                       preferCallerBindingOverRecord: preferCallerBindingRouting,
+                       callerTerminalBinding: callerBindingProvider,
                        client: client
                    ),
                    let forkSurface = try? resolvePreferredSurfaceForClaudeHookDetailed(
                        preferred: nil,
                        fallback: surfaceArg,
                        fallbackIsExplicit: hookSurfaceFlag != nil,
+                       preferCallerBindingOverRecord: preferCallerBindingRouting,
                        workspaceId: forkWorkspaceId,
-                       callerTerminalBinding: callerTTYBindingProvider,
+                       callerTerminalBinding: callerBindingProvider,
                        client: client
                    ),
                    forkSurface.isAuthoritative {
@@ -22137,12 +22158,12 @@ struct CMUXCLI {
             // Only clear when we are the primary cleanup path (Stop didn't fire first).
             // If Stop already consumed the session, consumedSession is nil and we skip
             // to avoid wiping the completion notification that Stop just delivered.
-            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let mappedSession = lookupMappedSession()
             let fallbackWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+                preferCallerBindingOverRecord: preferCallerBindingRouting,
+                callerTerminalBinding: callerBindingProvider,
                 client: client
             )
             let fallbackSurfaceId: String? = {
@@ -22151,8 +22172,9 @@ struct CMUXCLI {
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
                     fallbackIsExplicit: hookSurfaceFlag != nil,
+                    preferCallerBindingOverRecord: preferCallerBindingRouting,
                     workspaceId: fallbackWorkspaceId,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                    callerTerminalBinding: callerBindingProvider,
                     client: client
                 )
             }()
@@ -22215,12 +22237,12 @@ struct CMUXCLI {
             telemetry.breadcrumb("claude-hook.pre-tool-use")
             // Clears "Needs input" status and notification when Claude resumes work
             // (e.g. after permission grant). Runs async so it doesn't block tool execution.
-            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let mappedSession = lookupMappedSession()
             guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+                preferCallerBindingOverRecord: preferCallerBindingRouting,
+                callerTerminalBinding: callerBindingProvider,
                 client: client
             ) else {
                 didSendFeedTelemetry = true
@@ -22232,8 +22254,9 @@ struct CMUXCLI {
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
                 fallbackIsExplicit: hookSurfaceFlag != nil,
+                preferCallerBindingOverRecord: preferCallerBindingRouting,
                 workspaceId: workspaceId,
-                callerTerminalBinding: callerTTYBindingProvider,
+                callerTerminalBinding: callerBindingProvider,
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
@@ -22602,6 +22625,7 @@ struct CMUXCLI {
         preferred: String?,
         fallback: String?,
         fallbackIsExplicit: Bool = false,
+        preferCallerBindingOverRecord: Bool = false,
         workspaceId: String,
         callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
         client: SocketClient
@@ -22610,6 +22634,7 @@ struct CMUXCLI {
             preferred: preferred,
             fallback: fallback,
             fallbackIsExplicit: fallbackIsExplicit,
+            preferCallerBindingOverRecord: preferCallerBindingOverRecord,
             workspaceId: workspaceId,
             callerTerminalBinding: callerTerminalBinding,
             client: client
@@ -22623,10 +22648,17 @@ struct CMUXCLI {
     /// surface may participate in cross-surface staleness decisions — a borrowed
     /// fallback surface must not let a stale hook masquerade as another pane's.
     /// https://github.com/manaflow-ai/cmux/issues/5908
+    ///
+    /// `preferCallerBindingOverRecord` mirrors the workspace resolver: with no explicit
+    /// `--workspace`/`--surface`, the agent's live pane outranks the pane stored on the
+    /// session record, so a record written through a recycled tty name is corrected (and
+    /// rewritten) by the next hook instead of routing every later side effect to the
+    /// wrong pane.
     func resolvePreferredSurfaceForClaudeHookDetailed(
         preferred: String?,
         fallback: String?,
         fallbackIsExplicit: Bool = false,
+        preferCallerBindingOverRecord: Bool = false,
         workspaceId: String,
         callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
         client: SocketClient
@@ -22654,7 +22686,7 @@ struct CMUXCLI {
                 preferred,
                 workspaceId: workspaceId,
                 client: client,
-                preferCallerTTYOverRaw: false,
+                preferCallerTTYOverRaw: preferCallerBindingOverRecord,
                 callerTerminalBinding: callerTerminalBinding
             )
         }
@@ -27711,15 +27743,31 @@ export default CMUXSessionRestore;
         func processBinding() -> CallerTerminalBinding? {
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
-                // Always resolve the agent process's own terminal binding (TTY first, then PID), even
-                // when env supplies both ids. Historically this was suppressed whenever both env ids
-                // were present, which made a leaked/stale CMUX_SURFACE_ID impossible to correct — the
-                // codex jumble class, where a session routes to the wrong surface and the no-pid-gate
-                // resume binding persists it across reload. resolveAgentHookTarget now uses this
+                // Always resolve the agent process's own terminal binding, even when env supplies
+                // both ids. Historically this was suppressed whenever both env ids were present,
+                // which made a leaked/stale CMUX_SURFACE_ID impossible to correct — the codex
+                // jumble class, where a session routes to the wrong surface and the no-pid-gate
+                // resume binding persists it across reload. resolveAgentHookTarget uses this
                 // binding to OVERRIDE a disagreeing ambient-env surface; the binding stays nil (env
-                // trusted) under remote/SSH where no local TTY maps to a surface.
-                processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
-                    ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+                // trusted) under remote/SSH where neither a local TTY nor a local pid maps to a
+                // surface.
+                //
+                // A TTY match alone is NOT sufficient evidence: macOS recycles `ttysNNN` device
+                // names, and the app re-seeds its tty table from the previous run's snapshot at
+                // restore, so right after a relaunch a name can still be attributed to a different
+                // project's pane. So the tty is trusted only when the shell's own CMUX_SURFACE_ID
+                // agrees with it (the cheap, overwhelmingly common path); otherwise the agent's
+                // location in the live process tree decides, which no stale table can fake. The
+                // unique-match tty resolver is used because a shared name maps to several panes.
+                let ttyBinding = uniqueCallerTerminalBindingByTTY(client: client)
+                if let ttyBinding,
+                   let envSurfaceId = normalizedHookValue(directSurfaceArg),
+                   ttyBinding.surfaceId == envSurfaceId {
+                    processBindingCache = ttyBinding
+                } else {
+                    processBindingCache = resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+                        ?? ttyBinding
+                }
             }
             return processBindingCache
         }

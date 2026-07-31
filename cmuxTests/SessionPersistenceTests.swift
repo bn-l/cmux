@@ -946,7 +946,7 @@ final class SessionPersistenceTests: XCTestCase {
             ]
         )
         let firstFingerprint = TabManager.restorableAgentSnapshotFingerprint(
-            try XCTUnwrap(firstIndex.snapshot(workspaceId: workspaceId, panelId: panelId))
+            try XCTUnwrap(firstIndex.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil))
         )
 
         let secondIndex = try makeRestorableAgentIndex(
@@ -962,7 +962,7 @@ final class SessionPersistenceTests: XCTestCase {
             ]
         )
         let secondFingerprint = TabManager.restorableAgentSnapshotFingerprint(
-            try XCTUnwrap(secondIndex.snapshot(workspaceId: workspaceId, panelId: panelId))
+            try XCTUnwrap(secondIndex.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil))
         )
 
         XCTAssertNotEqual(baselineFingerprint, firstFingerprint)
@@ -984,7 +984,7 @@ final class SessionPersistenceTests: XCTestCase {
             pid: Int(Int32.max)
         )
 
-        XCTAssertNil(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        XCTAssertNil(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil))
     }
 
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
@@ -3963,7 +3963,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         try json.write(to: storeURL, atomically: true, encoding: .utf8)
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
-        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil))
 
         XCTAssertEqual(snapshot.launchCommand?.arguments.first, "/usr/local/bin/codex")
         XCTAssertEqual(
@@ -4044,7 +4044,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 ),
             ]
         )
-        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil))
 
         XCTAssertEqual(snapshot.sessionId, "process-session")
         XCTAssertEqual(snapshot.launchCommand?.launcher, "opencode")
@@ -4112,7 +4112,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 ),
             ]
         )
-        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId, directory: nil))
 
         XCTAssertEqual(snapshot.sessionId, "live-process-session")
         XCTAssertEqual(snapshot.launchCommand?.source, "process")

@@ -110,12 +110,12 @@ struct SharedLiveAgentIndexAgentLivenessTests {
 
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
 
-        #expect(sharedIndex.index?.processIDs(workspaceId: workspaceId, panelId: panelId) == Set([agentPID, childPID]))
-        #expect(sharedIndex.index?.agentProcessIDs(workspaceId: workspaceId, panelId: panelId) == Set([agentPID]))
-        #expect(sharedIndex.index?.agentProcessIdentities(workspaceId: workspaceId, panelId: panelId) == [agentPID: agentIdentity])
-        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
+        #expect(sharedIndex.index?.processIDs(workspaceId: workspaceId, panelId: panelId, directory: nil) == Set([agentPID, childPID]))
+        #expect(sharedIndex.index?.agentProcessIDs(workspaceId: workspaceId, panelId: panelId, directory: nil) == Set([agentPID]))
+        #expect(sharedIndex.index?.agentProcessIdentities(workspaceId: workspaceId, panelId: panelId, directory: nil) == [agentPID: agentIdentity])
+        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId, directory: nil))
         #expect(
-            sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId)?.sessionId == sessionId
+            sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId, directory: nil)?.sessionId == sessionId
         )
 
         processArguments.withLock {
@@ -130,10 +130,10 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         }
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
         #expect(
-            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
+            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId, directory: nil),
             "An async validation pass should stop an agent PID that moved to another panel from keeping the old panel forkable."
         )
-        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
+        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId, directory: nil) == nil)
     }
 
     @Test
@@ -217,8 +217,8 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         #expect(processArgumentReads.withLock { $0 } > 0)
 
         processArgumentReads.withLock { $0 = 0 }
-        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
-        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId)?.sessionId == sessionId)
+        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId, directory: nil))
+        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId, directory: nil)?.sessionId == sessionId)
         #expect(
             processArgumentReads.withLock { $0 } == 0,
             "Fork availability reads should use the cached off-main validation result."
@@ -303,9 +303,9 @@ struct SharedLiveAgentIndexAgentLivenessTests {
 
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: originalWorkspaceId, panelId: panelId)
 
-        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: movedWorkspaceId, panelId: panelId))
+        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: movedWorkspaceId, panelId: panelId, directory: nil))
         #expect(
-            sharedIndex.snapshotForForkAvailability(workspaceId: movedWorkspaceId, panelId: panelId)?.sessionId
+            sharedIndex.snapshotForForkAvailability(workspaceId: movedWorkspaceId, panelId: panelId, directory: nil)?.sessionId
                 == sessionId
         )
     }

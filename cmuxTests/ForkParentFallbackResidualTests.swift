@@ -154,7 +154,7 @@ struct ForkParentFallbackResidualTests {
 
         let snapshot = try #require(
             RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fixture.fileManager)
-                .snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)
+                .snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil)
         )
         #expect(snapshot.workingDirectory == fixture.cwd.path)
         #expect(snapshot.resumeStartupInput()?.contains("cd -- '\(fixture.cwd.path)'") == true)
@@ -210,11 +210,11 @@ struct ForkParentFallbackResidualTests {
             processIdentityProvider: { _ in nil }
         )
 
-        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId))
+        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil))
         #expect(forkSnapshot.kind == .codex)
         #expect(forkSnapshot.sessionId == parentSessionId)
         #expect(forkSnapshot.forkCommand?.contains("'codex-teams' 'fork' '\(parentSessionId)' '--model' 'gpt-5'") == true)
-        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId)?.sessionId == parentSessionId)
+        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId, directory: nil)?.sessionId == parentSessionId)
     }
 
     @Test func codexTeamsWrapperSameKindHookRecordWinsAfterForkMintsSession() throws {
@@ -250,7 +250,7 @@ struct ForkParentFallbackResidualTests {
             processIdentityProvider: { _ in nil }
         )
 
-        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)?.sessionId == childSessionId)
+        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil)?.sessionId == childSessionId)
     }
 
     @Test func claudeTeamsPersistentClaudeProcessForkFallbackRoundTripsAndValidates() throws {
@@ -306,7 +306,7 @@ struct ForkParentFallbackResidualTests {
             }
         )
         let result = loader.loadResultSynchronously()
-        let snapshot = try #require(result.index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId))
+        let snapshot = try #require(result.index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId, directory: nil))
         #expect(snapshot.kind == .claude)
         #expect(result.forkValidatedPanels.contains(fixture.panelKey))
         #expect(snapshot.forkCommand?.contains("'claude-teams' '--resume' '\(parentSessionId)' '--fork-session' '--model' 'sonnet'") == true)

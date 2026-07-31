@@ -66,6 +66,22 @@ extension Workspace {
             ?? normalizedSidebarDirectory(terminalPanel(for: panelId)?.requestedWorkingDirectory)
     }
 
+    /// The directory used to decide whether a stored agent session or resume binding may
+    /// be attributed to this panel across a restart (see
+    /// `AgentSessionDirectoryAffinity`). Deliberately NOT gated on remote directory
+    /// trust: this value is only ever compared against another recorded path, never
+    /// displayed or executed, and refusing to answer would just turn the guard into a
+    /// blanket "no restore" for remote panes. Falls back to the workspace directory
+    /// because a pane restored from a snapshot may not have reported its own cwd yet,
+    /// and the workspace directory still answers the project-level question correctly.
+    func agentSessionAffinityDirectory(panelId: UUID) -> String? {
+        AgentSessionDirectoryAffinity.standardized(panelDirectories[panelId])
+            ?? AgentSessionDirectoryAffinity.standardized(
+                terminalPanel(for: panelId)?.requestedWorkingDirectory
+            )
+            ?? AgentSessionDirectoryAffinity.standardized(currentDirectory)
+    }
+
     func allowsLocalDirectoryFallback(panelId: UUID) -> Bool {
         if !usesRemoteDirectoryProvenance { return true }
         guard !remoteDirectoryTrustRequiredPanelIds.contains(panelId),

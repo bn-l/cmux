@@ -88,8 +88,10 @@ extension Workspace {
         // Panel identity comes from the workspace's own tty registry; the
         // foreground scan is joined on tty device ids, never on the child
         // process's spoofable CMUX_* environment.
+        // Verified-only: a snapshot-restored (recycled) name would join another pane's
+        // live foreground command onto this panel.
         var ttyDeviceByPanelId: [UUID: Int64] = [:]
-        for (panelId, ttyName) in surfaceTTYNames {
+        for (panelId, ttyName) in surfaceTTYNames where !restoredUnverifiedTTYPanelIds.contains(panelId) {
             if let device = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName) {
                 ttyDeviceByPanelId[panelId] = device
             }
