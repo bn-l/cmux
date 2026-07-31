@@ -852,7 +852,15 @@ extension SessionRestorableAgentSnapshot {
 }
 
 private enum AgentResumeScriptStore {
-    private static let directoryName = "cmux-agent-resume"
+    private static let baseDirectoryName = "cmux-agent-resume"
+
+    /// See `SurfaceResumeBindingScriptStore.directoryName`: test runs get their
+    /// own directory so fixtures never mix with the live app's resume scripts.
+    private static var directoryName: String {
+        SessionRestorePolicy.isRunningUnderAutomatedTests()
+            ? "\(baseDirectoryName)-xctest"
+            : baseDirectoryName
+    }
     private static let scriptTTL: TimeInterval = 24 * 60 * 60
 
     static func writeLauncherScript(

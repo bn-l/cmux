@@ -1307,7 +1307,19 @@ nonisolated enum TerminalStartupReturnShellScript {
 }
 
 enum SurfaceResumeBindingScriptStore {
-    private static let directoryName = "cmux-surface-resume"
+    private static let baseDirectoryName = "cmux-surface-resume"
+
+    /// Test runs write into a sibling directory so test fixtures can never land
+    /// in the directory the live app reads from. Mirrors the control-socket
+    /// precedent in `SocketControlSettings+DefaultSocketPath.swift`, which
+    /// redirects to `/tmp/cmux-xctest-<hash>.sock` under XCTest for the same
+    /// reason. Without this, a suite run leaves fixture scripts (fake cwds,
+    /// non-existent agent binaries) intermixed with real resume scripts.
+    private static var directoryName: String {
+        SessionRestorePolicy.isRunningUnderAutomatedTests()
+            ? "\(baseDirectoryName)-xctest"
+            : baseDirectoryName
+    }
     private static let scriptTTL: TimeInterval = 24 * 60 * 60
 
     static func writeLauncherScript(
