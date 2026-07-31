@@ -1,5 +1,17 @@
 # Build and release commands for cmux (personal fork)
 
+# Run the unit test suite (brackets the run with the leaked-agent reaper)
+test-unit *ARGS:
+    ./scripts/test-unit.sh {{ARGS}}
+
+# Show real agent processes leaked by a test run (dry run)
+agents-leaked:
+    ./scripts/reap-leaked-agents.sh --list
+
+# Kill real agent processes leaked by a test run
+agents-reap:
+    ./scripts/reap-leaked-agents.sh --reap
+
 # Print version from Xcode project
 version:
     @grep -m1 'MARKETING_VERSION' cmux.xcodeproj/project.pbxproj | sed 's/.*= \(.*\);/\1/' | tr -d ' '

@@ -7,13 +7,39 @@ Packages/macOS/CmuxBrowser/Tests/CmuxBrowserTests/Omnibar/BrowserOmnibarPageFocu
 Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/SocketTransportIOTests.swift	assert-on-duration	grandfathered
 Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/Process/CommandRunnerTests.swift	assert-on-duration	grandfathered
 Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/UserDefaultsSettingsStoreTests.swift	sleep-then-assert	grandfathered
+cmuxTests/CLICallerWorkspaceDefaultTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/CLIExplicitSurfaceRoutingTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/CLIGenericHookPersistenceTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/CLINotifyProcessTestSupport.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/CLIRemoteShellStartupPerformanceTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/CLISSHPTYResizeInputTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/CLIStdioSIGPIPERegressionTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/CLITmuxCompatRemoteSplitTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/CLIWindowHandleRoutingTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/CMUXCLIErrorOutputRegressionTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/CMUXCLISessionsListForkDiagnosticsTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
 cmuxTests/CMUXOpenCommandTests.swift	assert-on-duration	grandfathered
+cmuxTests/CMUXOpenCommandTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/CMUXOpenHTMLFocusTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/CMUXWorkspaceLoadingCLIRegressionTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/FileExplorerGitStatusProviderTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
 cmuxTests/FileExplorerStoreTests.swift	sleep-then-assert	grandfathered
+cmuxTests/FishShellIntegrationTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/GhosttyConfigTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
 cmuxTests/MobileHostAuthorizationTests.swift	sleep-then-assert	grandfathered
 cmuxTests/NotificationAndMenuBarTests.swift	assert-on-duration	grandfathered
 cmuxTests/OmnibarAndToolsTests.swift	assert-on-duration	grandfathered
+cmuxTests/OpenCodeHookRegressionTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/SSHStartupManualReconnectTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
 cmuxTests/TabManagerSessionSnapshotTests.swift	assert-on-duration	grandfathered
+cmuxTests/WorkspaceRemoteConnectionTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxTests/WorkspaceSSHFishShellTests.swift	inherited-agent-env	pre-existing; migrate to AgentSpawnIsolation
+cmuxUITests/AutomationSocketUITests.swift	inherited-agent-env	UI test drives a real app host
+cmuxUITests/DisplayResolutionRegressionUITests.swift	inherited-agent-env	UI test drives a real app host
 cmuxUITests/FeedSidebarUITests.swift	sleep-then-assert	grandfathered
+cmuxUITests/MultiWindowNotificationsUITests.swift	inherited-agent-env	UI test drives a real app host
+cmuxUITests/RemoteTmuxSizingUITests.swift	inherited-agent-env	UI test drives a real app host
 tests/test_multi_workspace_focus.py	sleep-then-assert	grandfathered
 tests_v2/test_browser_api_extended_families.py	sleep-then-assert	grandfathered
 tests_v2/test_pane_break_swap_preserve_focus.py	sleep-then-assert	grandfathered

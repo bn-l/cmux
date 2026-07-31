@@ -241,6 +241,58 @@ fi
 # binary would (same as the claude wrapper) rather than silently succeeding.
 REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
 
+# Returns the name of the first XCTest marker found in the environment.
+# Mirrors SocketControlSettings.isRunningUnderXCTest(environment:), which the
+# app already uses to redirect the control socket away from the user's live
+# instance during tests.
+cmux_codex_wrapper_xctest_marker() {
+    local key value
+    for key in XCTestConfigurationFilePath XCTestBundlePath XCTestSessionIdentifier \
+               XCInjectBundle XCInjectBundleInto; do
+        value="${!key:-}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        if [[ -n "$value" ]]; then
+            printf '%s' "$key"
+            return 0
+        fi
+    done
+    if [[ "${DYLD_INSERT_LIBRARIES:-}" == *libXCTest* ]]; then
+        printf '%s' "DYLD_INSERT_LIBRARIES"
+        return 0
+    fi
+    return 1
+}
+
+# An XCTest process must never launch the user's real, authenticated codex.
+#
+# A test that builds its child environment from ProcessInfo.processInfo.environment
+# inherits CMUX_CODEX_WRAPPER_SHIM, and the resume command cmux generates
+# (AgentResumeArgv.swift) prefers that shim over a PATH lookup -- so the fake
+# `codex` stub the test installed on PATH is bypassed entirely and the real
+# binary runs, historically with --yolo against a non-existent session. The
+# resulting TUI is orphaned to launchd when its parent shell exits and spins
+# its event loop forever.
+#
+# Keyed on XCTest markers ONLY. Do NOT key this on "a shim is set": the Python
+# suite (tests/test_claude_wrapper_user_binary_resolution.py) deliberately sets
+# fake shim paths to exercise wrapper resolution and must keep working. Python
+# tests set no XCTest markers, so they are unaffected.
+#
+# This is the one deliberate exception to the "every failure path still execs
+# the real codex" contract at the top of this file: here we must NOT exec.
+if cmux_xctest_marker="$(cmux_codex_wrapper_xctest_marker)"; then
+    cat >&2 <<EOF
+cmux-codex-wrapper: refusing to launch the real codex binary from an XCTest process.
+  XCTest marker: ${cmux_xctest_marker}
+  would exec:    ${REAL_CODEX}
+  via shim:      ${CMUX_CODEX_WRAPPER_SHIM:-<unset>}
+This test inherited the real environment (likely ProcessInfo.processInfo.environment),
+so it bypassed its own fake codex stub. Build the child environment with the helper in
+cmuxTests/AgentSpawnIsolationTestSupport.swift instead.
+EOF
+    exit 78
+fi
+
 exec_real_codex_passthrough() {
     if [[ "$IN_CMUX" == "1" ]]; then
         local cmux_key

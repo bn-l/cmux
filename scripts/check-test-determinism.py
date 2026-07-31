@@ -31,6 +31,13 @@ Detectors (all line/regex heuristics, never an AST):
   lines) by an assertion, where the sleep is NOT a loop body (i.e. not a poll).
   This is the "sleep as synchronization" ban. Deadline-bounded polls and
   scenario-pacing sleeps with no trailing assert are allowed.
+- inherited-agent-env: a test that constructs a child process AND reads
+  ProcessInfo.processInfo.environment. The inherited environment carries
+  CMUX_CODEX_WRAPPER_SHIM / CMUX_CLAUDE_WRAPPER_SHIM, which the generated resume
+  command prefers over a PATH lookup -- so the test's fake agent stub is bypassed
+  and the developer's real, authenticated agent is launched and then orphaned.
+  Route the environment through AgentSpawnIsolation (see
+  cmuxTests/AgentSpawnIsolationTestSupport.swift) instead.
 
 Usage:
     check-test-determinism.py                 # scan, print findings, exit 0
@@ -87,12 +94,14 @@ RULE_ASSERT_ON_DURATION = "assert-on-duration"
 RULE_LIVE_NETWORK_HOST = "live-network-host"
 RULE_FIXED_PORT_BIND = "fixed-port-bind"
 RULE_SLEEP_THEN_ASSERT = "sleep-then-assert"
+RULE_INHERITED_AGENT_ENV = "inherited-agent-env"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
     RULE_LIVE_NETWORK_HOST,
     RULE_FIXED_PORT_BIND,
     RULE_SLEEP_THEN_ASSERT,
+    RULE_INHERITED_AGENT_ENV,
 )
 
 # ---------------------------------------------------------------------------
@@ -443,6 +452,38 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
     return False
 
 
+# A test reading the launching process's environment verbatim.
+_INHERITED_ENV = re.compile(r"ProcessInfo\.processInfo\.environment")
+# Constructing a child process. Deliberately narrow: matches only the two
+# unambiguous construction forms, so a helper that merely *accepts* an
+# already-built Process (and therefore cannot leak an environment) is not hit.
+_CONSTRUCTS_PROCESS = re.compile(r"\bProcess\s*\(\s*\)|\.executableURL\s*=")
+# The sanctioned escape hatch.
+_AGENT_SPAWN_ISOLATION = re.compile(r"\bAgentSpawnIsolation\b")
+
+
+def detect_inherited_agent_env(line: str, file_constructs_process: bool) -> bool:
+    """A test that spawns a child process and hands it the real environment.
+
+    Inheriting `ProcessInfo.processInfo.environment` carries
+    `CMUX_CODEX_WRAPPER_SHIM` / `CMUX_CLAUDE_WRAPPER_SHIM` into the child. The
+    resume command cmux generates prefers that shim over a `PATH` lookup, so the
+    test's fake agent stub is bypassed and the developer's real, authenticated
+    agent is launched, then orphaned to launchd where it spins CPU indefinitely.
+
+    Only fires in files that actually construct a child process, and never on a
+    line that already routes through `AgentSpawnIsolation`, so a migrated call
+    site goes quiet on its own.
+    """
+    if not file_constructs_process:
+        return False
+    if not _INHERITED_ENV.search(line):
+        return False
+    if _AGENT_SPAWN_ISOLATION.search(line):
+        return False
+    return True
+
+
 def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = lines[idx]
@@ -496,6 +537,10 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     code_lines = [_strip_comment(l, suffix) for l in raw_lines]
     findings: list[Finding] = []
 
+    # File-level precondition for inherited-agent-env: only files that actually
+    # build a child process can leak an environment into one.
+    file_constructs_process = any(_CONSTRUCTS_PROCESS.search(c) for c in code_lines)
+
     for i, code in enumerate(code_lines):
         if not code.strip():
             continue
@@ -510,6 +555,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
         if detect_sleep_then_assert(code_lines, i, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
+        if detect_inherited_agent_env(code, file_constructs_process):
+            findings.append(Finding(rel_posix, line_no, RULE_INHERITED_AGENT_ENV, snippet))
 
     return findings
 

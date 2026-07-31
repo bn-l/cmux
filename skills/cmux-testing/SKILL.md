@@ -39,6 +39,50 @@ Swift Testing is the current Apple-supported primitive for tests on this codebas
 
 `reload.sh` does not compile the test target. It builds only the `cmux` scheme, so a green `reload.sh` says nothing about whether `cmuxTests`/`cmuxUITests` still compile. A symbol that is moved or renamed can keep the `cmux` app building while breaking the test target (real case: a `write(to:atomically:)` typo and a removed `TabManager.CommandResult` only surfaced in the `tests` job). Before pushing package/refactor changes, build the `cmux-unit` scheme (with `-derivedDataPath /tmp/cmux-<tag>` and, for `cmuxApp`/`AppDelegate` churn, the GlobalISel workaround flag) or let the `tests` CI job gate it — never treat `reload.sh` alone as proof the tests build.
 
+## Spawning processes from tests
+
+**Never build a spawned process's environment from `ProcessInfo.processInfo.environment`.**
+
+That inherits the environment of whoever launched the test runner. When that is a cmux
+terminal — the normal case, since `reload.sh` and Xcode are usually started from one — it
+carries `CMUX_CODEX_WRAPPER_SHIM` / `CMUX_CLAUDE_WRAPPER_SHIM`. The resume command cmux
+generates (`AgentResumeArgv.swift`) prefers that shim over a `PATH` lookup:
+
+```sh
+"$([ -x "${CMUX_CODEX_WRAPPER_SHIM:-}" ] && printf '%s' "$CMUX_CODEX_WRAPPER_SHIM" || printf codex)"
+```
+
+So the fake agent stub your test installed is bypassed and the developer's **real,
+authenticated agent** runs. The observed case was `codex resume <fake-session> --yolo`
+launching a real Codex TUI that was orphaned to launchd and spun CPU for 46 minutes with
+Codex closed.
+
+**Prepending a fake bin to `PATH` does not save you.** Tests usually spawn `zsh -lc` /
+`zsh -lic`, and a login shell runs `path_helper`, which rebuilds `PATH` from `/etc/paths.d`
+(which includes `/opt/homebrew/bin`) *ahead* of your entry. Verify for yourself:
+
+```sh
+env -i HOME=<empty-dir> PATH=<fakebin>:/usr/bin:/bin zsh -lc 'command -v codex'
+# → /opt/homebrew/bin/codex        (the real binary, not your stub)
+```
+
+Use `AgentSpawnIsolation.childEnvironment(home:prependingPath:fakeAgents:)` from
+`cmuxTests/AgentSpawnIsolationTestSupport.swift`. Binding `fakeAgents:` points the shim
+variable at your stub, which takes `PATH` out of the decision entirely. It also scrubs
+`CMUX_SOCKET_PATH` (so a test cannot drive the developer's live cmux), `CODEX_HOME`,
+`CLAUDE_CONFIG_DIR`, and the custom-path overrides, and requires an explicit sandbox `HOME`.
+Pair it with `AgentSpawnIsolation.runToCompletion(_:timeout:)` so one bad spawn cannot hang
+the suite the way a bare `waitUntilExit()` on a TUI does.
+
+Three backstops exist; none is a substitute for the helper:
+
+- `Resources/bin/cmux-{codex,claude}-wrapper` refuse to exec under XCTest (exit 78).
+- `scripts/test-unit.sh` brackets every run with `scripts/reap-leaked-agents.sh`. Use
+  `just test-unit`; check strays with `just agents-leaked`.
+- `scripts/check-test-determinism.py --strict` fails on the `inherited-agent-env` rule.
+  Existing offenders are allowlisted in `.github/test-determinism-allowlist.txt`; delete
+  your file's line as you migrate it rather than adding new ones.
+
 ## Detailed references
 
 - Read [references/swift-testing-migration.md](references/swift-testing-migration.md) when converting XCTest unit tests to Swift Testing or adding new package tests.

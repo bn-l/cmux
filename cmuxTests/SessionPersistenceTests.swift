@@ -4360,21 +4360,29 @@ extension SessionPersistenceTests {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-lc", startupInput]
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "\(bin.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        // Bind the wrapper shim to the fake codex. `startupInput` prefers
+        // $CMUX_CODEX_WRAPPER_SHIM over a PATH lookup, so without this the
+        // inherited real shim wins and this test launches the user's real,
+        // authenticated codex. Prepending `bin` to PATH is not sufficient on its
+        // own: `zsh -lc` is a login shell, so path_helper rebuilds PATH from
+        // /etc/paths.d (which includes /opt/homebrew/bin) ahead of it.
+        var environment = AgentSpawnIsolation.childEnvironment(
+            home: root,
+            prependingPath: [bin.path],
+            fakeAgents: [.codex: fakeCodex]
+        )
         environment["CMUX_FAKE_CODEX_OUTPUT"] = outputURL.path
         process.environment = environment
         let stderr = Pipe()
         process.standardError = stderr
 
-        try process.run()
-        process.waitUntilExit()
+        let status = try AgentSpawnIsolation.runToCompletion(process)
 
         let errorText = String(
             data: stderr.fileHandleForReading.readDataToEndOfFile(),
             encoding: .utf8
         ) ?? ""
-        XCTAssertEqual(process.terminationStatus, 0, errorText)
+        XCTAssertEqual(status, 0, errorText)
 
         let output = try String(contentsOf: outputURL, encoding: .utf8)
         XCTAssertTrue(output.contains("resume session-duplicate-turn -c check_for_update_on_startup=false --yolo"), output)

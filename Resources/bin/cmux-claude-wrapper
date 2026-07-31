@@ -590,6 +590,56 @@ exec_real_claude_passthrough() {
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 }
 
+# Returns the name of the first XCTest marker found in the environment.
+# Mirrors SocketControlSettings.isRunningUnderXCTest(environment:), which the
+# app already uses to redirect the control socket away from the user's live
+# instance during tests.
+cmux_claude_wrapper_xctest_marker() {
+    local key value
+    for key in XCTestConfigurationFilePath XCTestBundlePath XCTestSessionIdentifier \
+               XCInjectBundle XCInjectBundleInto; do
+        value="${!key:-}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        if [[ -n "$value" ]]; then
+            printf '%s' "$key"
+            return 0
+        fi
+    done
+    if [[ "${DYLD_INSERT_LIBRARIES:-}" == *libXCTest* ]]; then
+        printf '%s' "DYLD_INSERT_LIBRARIES"
+        return 0
+    fi
+    return 1
+}
+
+# An XCTest process must never launch the user's real, authenticated claude.
+#
+# A test that builds its child environment from ProcessInfo.processInfo.environment
+# inherits CMUX_CLAUDE_WRAPPER_SHIM, and the resume command cmux generates
+# (AgentResumeArgv.swift) prefers that shim over a PATH lookup -- so the fake
+# `claude` stub the test installed on PATH is bypassed entirely and the real
+# binary runs, burning the user's real credentials and quota.
+#
+# Keyed on XCTest markers ONLY. Do NOT key this on "a shim is set": the Python
+# suite (tests/test_claude_wrapper_user_binary_resolution.py) deliberately sets
+# fake shim paths to exercise wrapper resolution and must keep working. Python
+# tests set no XCTest markers, so they are unaffected.
+#
+# Placed before every find_real_claude call site so no exec path can bypass it.
+# This is the one deliberate exception to the "installing the wrapper can never
+# break `claude`" contract at the top of this file: here we must NOT exec.
+if cmux_xctest_marker="$(cmux_claude_wrapper_xctest_marker)"; then
+    cat >&2 <<EOF
+cmux-claude-wrapper: refusing to launch the real claude binary from an XCTest process.
+  XCTest marker: ${cmux_xctest_marker}
+  via shim:      ${CMUX_CLAUDE_WRAPPER_SHIM:-<unset>}
+This test inherited the real environment (likely ProcessInfo.processInfo.environment),
+so it bypassed its own fake claude stub. Build the child environment with the helper in
+cmuxTests/AgentSpawnIsolationTestSupport.swift instead.
+EOF
+    exit 78
+fi
+
 if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
     # User-managed hooks need the original cmux terminal environment.
     if [[ "$IN_CMUX" == "1" ]]; then
