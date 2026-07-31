@@ -887,7 +887,6 @@ struct ContentView: View {
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
-    @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
@@ -1869,13 +1868,9 @@ struct ContentView: View {
             tabManager: tabManager,
             fileExplorerStore: fileExplorerStore,
             fileExplorerState: fileExplorerState,
-            sessionIndexStore: sessionIndexStore,
             titlebarHeight: RightSidebarChromeMetrics.titlebarHeight,
             windowAppearance: appearance,
             workspaceId: tabManager.selectedTabId,
-            onResumeSession: { entry in
-                resumeSession(entry: entry)
-            },
             onOpenFilePreview: { filePath in
                 openFilePreviewFromSidebar(filePath: filePath)
             },
@@ -2260,10 +2255,6 @@ struct ContentView: View {
         )
     }
 
-    private func resumeSession(entry: SessionEntry) {
-        SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
-    }
-
     func openRightSidebarToolPane(_ mode: RightSidebarMode) {
         guard mode.canOpenAsPane,
               let workspace = tabManager.selectedWorkspace,
@@ -2312,9 +2303,6 @@ struct ContentView: View {
     private func syncFileExplorerDirectory() {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
-            // No selection means we have no local cwd to scope by; clear so the
-            // sessions panel doesn't keep filtering by a stale previous tab.
-            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
@@ -2322,7 +2310,6 @@ struct ContentView: View {
         fileExplorerStore.showHiddenFiles = true
 
         if tab.usesRemoteDirectoryProvenance {
-            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             guard shouldSyncFileExplorerStore else {
                 fileExplorerStore.applyWorkspaceRoot(.none)
                 return
@@ -2364,12 +2351,10 @@ struct ContentView: View {
 
         let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !dir.isEmpty else {
-            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
 
-        sessionIndexStore.setCurrentDirectoryIfChanged(dir)
         guard shouldSyncFileExplorerStore else {
             fileExplorerStore.applyWorkspaceRoot(.none)
             return
@@ -5519,7 +5504,7 @@ struct ContentView: View {
         case .filePreview:
             return ["file", "preview", "text", "pdf", "image", "audio", "video"]
         case .rightSidebarTool:
-            return ["tool", "files", "find", "vault", "sidebar"]
+            return ["tool", "files", "find", "sidebar"]
         case .customSidebar:
             return ["custom", "sidebar", "pane"]
         case .agentSession:

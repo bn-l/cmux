@@ -10841,33 +10841,6 @@ final class Workspace: Identifiable, ObservableObject {
         _ = failure.runModal()
     }
 
-    private func handleSessionDrop(
-        entry: SessionEntry,
-        destination: BonsplitController.ExternalTabDropRequest.Destination
-    ) -> Bool {
-        guard let resumeCommand = entry.resumeCommand else { return false }
-        let inputWithReturn = resumeCommand + "\n"
-        switch destination {
-        case .insert(let paneId, _):
-            let panel = newTerminalSurface(
-                inPane: paneId,
-                focus: true,
-                workingDirectory: entry.resumeWorkingDirectory,
-                initialInput: inputWithReturn
-            )
-            return panel != nil
-        case .split(let paneId, let orientation, let insertFirst):
-            let panel = splitPaneWithNewTerminal(
-                targetPane: paneId,
-                orientation: orientation,
-                insertFirst: insertFirst,
-                workingDirectory: entry.resumeWorkingDirectory,
-                initialInput: inputWithReturn
-            )
-            return panel != nil
-        }
-    }
-
     func handleFilePreviewDrop(
         entry: FilePreviewDragEntry,
         destination: BonsplitController.ExternalTabDropRequest.Destination
@@ -11235,11 +11208,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
-        // Session-index drag → spawn a brand new terminal at the destination instead
-        // of moving an existing tab.
-        if let entry = SessionDragRegistry.shared.consume(id: request.tabId.uuid) {
-            return handleSessionDrop(entry: entry, destination: request.destination)
-        }
+        // File-preview drag → open the file at the destination instead of moving
+        // an existing tab.
         if let entry = FilePreviewDragRegistry.shared.consume(id: request.tabId.uuid) {
             return handleFilePreviewDrop(entry: entry, destination: request.destination)
         }

@@ -509,7 +509,6 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         let modeSwitchActions: [(KeyboardShortcutSettings.Action, String)] = [
             (.switchRightSidebarToFiles, "1"),
             (.switchRightSidebarToFind, "2"),
-            (.switchRightSidebarToSessions, "3"),
             (.switchRightSidebarToFeed, "4"),
             (.switchRightSidebarToDock, "5"),
         ]
@@ -1138,7 +1137,6 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 "focusRightSidebar": "cmd+opt+shift+e",
                 "switchRightSidebarToFiles": "ctrl+4",
                 "switchRightSidebarToFind": "ctrl+5",
-                "switchRightSidebarToSessions": "ctrl+6",
                 "switchRightSidebarToFeed": "ctrl+7",
                 "switchRightSidebarToDock": "ctrl+8"
               }
@@ -1164,10 +1162,6 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(
             store.override(for: .switchRightSidebarToFind),
             StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
-        )
-        XCTAssertEqual(
-            store.override(for: .switchRightSidebarToSessions),
-            StoredShortcut(key: "6", command: false, shift: false, option: false, control: true)
         )
         XCTAssertEqual(
             store.override(for: .switchRightSidebarToFeed),
@@ -5727,24 +5721,24 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         guard let firstPanel = workspace.openOrFocusRightSidebarToolSurface(
             inPane: paneId,
-            mode: .sessions,
+            mode: .find,
             focus: true
         ) else {
-            XCTFail("Expected Vault tool surface to be created")
+            XCTFail("Expected Find tool surface to be created")
             return
         }
         guard let secondPanel = workspace.openOrFocusRightSidebarToolSurface(
             inPane: paneId,
-            mode: .sessions,
+            mode: .find,
             focus: true
         ) else {
-            XCTFail("Expected existing Vault tool surface to be focused")
+            XCTFail("Expected existing Find tool surface to be focused")
             return
         }
 
         XCTAssertEqual(firstPanel.id, secondPanel.id)
         XCTAssertEqual(
-            workspace.panels.values.compactMap { $0 as? RightSidebarToolPanel }.filter { $0.mode == .sessions }.count,
+            workspace.panels.values.compactMap { $0 as? RightSidebarToolPanel }.filter { $0.mode == .find }.count,
             1
         )
         XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)

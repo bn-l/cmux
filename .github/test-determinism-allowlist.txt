@@ -12,7 +12,6 @@ cmuxTests/FileExplorerStoreTests.swift	sleep-then-assert	grandfathered
 cmuxTests/MobileHostAuthorizationTests.swift	sleep-then-assert	grandfathered
 cmuxTests/NotificationAndMenuBarTests.swift	assert-on-duration	grandfathered
 cmuxTests/OmnibarAndToolsTests.swift	assert-on-duration	grandfathered
-cmuxTests/RovoDevSessionIndexTests.swift	sleep-then-assert	grandfathered
 cmuxTests/TabManagerSessionSnapshotTests.swift	assert-on-duration	grandfathered
 cmuxUITests/FeedSidebarUITests.swift	sleep-then-assert	grandfathered
 tests/test_multi_workspace_focus.py	sleep-then-assert	grandfathered

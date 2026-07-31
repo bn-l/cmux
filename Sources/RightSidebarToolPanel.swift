@@ -13,10 +13,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     private weak var workspace: Workspace?
     private weak var fileExplorerContainerView: FileExplorerContainerView?
-    private weak var sessionIndexFocusAnchorView: RightSidebarToolFocusAnchorView?
     private var fileExplorerStoreStorage: FileExplorerStore?
     private var fileExplorerStateStorage: FileExplorerState?
-    private var sessionIndexStoreStorage: SessionIndexStore?
     private var workspaceObservationCancellable: AnyCancellable?
 
     init(workspace: Workspace, mode: RightSidebarMode) {
@@ -47,16 +45,6 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         return state
     }
 
-    var sessionIndexStore: SessionIndexStore {
-        if let store = sessionIndexStoreStorage { return store }
-        let store = SessionIndexStore()
-        sessionIndexStoreStorage = store
-        if let workspace {
-            syncSessionIndexRoot(from: workspace, store: store)
-        }
-        return store
-    }
-
     var displayTitle: String { mode.label }
     var displayIcon: String? { mode.symbolName }
 
@@ -70,18 +58,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         fileExplorerContainerView = container
     }
 
-    fileprivate func attachSessionIndexFocusAnchor(_ anchor: RightSidebarToolFocusAnchorView?) {
-        sessionIndexFocusAnchorView = anchor
-    }
-
     func syncWorkspaceRoot(from workspace: Workspace) {
         switch mode {
         case .files, .find:
             guard let store = fileExplorerStoreStorage else { return }
             syncFileExplorerRoot(from: workspace, store: store)
-        case .sessions:
-            guard let store = sessionIndexStoreStorage else { return }
-            syncSessionIndexRoot(from: workspace, store: store)
         case .feed, .dock, .customSidebar:
             break
         }
@@ -124,9 +105,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     func close() {
         fileExplorerContainerView = nil
-        sessionIndexFocusAnchorView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
-        sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
         workspaceObservationCancellable = nil
     }
 
@@ -136,10 +115,6 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             _ = fileExplorerContainerView?.focusOutline()
         case .find:
             _ = fileExplorerContainerView?.focusSearchField()
-        case .sessions:
-            guard let anchor = sessionIndexFocusAnchorView,
-                  let window = anchor.window else { return }
-            _ = window.makeFirstResponder(anchor)
         case .feed, .dock, .customSidebar:
             break
         }
@@ -158,9 +133,6 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         switch mode {
         case .files, .find:
             guard fileExplorerContainerView?.ownsKeyboardFocus(responder) == true else { return nil }
-            return .panel
-        case .sessions:
-            guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
         case .feed, .dock, .customSidebar:
             return nil
@@ -224,21 +196,10 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
         store.applyWorkspaceRoot(.local(workspaceId: workspace.id, path: directory))
     }
-
-    private func syncSessionIndexRoot(from workspace: Workspace, store: SessionIndexStore) {
-        guard !workspace.usesRemoteDirectoryProvenance else {
-            store.setCurrentDirectoryIfChanged(nil)
-            return
-        }
-
-        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        store.setCurrentDirectoryIfChanged(directory.isEmpty ? nil : directory)
-    }
 }
 
 struct RightSidebarToolPanelView: View {
     @ObservedObject var panel: RightSidebarToolPanel
-    @EnvironmentObject private var tabManager: TabManager
     let isFocused: Bool
     let isVisibleInUI: Bool
     let appearance: PanelAppearance
@@ -282,17 +243,6 @@ struct RightSidebarToolPanelView: View {
                 placement: .pane,
                 onFocus: requestPanelFocusIfNeeded,
                 onContainerChange: panel.attachFileExplorerContainer
-            )
-        case .sessions:
-            SessionIndexView(
-                store: panel.sessionIndexStore,
-                onResume: { entry in
-                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
-                }
-            )
-            .background(
-                RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
-                    .frame(width: 0, height: 0)
             )
         case .feed, .dock, .customSidebar:
             EmptyView()

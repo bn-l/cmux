@@ -66,14 +66,6 @@
 9	Sources/Panels/BrowserPanelView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/Panels/MarkdownPanelView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/Panels/ReactGrab.swift	consider using asynchronous alternative function
-5	Sources/SessionIndexStore.swift	expression is 'async' but is not marked with 'await'
-1	Sources/SessionIndexStore.swift	instance method 'makeIterator' is unavailable from asynchronous contexts
-1	Sources/SessionIndexStore.swift	main actor-isolated static property 'headByteCap' can not be referenced from a nonisolated context
-2	Sources/SessionIndexStore.swift	main actor-isolated static property 'headByteCap' cannot be accessed from outside of the actor
-2	Sources/SessionIndexStore.swift	main actor-isolated static property 'searchMaxFiles' cannot be accessed from outside of the actor
-1	Sources/SessionIndexStore.swift	main actor-isolated static property 'tailByteCap' cannot be accessed from outside of the actor
-1	Sources/SessionIndexStore.swift	reference to captured var 'self' in concurrently-executing code
-2	Sources/SessionIndexView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/Settings/ConfigSettingsView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 17	Sources/TabManager.swift	result of call to 'closePanel(_:force:)' is unused
 1	Sources/TerminalController.swift	'CGWindowListCreateImage' was deprecated in macOS 14.0: Please use ScreenCaptureKit instead.

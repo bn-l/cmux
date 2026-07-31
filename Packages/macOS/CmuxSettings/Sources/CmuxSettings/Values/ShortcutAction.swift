@@ -40,7 +40,6 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case focusRightSidebar
     case switchRightSidebarToFiles
     case switchRightSidebarToFind
-    case switchRightSidebarToSessions
     case switchRightSidebarToFeed
     case switchRightSidebarToDock
     case triggerFlash
@@ -180,7 +179,7 @@ extension ShortcutAction {
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed,
+             .switchRightSidebarToFeed,
              .switchRightSidebarToDock, .triggerFlash:
             return .workspace
         case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
@@ -269,7 +268,7 @@ extension ShortcutAction {
     public var defaultFocusWhenClause: ShortcutWhenClause {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+             .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .atom(.sidebarFocus)
         case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
             return .atom(.sidebarFocus)
@@ -319,7 +318,7 @@ extension ShortcutAction {
     public var hasPriorityShortcutRouting: Bool {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+             .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return true
         default:
             return false
@@ -357,7 +356,6 @@ extension ShortcutAction {
         case .focusRightSidebar: return "Toggle Right Sidebar Focus"
         case .switchRightSidebarToFiles: return "Show Sidebar Files"
         case .switchRightSidebarToFind: return "Show Sidebar Find"
-        case .switchRightSidebarToSessions: return "Show Sidebar Vault"
         case .switchRightSidebarToFeed: return "Show Sidebar Feed"
         case .switchRightSidebarToDock: return "Show Sidebar Dock"
         case .triggerFlash: return "Flash Focused Panel"

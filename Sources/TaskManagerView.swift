@@ -184,9 +184,7 @@ struct CmuxTaskManagerView: View {
 }
 
 /// Closure bundle handed down to row views so they never reference the
-/// `@Observable` `CmuxTaskManagerModel`. Matches the
-/// `IndexSectionActions` / `SectionGapActions` reference pattern in
-/// `Sources/SessionIndexView.swift`. See repo/CLAUDE.md
+/// `@Observable` `CmuxTaskManagerModel`. See repo/CLAUDE.md
 /// "Snapshot boundary for list subtrees" rule and issues #2586 / #4529.
 struct CmuxTaskManagerRowActions {
     let viewWorkspace: @MainActor (CmuxTaskManagerRow) -> Void

@@ -16,7 +16,6 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
 nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case files
     case find
-    case sessions
     case feed
     case dock
     case customSidebar = "custom-sidebar"
@@ -25,7 +24,6 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         switch self {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
-        case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
@@ -36,7 +34,6 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         switch self {
         case .files: return "folder"
         case .find: return "magnifyingglass"
-        case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
         case .customSidebar: return "wand.and.stars"
@@ -47,7 +44,6 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         switch self {
         case .files: return .switchRightSidebarToFiles
         case .find: return .switchRightSidebarToFind
-        case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         case .customSidebar: return nil
@@ -56,7 +52,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
 }
 
 extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
+    static let paneModes: [RightSidebarMode] = [.files, .find]
 
     var canOpenAsPane: Bool {
         Self.paneModes.contains(self)
@@ -75,7 +71,7 @@ nonisolated enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .customSidebar:
+        case .feed, .dock, .customSidebar:
             return false
         }
     }
@@ -109,11 +105,9 @@ struct RightSidebarPanelView: View {
     @ObservedObject var tabManager: TabManager
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
-    @ObservedObject var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
     let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?
-    let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
@@ -392,11 +386,6 @@ struct RightSidebarPanelView: View {
                     onOpenFilePreview: onOpenFilePreview,
                     presentation: .find
                 )
-            case .sessions:
-                SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
-                    .onAppear {
-                        sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
-                    }
             case .feed:
                 FeedPanelView()
             case .dock:
@@ -407,10 +396,6 @@ struct RightSidebarPanelView: View {
         } else {
             Color.clear
         }
-    }
-
-    private var sessionIndexDirectory: String? {
-        sessionIndexStore.currentDirectory
     }
 
     /// Renders this window's own Dock (created lazily on first show); no
@@ -434,12 +419,6 @@ struct RightSidebarPanelView: View {
 
     private func selectMode(_ mode: RightSidebarMode) {
         fileExplorerState.mode = mode
-        if fileExplorerState.mode == .sessions {
-            sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
-            if sessionIndexStore.entries.isEmpty {
-                sessionIndexStore.reload()
-            }
-        }
     }
 
     private func refreshModeAvailabilityAndFocusIfNeeded() {

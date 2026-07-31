@@ -71,30 +71,6 @@ extension SocketListenerAcceptPolicyTests {
         )
     }
 
-    func testHermesIndexedResumeCommandPinsHermesHome() {
-        let entry = SessionEntry(
-            id: "hermes-agent:hermes-session-123",
-            agent: .hermesAgent,
-            sessionId: "hermes-session-123",
-            title: "resume me",
-            cwd: nil,
-            gitBranch: nil,
-            pullRequest: nil,
-            modified: Date(timeIntervalSince1970: 0),
-            fileURL: nil,
-            specifics: .hermesAgent(
-                source: "tui",
-                model: "gpt-5.4",
-                hermesHome: "/tmp/hermes home"
-            )
-        )
-
-        XCTAssertEqual(
-            entry.resumeCommand,
-            "env HERMES_HOME='/tmp/hermes home' hermes --tui --resume hermes-session-123 --model gpt-5.4"
-        )
-    }
-
     func testHermesAgentResumeCommandPreservesSubrouterBaseURLs() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .hermesAgent,

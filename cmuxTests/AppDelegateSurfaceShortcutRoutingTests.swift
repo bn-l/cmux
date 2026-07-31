@@ -49,12 +49,11 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             window.displayIfNeeded()
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)
-            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .sessions, in: window)
+            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .find, in: window)
 
             let modeEvents: [(mode: RightSidebarMode, event: NSEvent)] = [
                 (.files, try #require(makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: window.windowNumber))),
-                (.find, try #require(makeKeyDownEvent(key: "2", keyCode: 19, windowNumber: window.windowNumber))),
-                (.sessions, try #require(makeKeyDownEvent(key: "3", keyCode: 20, windowNumber: window.windowNumber)))
+                (.find, try #require(makeKeyDownEvent(key: "2", keyCode: 19, windowNumber: window.windowNumber)))
             ]
 
             for cycle in 0..<10 {
@@ -91,9 +90,9 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let window = try #require(mainWindow(for: windowId))
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()
-            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .sessions, in: window)
+            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .find, in: window)
             let fileExplorerState = try #require(appDelegate.fileExplorerState)
-            fileExplorerState.mode = .sessions
+            fileExplorerState.mode = .find
 
             let unrelatedResponder = ShortcutUnrelatedResponderView(frame: NSRect(x: 0, y: 0, width: 8, height: 8))
             window.contentView?.addSubview(unrelatedResponder)
@@ -114,7 +113,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
 #endif
 
             #expect(
-                fileExplorerState.mode == .sessions,
+                fileExplorerState.mode == .find,
                 "Ctrl+1 should not switch right-sidebar mode when a non-sidebar responder owns focus"
             )
             #expect(

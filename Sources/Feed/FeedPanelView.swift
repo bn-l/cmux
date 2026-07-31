@@ -43,10 +43,9 @@ private extension WorkstreamExitPlanMode {
         }
     }
 }
-/// Right-sidebar Feed view. Matches the Sessions page visual language:
-/// compact rows with SF Symbol + 13pt title + secondary metadata,
-/// full-width hover backgrounds, and control-bar pill buttons styled
-/// like `GroupingButton` in `SessionIndexView`.
+/// Right-sidebar Feed view: compact rows with SF Symbol + 13pt title +
+/// secondary metadata, full-width hover backgrounds, and control-bar pill
+/// buttons.
 ///
 /// Pending items float above resolved; telemetry is hidden unless the
 /// user flips the Actionable / All filter. Rows receive immutable
@@ -989,7 +988,7 @@ struct FeedRowActions {
     }
 }
 
-// MARK: - Row (matches SessionIndexView row aesthetic)
+// MARK: - Row
 
 struct FeedItemRow: View, Equatable {
     let snapshot: FeedItemSnapshot

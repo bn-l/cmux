@@ -122,7 +122,7 @@ extension KeyboardShortcutSettings.Action {
     var hasPriorityShortcutRouting: Bool {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+             .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return true
         default:
             return false
@@ -134,7 +134,7 @@ extension KeyboardShortcutSettings.Action {
         case .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
              .diffViewerScrollToTop, .diffViewerOpenFileSearch:
             return .browserPanel
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions,
+        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToFeed, .switchRightSidebarToDock, .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return .rightSidebarFocus

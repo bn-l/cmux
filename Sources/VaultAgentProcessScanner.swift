@@ -2,6 +2,67 @@ import Foundation
 import CMUXAgentLaunch
 import SQLite3
 
+enum VaultSQLite {
+    static func text(_ stmt: OpaquePointer, _ index: Int32) -> String? {
+        guard let cString = sqlite3_column_text(stmt, index) else { return nil }
+        return String(cString: cString)
+    }
+}
+
+/// Copies OpenCode's live SQLite database (plus its WAL sidecars) to a throwaway
+/// directory so the scanner can read it without contending with the running CLI.
+enum OpenCodeDatabaseSnapshot {
+    struct Snapshot {
+        let databaseURL: URL
+        private let directoryURL: URL
+
+        init(databaseURL: URL, directoryURL: URL) {
+            self.databaseURL = databaseURL
+            self.directoryURL = directoryURL
+        }
+
+        func remove() {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+    }
+
+    private static let sourcePath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
+
+    static func make(prefix: String) throws -> Snapshot? {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: sourcePath) else { return nil }
+
+        let snapshotDir = fileManager.temporaryDirectory.appendingPathComponent(
+            "\(prefix)-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
+
+        let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
+        do {
+            try fileManager.copyItem(atPath: sourcePath, toPath: snapshotDB.path)
+        } catch {
+            try? fileManager.removeItem(at: snapshotDir)
+            throw error
+        }
+
+        do {
+            for sidecar in ["-wal", "-shm"] {
+                let source = sourcePath + sidecar
+                let destination = snapshotDB.path + sidecar
+                if fileManager.fileExists(atPath: source) {
+                    try fileManager.copyItem(atPath: source, toPath: destination)
+                }
+            }
+        } catch {
+            try? fileManager.removeItem(at: snapshotDir)
+            throw error
+        }
+
+        return Snapshot(databaseURL: snapshotDB, directoryURL: snapshotDir)
+    }
+}
+
 extension AgentLaunchCommandSnapshot {
     init(
         processDetectedLauncher launcher: String,
@@ -577,7 +638,7 @@ extension RestorableAgentSessionIndex {
         sqlite3_bind_text(stmt, bindIndex, parentId, -1, SQLITE_TRANSIENT_FN)
 
         guard sqlite3_step(stmt) == SQLITE_ROW,
-              let sessionId = SessionIndexStore.sqliteText(stmt, 0),
+              let sessionId = VaultSQLite.text(stmt, 0),
               !sessionId.isEmpty else {
             return nil
         }

@@ -63,7 +63,7 @@ In any SwiftUI panel whose `body` contains a `LazyVStack`, `LazyHStack`, `List`,
 
 Rows and drop gaps receive immutable value snapshots plus closure action bundles only.
 
-This avoids the class of bugs where an orthogonal published change invalidates every row and thrashes `LazyLayoutViewCache`, causing a main-thread spin loop. Reference patterns include `IndexSectionActions`, `SectionGapActions`, and `SessionSearchFn` in `Sources/SessionIndexView.swift`.
+This avoids the class of bugs where an orthogonal published change invalidates every row and thrashes `LazyLayoutViewCache`, causing a main-thread spin loop. Reference patterns include `CmuxTaskManagerRowActions` in `Sources/TaskManagerView.swift` and `FeedItemSnapshot` / `FeedItemRow` in `Sources/Feed/FeedPanelView.swift`.
 
 ## No body-time mutation
 

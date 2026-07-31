@@ -37,11 +37,14 @@ extension TerminalControllerSocketSecurityTests {
         #expect(fileExplorerState.mode == .find)
         #expect(fileExplorerState.isVisible)
 
-        #expect(TerminalController.shared.handleSocketLine("right_sidebar set vault --no-focus") == "OK")
-        #expect(fileExplorerState.mode == .sessions)
+        #expect(TerminalController.shared.handleSocketLine("right_sidebar set files --no-focus") == "OK")
+        #expect(fileExplorerState.mode == .files)
 
-        #expect(TerminalController.shared.handleSocketLine("right_sidebar set sessions --no-focus") == "OK")
-        #expect(fileExplorerState.mode == .sessions)
+        // The Vault panel is gone; its former mode tokens must be rejected
+        // rather than silently resolving to some other panel.
+        #expect(TerminalController.shared.handleSocketLine("right_sidebar set vault --no-focus").hasPrefix("ERROR:"))
+        #expect(TerminalController.shared.handleSocketLine("right_sidebar set sessions --no-focus").hasPrefix("ERROR:"))
+        #expect(fileExplorerState.mode == .files)
 
         #expect(TerminalController.shared.handleSocketLine("right_sidebar hide") == "OK")
         #expect(!fileExplorerState.isVisible)
@@ -56,7 +59,7 @@ extension TerminalControllerSocketSecurityTests {
         let modeData = try #require(modeResponse.data(using: .utf8))
         let modePayload = try #require(JSONSerialization.jsonObject(with: modeData) as? [String: Any])
         #expect(modePayload["visible"] as? Bool == true)
-        #expect(modePayload["mode"] as? String == "sessions")
+        #expect(modePayload["mode"] as? String == "files")
 
         #expect(TerminalController.shared.handleSocketLine("right_sidebar set unknown").hasPrefix("ERROR:"))
     }
@@ -133,12 +136,12 @@ extension TerminalControllerSocketSecurityTests {
                 RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: RightSidebarRemoteTarget())
             ),
             (
-                "right_sidebar set vault --no-focus",
-                RightSidebarRemoteRequest(command: .setMode(.sessions, focus: false), target: RightSidebarRemoteTarget())
+                "right_sidebar set files --no-focus",
+                RightSidebarRemoteRequest(command: .setMode(.files, focus: false), target: RightSidebarRemoteTarget())
             ),
             (
-                "right_sidebar sessions",
-                RightSidebarRemoteRequest(command: .setMode(.sessions, focus: true), target: RightSidebarRemoteTarget())
+                "right_sidebar dock",
+                RightSidebarRemoteRequest(command: .setMode(.dock, focus: true), target: RightSidebarRemoteTarget())
             ),
             (
                 "right_sidebar mode",
@@ -159,6 +162,10 @@ extension TerminalControllerSocketSecurityTests {
             ("right_sidebar", "Usage: right_sidebar"),
             ("right_sidebar set", "Usage: right_sidebar set"),
             ("right_sidebar set unknown", "Unknown right sidebar mode"),
+            ("right_sidebar set vault", "Unknown right sidebar mode"),
+            ("right_sidebar set sessions", "Unknown right sidebar mode"),
+            ("right_sidebar vault", "Unknown right sidebar command"),
+            ("right_sidebar sessions", "Unknown right sidebar command"),
             ("right_sidebar show --no-focus", "Usage: right_sidebar show"),
             ("right_sidebar files --no-focus", "--no-focus is only valid"),
             ("right_sidebar --bad", "Unknown right sidebar option"),
@@ -187,8 +194,8 @@ extension TerminalControllerSocketSecurityTests {
             ("right_sidebar show", true),
             ("right_sidebar focus", true),
             ("right_sidebar set find", true),
-            ("right_sidebar sessions", true),
-            ("right_sidebar set vault --no-focus", false),
+            ("right_sidebar dock", true),
+            ("right_sidebar set files --no-focus", false),
             ("right_sidebar hide", false),
             ("right_sidebar mode", false),
             ("right_sidebar state", false),
@@ -257,11 +264,11 @@ extension TerminalControllerSocketSecurityTests {
         #expect(stateB.mode == .files)
 
         #expect(appDelegate.applyRightSidebarRemoteCommand(
-            .setMode(.sessions, focus: false),
+            .setMode(.find, focus: false),
             target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
         ) == .ok)
         #expect(stateB.isVisible)
-        #expect(stateB.mode == .sessions)
+        #expect(stateB.mode == .find)
         #expect(stateA.mode == .find)
 
         #expect(appDelegate.applyRightSidebarRemoteCommand(
@@ -285,7 +292,7 @@ extension TerminalControllerSocketSecurityTests {
         #expect(appDelegate.applyRightSidebarRemoteCommand(
             .getState,
             target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
-        ) == .state(.init(visible: false, modeRawValue: "sessions")))
+        ) == .state(.init(visible: false, modeRawValue: "find")))
 
         switch appDelegate.applyRightSidebarRemoteCommand(
             .getState,

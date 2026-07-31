@@ -36,9 +36,9 @@ extension ControlCommandCoordinator {
                 data: nil
             )
         }
-        // MVP: resolve to a cmux surface via `SessionIndexStore` lands in
-        // the UI PR; for now we return whether the id is known so callers
-        // can show a toast.
+        // MVP: resolving a workstream to a cmux surface lands in the UI PR;
+        // for now we return whether the id is known so callers can show a
+        // toast.
         let matched = context?.controlFeedResolvePossibleSurface(workstreamID: workstreamID) ?? false
         return .ok(.object([
             "workstream_id": .string(workstreamID),

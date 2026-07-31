@@ -144,9 +144,9 @@ struct CanvasShortcutRoutingFeedbackTests {
             let secondPanelId = try #require(workspace.openNewCanvasPane(type: .terminal, focus: true))
             #expect(workspace.focusedPanelId == secondPanelId)
 
-            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .sessions, in: window)
+            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .find, in: window)
             let fileExplorerState = try #require(appDelegate.fileExplorerState)
-            fileExplorerState.mode = .sessions
+            fileExplorerState.mode = .find
 
 #if DEBUG
             #expect(appDelegate.debugHandleCustomShortcut(event: event))
@@ -156,7 +156,7 @@ struct CanvasShortcutRoutingFeedbackTests {
 
             #expect(workspace.focusedPanelId == firstPanelId)
             #expect(
-                fileExplorerState.mode == .sessions,
+                fileExplorerState.mode == .find,
                 "Ctrl+1 should select the first Canvas surface instead of switching the right sidebar to Files in canvas mode"
             )
         }

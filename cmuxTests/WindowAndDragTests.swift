@@ -1802,10 +1802,8 @@ final class WindowDragHandleHitTests: XCTestCase {
             tabManager: TabManager(),
             fileExplorerStore: FileExplorerStore(),
             fileExplorerState: FileExplorerState(),
-            sessionIndexStore: SessionIndexStore(),
             titlebarHeight: 36, windowAppearance: .rightSidebarPanelViewTestDefault,
             workspaceId: nil,
-            onResumeSession: nil,
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
             onClose: {}

@@ -1169,7 +1169,6 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .focusRightSidebar,
         .switchRightSidebarToFiles,
         .switchRightSidebarToFind,
-        .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
         .switchRightSidebarToDock,
     ]
@@ -1220,7 +1219,6 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     func testModeShortcutActionsMatchModeSwitchingActions() {
         XCTAssertEqual(RightSidebarMode.files.shortcutAction, .switchRightSidebarToFiles)
         XCTAssertEqual(RightSidebarMode.find.shortcutAction, .switchRightSidebarToFind)
-        XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
         XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
     }
@@ -1234,9 +1232,9 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "2", modifiers: [.control], keyCode: 19)),
             .find
         )
-        XCTAssertEqual(
-            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "3", modifiers: [.control], keyCode: 20)),
-            .sessions
+        // ⌃3 belonged to the removed Vault mode and is now unbound.
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "3", modifiers: [.control], keyCode: 20))
         )
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),
@@ -1307,9 +1305,9 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "2", modifiers: [.control], keyCode: 19)),
             .find
         )
-        XCTAssertEqual(
-            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "3", modifiers: [.control], keyCode: 20)),
-            .sessions
+        // ⌃3 belonged to the removed Vault mode and is now unbound.
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "3", modifiers: [.control], keyCode: 20))
         )
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),
@@ -1446,7 +1444,7 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
-    func testShowingVaultPreservesMainPanelFocusIntent() {
+    func testShowingRightSidebarWithoutFocusPreservesMainPanelFocusIntent() {
         let fileExplorerState = FileExplorerState()
         let controller = MainWindowFocusController(
             windowId: UUID(),
@@ -1458,16 +1456,16 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         let panelId = UUID()
 
         controller.noteMainPanelInteraction(workspaceId: workspaceId, panelId: panelId)
-        XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
+        XCTAssertTrue(controller.showRightSidebarWithoutTakingFocus(mode: .find))
         XCTAssertTrue(fileExplorerState.isVisible)
-        XCTAssertEqual(fileExplorerState.mode, .sessions)
+        XCTAssertEqual(fileExplorerState.mode, .find)
         XCTAssertEqual(controller.intent, .mainPanel(workspaceId: workspaceId, panelId: panelId))
         XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
         XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
     }
 
     @MainActor
-    func testShowingVaultDoesNotFocusFallbackHost() {
+    func testShowingRightSidebarWithoutFocusDoesNotFocusFallbackHost() {
         let fileExplorerState = FileExplorerState()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
@@ -1487,7 +1485,7 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         contentView.addSubview(existingResponder)
         XCTAssertTrue(window.makeFirstResponder(existingResponder))
 
-        XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
+        XCTAssertTrue(controller.showRightSidebarWithoutTakingFocus(mode: .find))
         XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
         XCTAssertTrue(window.firstResponder === existingResponder)
 

@@ -75,17 +75,43 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         }
     }
 
-    func testCLIArgumentNormalizerMapsVaultAndSessionsToSessions() {
+    func testCLIArgumentNormalizerRejectsRemovedVaultTokens() {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "files"), .files)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "find"), .find)
-        XCTAssertEqual(RightSidebarMode.from(cliArgument: "vault"), .sessions)
-        XCTAssertEqual(RightSidebarMode.from(cliArgument: "sessions"), .sessions)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "feed"), .feed)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "dock"), .dock)
-        XCTAssertEqual(RightSidebarMode.from(cliArgument: " Vault "), .sessions)
+        XCTAssertNil(RightSidebarMode.from(cliArgument: "vault"))
+        XCTAssertNil(RightSidebarMode.from(cliArgument: "sessions"))
+        XCTAssertNil(RightSidebarMode.from(cliArgument: " Vault "))
         XCTAssertNil(RightSidebarMode.from(cliArgument: "custom-sidebar"))
         XCTAssertNil(RightSidebarMode.from(cliArgument: "custom"))
         XCTAssertNil(RightSidebarMode.from(cliArgument: "unknown"))
+    }
+
+    /// Sessions written before the Vault panel was removed still carry
+    /// `"sessions"` in `rightSidebar.mode`; it must decode to `.files` rather
+    /// than leaving the sidebar on a mode that no longer renders anything.
+    func testStoredRemovedSessionsModeFallsBackToFiles() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set("sessions", forKey: modeKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .files)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.files.rawValue)
+        }
+    }
+
+    /// A pane-mode snapshot persisted with the removed Vault mode must decode to
+    /// `nil` so restore drops the pane instead of failing the whole snapshot.
+    func testRightSidebarToolPanelSnapshotDropsRemovedSessionsMode() throws {
+        let decoded = try JSONDecoder().decode(
+            SessionRightSidebarToolPanelSnapshot.self,
+            from: Data(#"{"mode":"sessions"}"#.utf8)
+        )
+
+        XCTAssertNil(decoded.mode)
     }
 
     private func withSavedRightSidebarModeDefaults(_ body: () -> Void) {

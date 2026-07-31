@@ -66,11 +66,9 @@ struct HiddenRightSidebarContentMountingTests {
             tabManager: TabManager(),
             fileExplorerStore: FileExplorerStore(),
             fileExplorerState: fileExplorerState,
-            sessionIndexStore: SessionIndexStore(),
             titlebarHeight: 36,
             windowAppearance: .rightSidebarPanelViewTestDefault,
             workspaceId: nil,
-            onResumeSession: nil,
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
             onClose: {}

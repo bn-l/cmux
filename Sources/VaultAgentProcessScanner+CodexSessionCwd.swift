@@ -46,7 +46,7 @@ final class CodexSessionCwdLookupCache {
         let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
         sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
         guard sqlite3_step(stmt) == SQLITE_ROW,
-              let cwd = normalizedCodexCwdValue(SessionIndexStore.sqliteText(stmt, 0)) else {
+              let cwd = normalizedCodexCwdValue(VaultSQLite.text(stmt, 0)) else {
             // updateValue stores .some(nil); subscript nil-assignment would remove the key.
             cwdByDatabaseAndSession.updateValue(nil, forKey: cacheKey)
             return nil

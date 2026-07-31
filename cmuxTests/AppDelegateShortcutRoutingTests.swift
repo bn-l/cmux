@@ -10774,7 +10774,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         terminalPanel.hostedView.moveFocus()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        let nonFileMode = RightSidebarMode.sessions
+        let nonFileMode = RightSidebarMode.find
         XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected right sidebar responder to take focus")
 #if DEBUG
         let revealResult = appDelegate.debugRevealRightSidebarInActiveMainWindow(
