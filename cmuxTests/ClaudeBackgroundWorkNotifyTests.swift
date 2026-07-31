@@ -58,11 +58,18 @@ struct ClaudeBackgroundWorkNotifyTests {
     }
 
     private func cachedPending(_ storeURL: URL, sessionId: String) -> Bool? {
+        storeRecord(storeURL, sessionId: sessionId)?["hadPendingBackgroundWorkAtStop"] as? Bool
+    }
+
+    private func storedLifecycle(_ storeURL: URL, sessionId: String) -> String? {
+        storeRecord(storeURL, sessionId: sessionId)?["agentLifecycle"] as? String
+    }
+
+    private func storeRecord(_ storeURL: URL, sessionId: String) -> [String: Any]? {
         guard let data = try? Data(contentsOf: storeURL),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let sessions = obj["sessions"] as? [String: Any],
-              let record = sessions[sessionId] as? [String: Any] else { return nil }
-        return record["hadPendingBackgroundWorkAtStop"] as? Bool
+              let sessions = obj["sessions"] as? [String: Any] else { return nil }
+        return sessions[sessionId] as? [String: Any]
     }
 
     @Test func stopWithRunningBackgroundTaskTagsPendingAndCaches() throws {
@@ -150,8 +157,15 @@ struct ClaudeBackgroundWorkNotifyTests {
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(result)
-        #expect(notifyLine(context.state.snapshot(), containing: "c=needs-permission;p=0") != nil,
-                "permission_prompt must tag needs-permission; saw \(context.state.snapshot())")
+        let snapshot = context.state.snapshot()
+        #expect(notifyLine(snapshot, containing: "c=needs-permission;p=0") != nil,
+                "permission_prompt must tag needs-permission; saw \(snapshot)")
+        // Suppressing the idle nag must not over-suppress: a permission prompt
+        // really is blocked on the user, so both the lifecycle and the pill flip.
+        #expect(lifecycleLine(snapshot, value: "needsInput") != nil,
+                "permission_prompt must publish a needsInput lifecycle; saw \(snapshot)")
+        #expect(statusLine(snapshot, value: "Needs input") != nil,
+                "permission_prompt must set the Needs input pill; saw \(snapshot)")
     }
 
     @Test func notificationWithoutTypeFallsBackToCueClassification() throws {
@@ -272,8 +286,15 @@ struct ClaudeBackgroundWorkNotifyTests {
         let snapshot = context.state.snapshot()
         #expect(notifyLine(snapshot, containing: "c=idle-reminder;p=0") != nil,
                 "idle_prompt after an idle stop must tag pending=0; saw \(snapshot)")
-        // With no pending work this is a real waiting state, so the pill flips.
-        #expect(statusLine(snapshot, value: "Needs input") != nil,
-                "Idle idle_prompt must still set the Needs input pill; saw \(snapshot)")
+        // The idle nag is never a blocked-on-user state: the pane is idle by
+        // definition when it fires, and nothing but a later hook would ever
+        // clear a "Needs input" flip, so the pill would lie forever and the
+        // non-idle lifecycle would block hibernation. The banner still goes out.
+        #expect(statusLine(snapshot, value: "Needs input") == nil,
+                "Idle idle_prompt must not set the Needs input pill; saw \(snapshot)")
+        #expect(lifecycleLine(snapshot, value: "needsInput") == nil,
+                "Idle idle_prompt must not publish a needsInput lifecycle; saw \(snapshot)")
+        #expect(storedLifecycle(storeURL, sessionId: session) == "idle",
+                "Idle idle_prompt must leave the stored lifecycle at idle; saw \(String(describing: storedLifecycle(storeURL, sessionId: session)))")
     }
 }
