@@ -6001,11 +6001,13 @@ extension TabManager {
                     return AgentSessionDirectoryAffinity.isAffine(bindingDirectory, otherDirectory)
                 }
                 guard belongsToAnotherWorkspace else { continue }
+#if DEBUG
                 cmuxDebugLog(
                     "session.binding.cross-project-stripped " +
                     "workspace=\(ownDirectory) binding=\(bindingDirectory) " +
                     "checkpoint=\(binding.checkpointId ?? "nil")"
                 )
+#endif
                 workspaces[workspaceIndex].panels[panelIndex].terminal?.resumeBinding = nil
                 workspaces[workspaceIndex].panels[panelIndex].terminal?.agent = nil
                 workspaces[workspaceIndex].panels[panelIndex].terminal?.wasAgentRunning = false
