@@ -169,10 +169,28 @@ extension String {
             candidates.append(trimmed)
         }
 
-        append(rawPathSegment(containingColumn: column))
+        let rawSegment = rawPathSegment(containingColumn: column)
+        append(rawSegment)
+        append(rawSegment?.strippingLeadingListBullet())
         append(shellEscapedToken(containingColumn: column))
 
         return candidates
+    }
+
+    /// The receiver with one leading list-bullet marker (`- `, `* `, `• `,
+    /// `+ `) removed, or `nil` when no bullet leads it.
+    ///
+    /// Log and markdown output prefix paths with bullets, and the
+    /// single-space expansion in `rawPathSegment` deliberately crosses the
+    /// space after the bullet (spaced filenames need it), so the bullet ends
+    /// up inside the raw candidate. A file literally named with the bullet
+    /// still wins: this variant probes after the raw segment.
+    private func strippingLeadingListBullet() -> String? {
+        guard let first, "-*•+".contains(first), dropFirst().first == " " else {
+            return nil
+        }
+        let stripped = String(dropFirst(2))
+        return stripped.isEmpty ? nil : stripped
     }
 
     private func rawPathSegment(containingColumn column: Int) -> String? {

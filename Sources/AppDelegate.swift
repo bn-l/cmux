@@ -2106,15 +2106,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         func pointForTokenColumnOffset(_ offset: Int, in terminalPanel: TerminalPanel) -> NSPoint? {
-            guard let selectionStart = pointFromPayload("tokenSelectionStartInTerminal", in: terminalPanel),
-                  let tokenCellMetrics = tokenPointPayload?["tokenCellMetrics"] as? [String: Any],
-                  let cellWidth = doubleValue(tokenCellMetrics["cellWidth"]) else {
+            guard let tokenCellMetrics = tokenPointPayload?["tokenCellMetrics"] as? [String: Any],
+                  let matchedRow = tokenCellMetrics["matchedRowFromTop"] as? Int,
+                  let matchedColumnStart = tokenCellMetrics["matchedColumnStart"] as? Int,
+                  let hitPoint = terminalPanel.hostedView.debugCellHitPoint(
+                      row: matchedRow,
+                      column: matchedColumnStart + offset
+                  ) else {
                 return nil
             }
-
-            let unclampedX = selectionStart.x + (CGFloat(offset) * CGFloat(cellWidth))
-            let clampedX = min(max(unclampedX, 1), max(terminalPanel.hostedView.bounds.width - 1, 1))
-            return NSPoint(x: clampedX, y: selectionStart.y)
+            return NSPoint(
+                x: hitPoint.x,
+                y: terminalPanel.hostedView.bounds.height - hitPoint.y
+            )
         }
 
         func commandPoint(
@@ -2196,28 +2200,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let rows = max(Int(size.rows), 1)
             let cols = max(Int(size.columns), 1)
             let debugCellSize = terminalPanel.hostedView.debugCellSize
-            let cellWidth = debugCellSize.width > 0 ? debugCellSize.width : CGFloat(size.cell_width_px)
-            let cellHeight = debugCellSize.height > 0 ? debugCellSize.height : CGFloat(size.cell_height_px)
+            // Ghostty reports cell size in backing pixels; the click points
+            // handed to the view are in points, so mirror the resolver's
+            // backing-scale normalization or every computed row is short by
+            // the display scale.
+            let backingScaleFactor = max(
+                terminalPanel.hostedView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1,
+                1
+            )
+            let cellWidth = (debugCellSize.width > 0 ? debugCellSize.width : CGFloat(size.cell_width_px)) / backingScaleFactor
+            let cellHeight = (debugCellSize.height > 0 ? debugCellSize.height : CGFloat(size.cell_height_px)) / backingScaleFactor
             guard cellWidth > 0, cellHeight > 0 else { return nil }
-
-            let xInset = max(0, (bounds.width - (CGFloat(cols) * cellWidth)) / 2)
-            let yInset = max(0, (bounds.height - (CGFloat(rows) * cellHeight)) / 2)
-            let pointClampX: (CGFloat) -> CGFloat = { x in
-                min(bounds.width - 4, max(4, x))
-            }
-            let pointClampY: (CGFloat) -> CGFloat = { y in
-                min(bounds.height - 4, max(4, y))
-            }
 
             let rawVisibleLines = visibleText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
             let visibleLines = rawVisibleLines.count > rows ? Array(rawVisibleLines.suffix(rows)) : rawVisibleLines
-            let rowOffset = max(0, rows - visibleLines.count)
 
             var matchedRowFromTop: Int?
             var matchedColumnStart: Int?
             var matchedColumnEnd: Int?
             var matchedLine = ""
-            var matchingLines: [(lineIndex: Int, line: String, ranges: [Range<String.Index>])] = []
             let deterministicExpectedRow = rows - deterministicTargetRowsFromBottom
             var deterministicObservedRow: Int?
 
@@ -2235,7 +2236,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     matchedLine = displayToken
                 }
             } else {
-                for (lineIndex, line) in visibleLines.enumerated() {
+                // The dump merges soft-wrapped rows into one line, so a dump
+                // line's screen row is the running sum of the rows every line
+                // above it spans, not its index. Columns stay logical within
+                // the merged line; debugCellHitPoint carries any overflow into
+                // the following rows.
+                var matchingLines: [(physicalRow: Int, line: String, ranges: [Range<String.Index>])] = []
+                var physicalRow = 0
+                for line in visibleLines {
                     var searchStart = line.startIndex
                     var ranges: [Range<String.Index>] = []
                     while searchStart < line.endIndex,
@@ -2244,8 +2252,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         searchStart = range.upperBound
                     }
                     if !ranges.isEmpty {
-                        matchingLines.append((lineIndex, line, ranges))
+                        matchingLines.append((physicalRow, line, ranges))
                     }
+                    physicalRow += max(1, Int((Double(line.count) / Double(cols)).rounded(.up)))
                 }
 
                 if !matchingLines.isEmpty {
@@ -2253,12 +2262,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     let selectedRange = selectedLine.ranges[selectedLine.ranges.count / 2]
                     let startColumn = selectedLine.line.distance(from: selectedLine.line.startIndex, to: selectedRange.lowerBound)
                     let endColumnExclusive = selectedLine.line.distance(from: selectedLine.line.startIndex, to: selectedRange.upperBound)
-                    if startColumn < cols {
-                        matchedRowFromTop = rowOffset + selectedLine.lineIndex
-                        matchedColumnStart = startColumn
-                        matchedColumnEnd = max(startColumn, endColumnExclusive - 1)
-                        matchedLine = selectedLine.line
-                    }
+                    matchedRowFromTop = selectedLine.physicalRow
+                    matchedColumnStart = startColumn
+                    matchedColumnEnd = max(startColumn, endColumnExclusive - 1)
+                    matchedLine = selectedLine.line
                 }
             }
 
@@ -2272,8 +2279,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "cellHeight": cellHeight,
                         "columns": cols,
                         "rows": rows,
-                        "xInset": xInset,
-                        "yInset": yInset,
                         "visibleLineCount": visibleLines.count,
                         "deterministicLayout": usesDeterministicLayout ? "1" : "0",
                         "deterministicExpectedRow": deterministicExpectedRow,
@@ -2282,14 +2287,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ]
             }
 
-            let yFromTop = pointClampY(yInset + (CGFloat(matchedRowFromTop) * cellHeight) + (cellHeight / 2))
-            let startX = pointClampX(xInset + (CGFloat(matchedColumnStart) * cellWidth) + (cellWidth / 2))
-            let endX = pointClampX(xInset + (CGFloat(matchedColumnEnd) * cellWidth) + (cellWidth / 2))
-            let hitX = pointClampX(startX + min(cellWidth * 2, max(0, endX - startX)))
+            // The hosted view computes cell centers by inverting the
+            // resolver's own point-to-cell mapping on the surface view, so
+            // the harness cannot drift off the grid the app resolves against.
+            guard let startPoint = terminalPanel.hostedView.debugCellHitPoint(
+                      row: matchedRowFromTop,
+                      column: matchedColumnStart
+                  ),
+                  let endPoint = terminalPanel.hostedView.debugCellHitPoint(
+                      row: matchedRowFromTop,
+                      column: matchedColumnEnd
+                  ),
+                  let hitPoint = terminalPanel.hostedView.debugCellHitPoint(
+                      row: matchedRowFromTop,
+                      column: matchedColumnStart + min(2, matchedColumnEnd - matchedColumnStart)
+                  ) else {
+                return nil
+            }
             return [
-                "tokenHitPointInTerminal": pointPayload(x: hitX, yFromTop: yFromTop),
-                "tokenSelectionStartInTerminal": pointPayload(x: startX, yFromTop: yFromTop),
-                "tokenSelectionEndInTerminal": pointPayload(x: endX, yFromTop: yFromTop),
+                "tokenHitPointInTerminal": pointPayload(x: hitPoint.x, yFromTop: hitPoint.y),
+                "tokenSelectionStartInTerminal": pointPayload(x: startPoint.x, yFromTop: startPoint.y),
+                "tokenSelectionEndInTerminal": pointPayload(x: endPoint.x, yFromTop: endPoint.y),
                 "tokenQuicklookWord": displayToken,
                 "tokenLayoutMatch": "1",
                 "tokenCellMetrics": [
@@ -2297,8 +2315,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "cellHeight": cellHeight,
                     "columns": cols,
                     "rows": rows,
-                    "xInset": xInset,
-                    "yInset": yInset,
                     "visibleLineCount": visibleLines.count,
                     "matchedRowFromTop": matchedRowFromTop,
                     "matchedColumnStart": matchedColumnStart,

@@ -6573,6 +6573,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                             rawToken: resolvedQuicklookWord
                         )
                     }
+#if DEBUG
+                    cmuxDebugLog(
+                        "cmdclick.quicklookWord word=«\(resolvedQuicklookWord)» " +
+                            "offsetStart=\(text.offset_start) offsetLen=\(text.offset_len) " +
+                            "resolved=\(quicklookResolution?.path ?? "<nil>")"
+                    )
+#endif
                 }
             }
 
@@ -6766,29 +6773,50 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let size = ghostty_surface_size(surface)
         let rows = max(Int(size.rows), 1)
         let cols = max(Int(size.columns), 1)
-        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
-        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
+        // Ghostty reports cell size in backing pixels (`size.cell` in
+        // Surface.zig; upstream's macOS app runs it through
+        // convertFromBacking) while `point` and `bounds` are in points.
+        let backingScaleFactor = max(window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1, 1)
+        let resolvedCellWidth = (cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)) / backingScaleFactor
+        let resolvedCellHeight = (cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)) / backingScaleFactor
         guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
 
-        let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
-        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
         let yFromTop = bounds.height - point.y
+        let row = Int((yFromTop - Self.ghosttyGridOrigin.y) / resolvedCellHeight)
+        let column = Int((point.x - Self.ghosttyGridOrigin.x) / resolvedCellWidth)
 
-        return resolveViewportRowWordPath(
-            row: Int((yFromTop - yInset) / resolvedCellHeight),
-            column: Int((point.x - xInset) / resolvedCellWidth),
-            cwd: cwd
+#if DEBUG
+        cmuxDebugLog(
+            "cmdclick.pointToCell point=(\(point.x),\(point.y)) bounds=(\(bounds.width),\(bounds.height)) " +
+                "cell=(\(resolvedCellWidth),\(resolvedCellHeight)) row=\(row) col=\(column)"
         )
+#endif
+        return resolveViewportRowWordPath(row: row, column: column, cwd: cwd)
     }
 
-    /// Resolve the path token at a viewport cell, reading that one row from
-    /// Ghostty.
+    /// Where ghostty anchors the cell grid inside the surface, in points.
+    ///
+    /// Ghostty puts the grid at the configured `window-padding-x/y` offset
+    /// (2pt by default) in the top-left corner and pushes all leftover space
+    /// to the bottom-right (`window-padding-balance` defaults to false and
+    /// cmux never overrides either). Centering the grid in the surface — the
+    /// previous assumption — drifts up to a full cell from where ghostty
+    /// renders and hit-tests, which is enough to flip a click onto the
+    /// neighboring token at cell boundaries.
+    static let ghosttyGridOrigin = NSPoint(x: 2, y: 2)
+
+    /// Resolve the path token at a viewport cell, reading that cell's logical
+    /// line from Ghostty.
     ///
     /// A whole-viewport dump cannot be indexed by row: the screen formatter
     /// always drops trailing blank rows and merges soft-wrapped rows into one
     /// line, so its line count is not the row count and its line order is not
-    /// the row order. Reading the clicked row on its own leaves both effects
-    /// nothing to act on, so the row index stays authoritative.
+    /// the row order. Reading rows by index keeps the clicked row
+    /// authoritative — but a single row is only a fragment when the line
+    /// soft-wraps, and a path that spans the wrap never resolves from a
+    /// fragment. So walk to the logical line's edges (every wrapped row is
+    /// full width, which keeps the clicked cell's index in the merged text
+    /// exact) and resolve against the whole line.
     private func resolveViewportRowWordPath(
         row: Int,
         column: Int,
@@ -6802,12 +6830,29 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let clampedRow = max(0, min(rows - 1, row))
         let clampedColumn = max(0, min(cols - 1, column))
 
+        var topRow = clampedRow
+        while topRow > 0, viewportRowWrapsIntoNext(row: topRow - 1, columns: cols) {
+            topRow -= 1
+        }
+        var bottomRow = clampedRow
+        while bottomRow < rows - 1, viewportRowWrapsIntoNext(row: bottomRow, columns: cols) {
+            bottomRow += 1
+        }
+
         // A blank row reads back as empty text, which resolves to nil and lets
         // the quicklook fallback take the click.
-        guard let rowText = readViewportRowText(row: clampedRow, columns: cols),
+        let lineText = readViewportText(topRow: topRow, bottomRow: bottomRow, columns: cols)
+        let logicalColumn = (clampedRow - topRow) * cols + clampedColumn
+#if DEBUG
+        cmuxDebugLog(
+            "cmdclick.rowRead rows=\(topRow)-\(bottomRow) clickRow=\(clampedRow) col=\(clampedColumn) " +
+                "logicalCol=\(logicalColumn) len=\(lineText?.count ?? -1)"
+        )
+#endif
+        guard let lineText,
               let resolution = TerminalPathResolver().resolveVisibleLinePath(
-                  rowText,
-                  column: clampedColumn,
+                  lineText,
+                  column: logicalColumn,
                   cwd: cwd
               ) else {
             return nil
@@ -6820,25 +6865,62 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    /// The plain text of one viewport row.
+    /// Whether a viewport row soft-wraps into the row below it.
     ///
-    /// Cells that were never written come back as spaces, so the string index
-    /// tracks the cell column for narrow text.
-    private func readViewportRowText(row: Int, columns: Int) -> String? {
-        guard let surface, columns > 0 else { return nil }
-
-        func viewportPoint(x: Int) -> ghostty_point_s {
-            ghostty_point_s(
-                tag: GHOSTTY_POINT_VIEWPORT,
-                coord: GHOSTTY_POINT_COORD_EXACT,
-                x: UInt32(x),
-                y: UInt32(row)
-            )
-        }
+    /// The screen formatter emits a newline only at hard line breaks, so a
+    /// two-cell read across the row seam contains one exactly when the break
+    /// is hard. Blank or unwritten seams read back empty or newline-only;
+    /// both mean "no wrap".
+    private func viewportRowWrapsIntoNext(row: Int, columns: Int) -> Bool {
+        guard let surface, row >= 0, columns > 0 else { return false }
+        guard row + 1 < Int(ghostty_surface_size(surface).rows) else { return false }
 
         let selection = ghostty_selection_s(
-            top_left: viewportPoint(x: 0),
-            bottom_right: viewportPoint(x: columns - 1),
+            top_left: ghostty_point_s(
+                tag: GHOSTTY_POINT_VIEWPORT,
+                coord: GHOSTTY_POINT_COORD_EXACT,
+                x: UInt32(columns - 1),
+                y: UInt32(row)
+            ),
+            bottom_right: ghostty_point_s(
+                tag: GHOSTTY_POINT_VIEWPORT,
+                coord: GHOSTTY_POINT_COORD_EXACT,
+                x: 0,
+                y: UInt32(row + 1)
+            ),
+            rectangle: false
+        )
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return false }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let ptr = text.text, text.text_len > 0 else { return false }
+        let seam = String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
+        return !seam.contains("\n")
+    }
+
+    /// The plain text of a run of viewport rows, with soft-wrapped rows
+    /// merged into one line.
+    ///
+    /// Trailing cells that were never written are dropped by the formatter,
+    /// so only the last row of a logical line can come back short; string
+    /// indices track cell columns everywhere before that.
+    private func readViewportText(topRow: Int, bottomRow: Int, columns: Int) -> String? {
+        guard let surface, columns > 0, topRow <= bottomRow else { return nil }
+
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(
+                tag: GHOSTTY_POINT_VIEWPORT,
+                coord: GHOSTTY_POINT_COORD_EXACT,
+                x: 0,
+                y: UInt32(topRow)
+            ),
+            bottom_right: ghostty_point_s(
+                tag: GHOSTTY_POINT_VIEWPORT,
+                coord: GHOSTTY_POINT_COORD_EXACT,
+                x: UInt32(columns - 1),
+                y: UInt32(bottomRow)
+            ),
             rectangle: false
         )
 
@@ -7080,6 +7162,35 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return payload
     }
 
+    private var debugClickResetAlternator = false
+
+    /// The center of a viewport cell in surface-view coordinates, by
+    /// inverting exactly the point-to-cell mapping the cmd-click resolver
+    /// uses. A column past the last grid column carries into following rows,
+    /// mirroring how soft-wrapped fixture lines lay out on screen.
+    ///
+    /// The UI-test harness computes click points through this instead of
+    /// duplicating the grid math against the hosted view's bounds — the
+    /// hosted view is wider than the surface, and an independently derived
+    /// inset drifted the harness a full column off the resolver's grid.
+    func debugPointForCell(row: Int, column: Int) -> NSPoint? {
+        guard let surface else { return nil }
+
+        let size = ghostty_surface_size(surface)
+        let rows = max(Int(size.rows), 1)
+        let cols = max(Int(size.columns), 1)
+        let backingScaleFactor = max(window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1, 1)
+        let cellWidth = (cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)) / backingScaleFactor
+        let cellHeight = (cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)) / backingScaleFactor
+        guard cellWidth > 0, cellHeight > 0 else { return nil }
+
+        let resolvedRow = max(0, min(rows - 1, row + (max(0, column) / cols)))
+        let resolvedColumn = max(0, min(cols - 1, max(0, column) % cols))
+        let x = Self.ghosttyGridOrigin.x + (CGFloat(resolvedColumn) + 0.5) * cellWidth
+        let yFromTop = Self.ghosttyGridOrigin.y + (CGFloat(resolvedRow) + 0.5) * cellHeight
+        return NSPoint(x: x, y: bounds.height - yFromTop)
+    }
+
     func debugSimulateCommandClick(at point: NSPoint) -> [String: Any] {
         guard let surface else {
             return ["error": "Missing surface"]
@@ -7090,6 +7201,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let mods = mouseModsFromFlags(flags)
 
         window?.makeFirstResponder(self)
+
+        // Ghostty counts a press within its click-repeat interval and one
+        // cell of the previous press as a double click, and the resulting
+        // word selection makes cmd-click defer to the selection (the #2579
+        // suppression). Tests click neighboring cells well inside that
+        // interval, so break the streak first: a plain click far from the
+        // target resets the gesture's position and clears any selection.
+        // Alternating between two far-apart reset points keeps consecutive
+        // resets from forming their own double click.
+        debugClickResetAlternator.toggle()
+        let farX = clampedPoint.x > bounds.width / 2 ? CGFloat(4) : max(bounds.width - 4, 4)
+        let resetPoint = NSPoint(
+            x: farX,
+            y: debugClickResetAlternator
+                ? min(clampedPoint.y + 64, max(bounds.height - 4, 4))
+                : max(clampedPoint.y - 64, 4)
+        )
+        let noMods = GHOSTTY_MODS_NONE
+        ghostty_surface_mouse_pos(surface, resetPoint.x, bounds.height - resetPoint.y, noMods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, noMods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, noMods)
+
         ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, mods)
         let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
         let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
@@ -8701,6 +8834,16 @@ final class GhosttySurfaceScrollView: NSView {
 
     var debugCellSize: CGSize {
         surfaceView.cellSize
+    }
+
+    /// The center of a viewport cell in hosted-view coordinates, with y
+    /// measured from the top edge (the UI-test manifest convention).
+    func debugCellHitPoint(row: Int, column: Int) -> NSPoint? {
+        guard let surfacePoint = surfaceView.debugPointForCell(row: row, column: column) else {
+            return nil
+        }
+        let converted = convert(surfacePoint, from: surfaceView)
+        return NSPoint(x: converted.x, y: bounds.height - converted.y)
     }
 
     private func debugPointInSurface(_ point: NSPoint) -> NSPoint {

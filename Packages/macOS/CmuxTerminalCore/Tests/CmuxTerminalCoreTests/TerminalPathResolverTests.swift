@@ -238,4 +238,57 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
             ) == nil
         )
     }
+
+    @Test func resolvesDashBulletPrefixedSpacedPathUnderColumn() throws {
+        let existingFile = "/tmp/fixture/Standard - Consultant Agreement.docx"
+        let line = "- Standard - Consultant Agreement.docx"
+        let resolution = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveVisibleLinePath(
+                line,
+                column: 4,
+                cwd: "/tmp/fixture"
+            )
+        )
+        #expect(resolution.path == existingFile)
+        #expect(resolution.rawToken == "Standard - Consultant Agreement.docx")
+    }
+
+    @Test func prefersLiteralBulletNamedFileOverStrippedVariant() throws {
+        let bulletNamedFile = "/tmp/fixture/- notes.md"
+        let resolution = try #require(
+            TerminalPathResolver(fileExists: existsIn([bulletNamedFile])).resolveVisibleLinePath(
+                "- notes.md",
+                column: 3,
+                cwd: "/tmp/fixture"
+            )
+        )
+        #expect(resolution.path == bulletNamedFile)
+        #expect(resolution.rawToken == "- notes.md")
+    }
+
+    @Test func asteriskBulletStripsToExistingPath() throws {
+        let existingFile = "/tmp/fixture/todo list.txt"
+        let resolution = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveVisibleLinePath(
+                "* todo list.txt",
+                column: 4,
+                cwd: "/tmp/fixture"
+            )
+        )
+        #expect(resolution.path == existingFile)
+        #expect(resolution.rawToken == "todo list.txt")
+    }
+
+    @Test func interiorDashesSurviveBulletStripping() throws {
+        let existingFile = "/tmp/fixture/a - b - c.txt"
+        let resolution = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveVisibleLinePath(
+                "- a - b - c.txt",
+                column: 6,
+                cwd: "/tmp/fixture"
+            )
+        )
+        #expect(resolution.path == existingFile)
+        #expect(resolution.rawToken == "a - b - c.txt")
+    }
 }
