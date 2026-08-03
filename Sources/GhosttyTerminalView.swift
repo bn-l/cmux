@@ -6544,12 +6544,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let snapshotPoint = preferredPointerPoint(from: point)
         let resolvedPointSnapshot = snapshotPoint.flatMap {
-            resolveVisibleWordPath(
-                at: $0,
-                cwd: cwd,
-                workspace: workspace,
-                terminalSurface: termSurface
-            )
+            resolveVisibleWordPath(at: $0, cwd: cwd)
         }
 #if DEBUG
         // The pointer snapshot shadows the viewport-offset resolution whenever
@@ -6590,9 +6585,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
                 viewportResolution = resolveVisibleWordPathFromViewportOffset(
                     viewportOffsetStart,
-                    cwd: cwd,
-                    workspace: workspace,
-                    terminalSurface: termSurface
+                    cwd: cwd
                 )
             }
 
@@ -6750,34 +6743,73 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func resolveVisibleWordPathFromViewportOffset(
         _ viewportOffsetStart: Int,
-        cwd: String,
-        workspace: Workspace,
-        terminalSurface: TerminalSurface
+        cwd: String
     ) -> WordPathResolution? {
-        guard let panel = workspace.terminalPanel(for: terminalSurface.id),
-              let surface else {
-            return nil
-        }
+        guard let surface else { return nil }
+
+        // Ghostty builds this offset as `viewport_row * cols + column` over the
+        // padded grid, so both halves are already viewport coordinates.
+        let cols = max(Int(ghostty_surface_size(surface).columns), 1)
+        return resolveViewportRowWordPath(
+            row: viewportOffsetStart / cols,
+            column: viewportOffsetStart % cols,
+            cwd: cwd
+        )
+    }
+
+    private func resolveVisibleWordPath(
+        at point: NSPoint,
+        cwd: String
+    ) -> WordPathResolution? {
+        guard let surface else { return nil }
 
         let size = ghostty_surface_size(surface)
         let rows = max(Int(size.rows), 1)
         let cols = max(Int(size.columns), 1)
-        let visibleText = TerminalController.shared.readTerminalTextForSnapshot(
-            terminalPanel: panel,
-            lineLimit: max(200, rows * 4)
-        ) ?? ""
-        let visibleLines = visibleText.visibleLines(rows: rows)
-        let rowOffset = max(0, rows - visibleLines.count)
-        let rowFromTop = max(0, min(rows - 1, viewportOffsetStart / cols))
-        let visibleRow = rowFromTop - rowOffset
-        guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
+        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
+        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
+        guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
 
-        let column = max(0, min(cols - 1, viewportOffsetStart % cols))
-        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
-            visibleLines[visibleRow],
-            column: column,
+        let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
+        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
+        let yFromTop = bounds.height - point.y
+
+        return resolveViewportRowWordPath(
+            row: Int((yFromTop - yInset) / resolvedCellHeight),
+            column: Int((point.x - xInset) / resolvedCellWidth),
             cwd: cwd
-        ) else {
+        )
+    }
+
+    /// Resolve the path token at a viewport cell, reading that one row from
+    /// Ghostty.
+    ///
+    /// A whole-viewport dump cannot be indexed by row: the screen formatter
+    /// always drops trailing blank rows and merges soft-wrapped rows into one
+    /// line, so its line count is not the row count and its line order is not
+    /// the row order. Reading the clicked row on its own leaves both effects
+    /// nothing to act on, so the row index stays authoritative.
+    private func resolveViewportRowWordPath(
+        row: Int,
+        column: Int,
+        cwd: String
+    ) -> WordPathResolution? {
+        guard let surface else { return nil }
+
+        let size = ghostty_surface_size(surface)
+        let rows = max(Int(size.rows), 1)
+        let cols = max(Int(size.columns), 1)
+        let clampedRow = max(0, min(rows - 1, row))
+        let clampedColumn = max(0, min(cols - 1, column))
+
+        // A blank row reads back as empty text, which resolves to nil and lets
+        // the quicklook fallback take the click.
+        guard let rowText = readViewportRowText(row: clampedRow, columns: cols),
+              let resolution = TerminalPathResolver().resolveVisibleLinePath(
+                  rowText,
+                  column: clampedColumn,
+                  cwd: cwd
+              ) else {
             return nil
         }
 
@@ -6788,52 +6820,33 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func resolveVisibleWordPath(
-        at point: NSPoint,
-        cwd: String,
-        workspace: Workspace,
-        terminalSurface: TerminalSurface
-    ) -> WordPathResolution? {
-        guard let panel = workspace.terminalPanel(for: terminalSurface.id),
-              let surface else {
-            return nil
+    /// The plain text of one viewport row.
+    ///
+    /// Cells that were never written come back as spaces, so the string index
+    /// tracks the cell column for narrow text.
+    private func readViewportRowText(row: Int, columns: Int) -> String? {
+        guard let surface, columns > 0 else { return nil }
+
+        func viewportPoint(x: Int) -> ghostty_point_s {
+            ghostty_point_s(
+                tag: GHOSTTY_POINT_VIEWPORT,
+                coord: GHOSTTY_POINT_COORD_EXACT,
+                x: UInt32(x),
+                y: UInt32(row)
+            )
         }
 
-        let size = ghostty_surface_size(surface)
-        let rows = max(Int(size.rows), 1)
-        let cols = max(Int(size.columns), 1)
-        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
-        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
-        guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
-
-        let visibleText = TerminalController.shared.readTerminalTextForSnapshot(
-            terminalPanel: panel,
-            lineLimit: max(200, rows * 4)
-        ) ?? ""
-        let visibleLines = visibleText.visibleLines(rows: rows)
-        let rowOffset = max(0, rows - visibleLines.count)
-        let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
-        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
-
-        let yFromTop = bounds.height - point.y
-        let rowFromTop = max(0, min(rows - 1, Int((yFromTop - yInset) / resolvedCellHeight)))
-        let visibleRow = rowFromTop - rowOffset
-        guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
-
-        let column = max(0, min(cols - 1, Int((point.x - xInset) / resolvedCellWidth)))
-        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
-            visibleLines[visibleRow],
-            column: column,
-            cwd: cwd
-        ) else {
-            return nil
-        }
-
-        return makeWordPathResolution(
-            path: resolution.path,
-            source: .snapshot,
-            rawToken: resolution.rawToken
+        let selection = ghostty_selection_s(
+            top_left: viewportPoint(x: 0),
+            bottom_right: viewportPoint(x: columns - 1),
+            rectangle: false
         )
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let ptr = text.text, text.text_len > 0 else { return nil }
+        return String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
     }
 
     @discardableResult
