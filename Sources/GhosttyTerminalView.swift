@@ -6543,7 +6543,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         let snapshotPoint = preferredPointerPoint(from: point)
-        let pointSnapshotResolution = snapshotPoint.flatMap {
+        let resolvedPointSnapshot = snapshotPoint.flatMap {
             resolveVisibleWordPath(
                 at: $0,
                 cwd: cwd,
@@ -6551,6 +6551,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 terminalSurface: termSurface
             )
         }
+#if DEBUG
+        // The pointer snapshot shadows the viewport-offset resolution whenever
+        // it resolves, so UI tests that cover the offset path drop it here.
+        let pointSnapshotResolution = Self.cmdClickPointSnapshotDisabled ? nil : resolvedPointSnapshot
+#else
+        let pointSnapshotResolution = resolvedPointSnapshot
+#endif
 
         var text = ghostty_text_s()
         if ghostty_surface_quicklook_word(surface, &text) {
@@ -6612,6 +6619,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     #if DEBUG
+    private static let cmdClickPointSnapshotDisabled: Bool =
+        ProcessInfo.processInfo.environment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISABLE_POINT_SNAPSHOT"] == "1"
+
     private func cmuxTerminalCmdClickQuicklookOverride(_ decodedWord: String) -> String {
         let env = ProcessInfo.processInfo.environment
         guard let override = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_QUICKLOOK_OVERRIDE"]?

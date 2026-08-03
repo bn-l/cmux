@@ -1991,9 +1991,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             resolvedLineFormat = "alt_screen_log"
         case "osc8":
             resolvedLineFormat = "osc8"
+        case "blank_tail":
+            resolvedLineFormat = "blank_tail"
+        case "wrapped_blank_tail":
+            resolvedLineFormat = "wrapped_blank_tail"
         default:
             resolvedLineFormat = "grid"
         }
+        // The blank-tail layouts paint the whole viewport themselves (erase
+        // display + cursor home) so neither the echoed command nor the shell
+        // prompt can shift the target row. They print one target row with decoy
+        // rows above and below it and stop short of the last row, which leaves
+        // the blank rows that Ghostty's viewport dump trims. Their row/column
+        // counts come from the measured grid, so the command is built at seed
+        // time rather than here.
+        let usesDeterministicLayout = resolvedLineFormat == "blank_tail" ||
+            resolvedLineFormat == "wrapped_blank_tail"
+        let deterministicDecoyToken = "cmd-click-decoy.txt"
+        let deterministicTargetRowsFromBottom = 9
         cmuxDebugLog(
             "cmdclick.ui.setup start manifest=\(manifestPath) fixture=\(fixtureDirectory) " +
                 "command=\(commandPath ?? "nil") display=\(resolvedDisplayMode) " +
@@ -2021,6 +2036,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let blockLine = "\(linePrefix)\(displayToken)"
             let shellBlockLine = singleQuotedShellLiteral(blockLine)
             shellCommand = "clear\rprintf '\\033[?1049h\\033[H\\033[2J'; for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
+        case "blank_tail", "wrapped_blank_tail":
+            displayToken = baseDisplayToken
+            shellCommand = ""
         default:
             switch resolvedDisplayMode {
             case "raw":
@@ -2122,6 +2140,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return object
         }
 
+        func deterministicLayoutGrid(in terminalPanel: TerminalPanel) -> (rows: Int, cols: Int)? {
+            guard let surface = terminalPanel.surface.surface else { return nil }
+            let size = ghostty_surface_size(surface)
+            let rows = Int(size.rows)
+            let cols = Int(size.columns)
+            // The layout needs a wrapped header, decoy rows above and below the
+            // target, and a few untouched rows under the prompt.
+            guard rows >= 24, cols >= 24 else { return nil }
+            return (rows, cols)
+        }
+
+        func deterministicLayoutCommand(rows: Int, cols: Int) -> String {
+            let decoy = singleQuotedShellLiteral(deterministicDecoyToken)
+            let target = singleQuotedShellLiteral(displayToken)
+            // Erase the screen (including this command's own echo) and home the
+            // cursor so row 0 of the viewport is the first printed row.
+            let home = "printf '\\033[2J\\033[H'"
+            let tail = "printf '%s\\n%s\\n%s\\n' '\(target)' '\(decoy)' '\(decoy)'"
+            if resolvedLineFormat == "wrapped_blank_tail" {
+                // Two and a half screen widths, so the header occupies viewport
+                // rows 0-2 but collapses to a single line in the dump.
+                let wrappedHeader = String(repeating: "x", count: (cols * 2) + (cols / 2))
+                let decoyRows = rows - (deterministicTargetRowsFromBottom + 3)
+                return "\(home); printf '%s\\n' '\(wrappedHeader)'; " +
+                    "for i in $(seq 1 \(decoyRows)); do printf '%s\\n' '\(decoy)'; done; \(tail)\r"
+            }
+            let decoyRows = rows - deterministicTargetRowsFromBottom
+            return "\(home); for i in $(seq 1 \(decoyRows)); do printf '%s\\n' '\(decoy)'; done; \(tail)\r"
+        }
+
+        /// The viewport row the target token is painted on, derived from a plain
+        /// viewport dump.
+        ///
+        /// The dump merges soft-wrapped rows into one line, so a line spans as
+        /// many rows as it has screen widths, not one.
+        func deterministicTokenRow(in visibleText: String, cols: Int) -> Int? {
+            var row = 0
+            for line in visibleText.split(separator: "\n", omittingEmptySubsequences: false) {
+                if let range = line.range(of: displayToken) {
+                    let column = line.distance(from: line.startIndex, to: range.lowerBound)
+                    return row + (column / cols)
+                }
+                row += max(1, Int((Double(line.count) / Double(cols)).rounded(.up)))
+            }
+            return nil
+        }
+
         func tokenPoints(in terminalPanel: TerminalPanel, visibleText: String) -> [String: Any]? {
             guard let surface = terminalPanel.surface.surface else { return nil }
             let bounds = terminalPanel.hostedView.bounds
@@ -2153,30 +2218,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             var matchedColumnEnd: Int?
             var matchedLine = ""
             var matchingLines: [(lineIndex: Int, line: String, ranges: [Range<String.Index>])] = []
+            let deterministicExpectedRow = rows - deterministicTargetRowsFromBottom
+            var deterministicObservedRow: Int?
 
-            for (lineIndex, line) in visibleLines.enumerated() {
-                var searchStart = line.startIndex
-                var ranges: [Range<String.Index>] = []
-                while searchStart < line.endIndex,
-                      let range = line.range(of: displayToken, range: searchStart..<line.endIndex) {
-                    ranges.append(range)
-                    searchStart = range.upperBound
+            if usesDeterministicLayout {
+                // The layout pins the target to a known row, so the click point
+                // is computed from the fixture rather than from the dump. The
+                // dump is only used to confirm the paint landed where the
+                // fixture put it; a mismatch keeps the harness unready until the
+                // command finishes (or the deadline reports it).
+                deterministicObservedRow = deterministicTokenRow(in: visibleText, cols: cols)
+                if deterministicObservedRow == deterministicExpectedRow {
+                    matchedRowFromTop = deterministicExpectedRow
+                    matchedColumnStart = 0
+                    matchedColumnEnd = max(0, min(cols - 1, displayToken.count - 1))
+                    matchedLine = displayToken
                 }
-                if !ranges.isEmpty {
-                    matchingLines.append((lineIndex, line, ranges))
+            } else {
+                for (lineIndex, line) in visibleLines.enumerated() {
+                    var searchStart = line.startIndex
+                    var ranges: [Range<String.Index>] = []
+                    while searchStart < line.endIndex,
+                          let range = line.range(of: displayToken, range: searchStart..<line.endIndex) {
+                        ranges.append(range)
+                        searchStart = range.upperBound
+                    }
+                    if !ranges.isEmpty {
+                        matchingLines.append((lineIndex, line, ranges))
+                    }
                 }
-            }
 
-            if !matchingLines.isEmpty {
-                let selectedLine = matchingLines[matchingLines.count / 2]
-                let selectedRange = selectedLine.ranges[selectedLine.ranges.count / 2]
-                let startColumn = selectedLine.line.distance(from: selectedLine.line.startIndex, to: selectedRange.lowerBound)
-                let endColumnExclusive = selectedLine.line.distance(from: selectedLine.line.startIndex, to: selectedRange.upperBound)
-                if startColumn < cols {
-                    matchedRowFromTop = rowOffset + selectedLine.lineIndex
-                    matchedColumnStart = startColumn
-                    matchedColumnEnd = max(startColumn, endColumnExclusive - 1)
-                    matchedLine = selectedLine.line
+                if !matchingLines.isEmpty {
+                    let selectedLine = matchingLines[matchingLines.count / 2]
+                    let selectedRange = selectedLine.ranges[selectedLine.ranges.count / 2]
+                    let startColumn = selectedLine.line.distance(from: selectedLine.line.startIndex, to: selectedRange.lowerBound)
+                    let endColumnExclusive = selectedLine.line.distance(from: selectedLine.line.startIndex, to: selectedRange.upperBound)
+                    if startColumn < cols {
+                        matchedRowFromTop = rowOffset + selectedLine.lineIndex
+                        matchedColumnStart = startColumn
+                        matchedColumnEnd = max(startColumn, endColumnExclusive - 1)
+                        matchedLine = selectedLine.line
+                    }
                 }
             }
 
@@ -2192,7 +2274,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "rows": rows,
                         "xInset": xInset,
                         "yInset": yInset,
-                        "visibleLineCount": visibleLines.count
+                        "visibleLineCount": visibleLines.count,
+                        "deterministicLayout": usesDeterministicLayout ? "1" : "0",
+                        "deterministicExpectedRow": deterministicExpectedRow,
+                        "deterministicObservedRow": deterministicObservedRow ?? -1
                     ]
                 ]
             }
@@ -2612,8 +2697,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 terminalFrame.height > 0
 
             if terminalReady && terminalVisible && !seeded {
+                let seedCommand: String
+                if usesDeterministicLayout {
+                    guard let grid = deterministicLayoutGrid(in: terminalPanel) else {
+                        writeState(
+                            terminalPanel: terminalPanel,
+                            window: mainWindow,
+                            ready: false,
+                            setupError: "Terminal grid is too small for the deterministic cmd-click layout"
+                        )
+                        resolved = true
+                        cleanup()
+                        return
+                    }
+                    seedCommand = deterministicLayoutCommand(rows: grid.rows, cols: grid.cols)
+                } else {
+                    seedCommand = shellCommand
+                }
                 seeded = true
-                sendTextWhenReady(shellCommand, to: workspace, beforeSend: {
+                sendTextWhenReady(seedCommand, to: workspace, beforeSend: {
                     workspace.updatePanelDirectory(panelId: terminalPanel.id, directory: fixtureDirectoryURL.path)
                 })
             }
@@ -2623,7 +2725,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 lineLimit: 200
             ) ?? ""
             let renderedTokenCount = max(0, visibleText.components(separatedBy: displayToken).count - 1)
-            let hasRenderedToken = renderedTokenCount >= 6
+            // The deterministic layouts paint the target exactly once; the
+            // repeated-line layouts fill the screen with it.
+            let hasRenderedToken = usesDeterministicLayout
+                ? renderedTokenCount == 1
+                : renderedTokenCount >= 6
             if hasRenderedToken,
                (tokenPointPayload?["tokenLayoutMatch"] as? String) != "1" {
                 tokenPointPayload = tokenPoints(in: terminalPanel, visibleText: visibleText)

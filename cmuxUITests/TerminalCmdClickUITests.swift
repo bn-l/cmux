@@ -12,6 +12,11 @@ final class TerminalCmdClickUITests: XCTestCase {
         case log
         case altScreenLog = "alt_screen_log"
         case osc8
+        /// Target row with decoy rows above and below it, stopping short of the
+        /// last row so the viewport keeps blank rows under the prompt.
+        case blankTail = "blank_tail"
+        /// Same, with a soft-wrapped header line above the decoy block.
+        case wrappedBlankTail = "wrapped_blank_tail"
     }
 
     private struct SetupData {
@@ -323,6 +328,82 @@ final class TerminalCmdClickUITests: XCTestCase {
         XCTAssertFalse(
             openedPaths.contains(wrongViewportPath),
             "Expected cmd-click to reject the mismatched viewport path. opened=\(openedPaths) wrong=\(wrongViewportPath)"
+        )
+    }
+
+    func testCmdClickResolvesClickedRowWhenViewportEndsInBlankRows() throws {
+        try assertBlankTailCmdClickOpensClickedRow(
+            lineFormat: .blankTail,
+            reason: "Blank rows below the prompt are dropped from the viewport dump, " +
+                "so a row index taken from that dump must not be shifted to compensate."
+        )
+    }
+
+    func testCmdClickResolvesClickedRowBelowSoftWrappedLine() throws {
+        try assertBlankTailCmdClickOpensClickedRow(
+            lineFormat: .wrappedBlankTail,
+            reason: "A soft-wrapped line collapses to one line in the viewport dump, " +
+                "so rows below it must still resolve against the row under the pointer."
+        )
+    }
+
+    func testCmdClickViewportOffsetResolvesClickedRowWhenViewportEndsInBlankRows() throws {
+        try assertBlankTailCmdClickOpensClickedRow(
+            lineFormat: .blankTail,
+            disablePointSnapshot: true,
+            reason: "The viewport-offset resolution carries the same row index as the pointer, " +
+                "so it must resolve the clicked row when the pointer snapshot is unavailable."
+        )
+    }
+
+    private func assertBlankTailCmdClickOpensClickedRow(
+        lineFormat: LineFormat,
+        disablePointSnapshot: Bool = false,
+        reason: String
+    ) throws {
+        let targetFileName = "cmd-click-target.txt"
+        let decoyFileName = "cmd-click-decoy.txt"
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: lineFormat,
+            fileName: targetFileName,
+            extraFileNames: [decoyFileName],
+            captureOpenPaths: true,
+            captureHoverDiagnostics: false,
+            disablePointSnapshot: disablePointSnapshot
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        let expectedResolvedPath = expectedPath(for: targetFileName)
+        let decoyPath = expectedPath(for: decoyFileName)
+        XCTAssertEqual(setup.expectedPath, expectedResolvedPath)
+
+        let result = try runCommand(action: "cmd_click_token")
+        XCTAssertEqual(
+            result["lastCommandSucceeded"] as? String,
+            "1",
+            "Expected cmd-click to resolve the clicked row. \(reason) result=\(result)"
+        )
+        XCTAssertEqual(
+            result["lastCommandOpenedPath"] as? String,
+            expectedResolvedPath,
+            "Expected cmd-click to open the clicked row's file. \(reason) result=\(result)"
+        )
+
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
+            XCTFail("Expected open capture after cmd-clicking the target row. result=\(result)")
+            return
+        }
+
+        XCTAssertTrue(
+            openedPaths.contains(expectedResolvedPath),
+            "Expected cmd-click to open the clicked row's file. \(reason) opened=\(openedPaths) expected=\(expectedResolvedPath)"
+        )
+        XCTAssertFalse(
+            openedPaths.contains(decoyPath),
+            "Expected cmd-click to reject the decoy rows around the clicked row. \(reason) opened=\(openedPaths) decoy=\(decoyPath)"
         )
     }
 
@@ -805,7 +886,8 @@ final class TerminalCmdClickUITests: XCTestCase {
         openSupportedFilesInCmux: Bool = false,
         openMarkdownInCmuxViewer: Bool? = nil,
         quicklookOverride: String? = nil,
-        viewportOffsetDelta: Int? = nil
+        viewportOffsetDelta: Int? = nil,
+        disablePointSnapshot: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_TAG"] = "ui-test-terminal-cmd-click"
@@ -849,6 +931,9 @@ final class TerminalCmdClickUITests: XCTestCase {
         }
         if let viewportOffsetDelta {
             app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_VIEWPORT_OFFSET_DELTA"] = String(viewportOffsetDelta)
+        }
+        if disablePointSnapshot {
+            app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISABLE_POINT_SNAPSHOT"] = "1"
         }
         launchAndEnsureForeground(app)
         return app
