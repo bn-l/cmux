@@ -32,11 +32,11 @@ When we change the fork, update this document and the parent submodule SHA.
   layouts, `CompressionIterator`, and embedded surface wheel APIs must be
   reconciled with upstream renderer/compression changes as one unit.
 
-Current cmux pinned fork head: `3f9183b1e`. It layers the fractional embedded
-scrollback changes above on the previous cmux pin `e215e78bf` and is published
-from the fork branch `cmux-smooth-scroll`.
+Current cmux pinned fork head: `bdd0e08c7`. It layers the os/open stderr drain
+spin fix on the previous cmux pin `2c54fb03c` and is published from the fork
+branch `cmux-smooth-scroll`.
 Prebuilt archive:
-https://github.com/bn-l/ghostty/releases/tag/xcframework-3f9183b1e967ff485f671a815e6c7d9f9fdfc163-crashsubdir-cmux-crash-v1
+https://github.com/bn-l/ghostty/releases/tag/xcframework-bdd0e08c7ffd8e6b7bd55d0aa68ae86bf8df5ea1-crashsubdir-cmux-crash-v1
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -585,6 +585,24 @@ These files change frequently upstream; be careful when rebasing the fork:
     its archive checksum in `scripts/ghosttykit-checksums.txt`.
   - Merged https://github.com/manaflow-ai/ghostty/pull/53 so the submodule SHA is
     reachable from fork `main`.
+
+- August 6, 2026, os/open stderr drain spin fix (`bdd0e08c7`):
+  - `src/os/open.zig` drained the open child's stderr with
+    `takeDelimiterExclusive`, which never consumes the `'\n'`; after the first
+    complete stderr line the detached drain thread returned empty slices
+    forever — 100% CPU, an unreaped zombie `open` child, and an os_log flood
+    (`os-open` scope) until logd throttled the whole process.
+  - Switched to `takeDelimiter` (consumes the delimiter, `null` at end of
+    stream) and skip zero-length lines. Upstream `ghostty-org/ghostty` has the
+    identical loop and is affected too (their Zig 0.16 `takeDelimiterExclusive`
+    is byte-identical).
+  - Verified by compiling the exact loop against the shipped Zig 0.15.2 std:
+    old loop spins after `echo boom 1>&2`; fixed loop exits on all eight
+    stderr shapes (newline line, multi-line, no-newline, >256-byte chunking,
+    blank lines, empty, 2000 lines).
+  - Committed on fork branch `cmux-smooth-scroll` and pushed to `bn-l/ghostty`.
+  - Published `xcframework-bdd0e08c7ffd8e6b7bd55d0aa68ae86bf8df5ea1` and pinned
+    its archive checksum in `scripts/ghosttykit-checksums.txt`.
 
 - `src/terminal/osc.zig`
   - OSC dispatch logic moves often. Re-check the integration points for the OSC 99 parser and keep
