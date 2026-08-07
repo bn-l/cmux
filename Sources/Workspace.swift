@@ -525,7 +525,11 @@ extension Workspace {
                 case .some(.promptIdle):
                     return false
                 case .some(.unknown), .none:
-                    return nil
+                    // Fail open, but write it down: absent shell telemetry is not
+                    // evidence the agent stopped, and persisting the explicit value
+                    // keeps `nil` meaning exactly "snapshot predates this field" on
+                    // the restore side (which also fails open for those).
+                    return true
                 }
             }()
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
@@ -1291,7 +1295,9 @@ extension Workspace {
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
             // Only auto-resume if the agent was actively running when the snapshot was saved.
-            // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
+            // Current builds always write the flag for agent-claiming panes (unknown shell
+            // activity saves as an explicit fail-open true), so nil only survives in files
+            // from before the field existed; those fail open too.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
             let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
             let resumeBindingForStartup =

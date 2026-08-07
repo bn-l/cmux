@@ -5961,8 +5961,9 @@ extension TabManager {
         return workspaces
     }
 
-    /// Strips a resume binding whose cwd belongs to a *different workspace in this same
-    /// snapshot*.
+    /// Strips an agent-session claim whose cwd belongs to a *different workspace in this
+    /// same snapshot* — whether the claim is a resume binding or an agent record with no
+    /// binding at all.
     ///
     /// `deduplicatingAgentSessionClaims` only uses directory affinity to pick a winner
     /// among panes claiming one session id, so a lone binding pointing at another project
@@ -5973,8 +5974,15 @@ extension TabManager {
     /// across one restart). Found by driving the tagged dev build against a session file
     /// seeded with this shape.
     ///
+    /// Binding-less `agent` records replay through the same restore mechanics
+    /// (`restoredAgentResumeLaunch` builds `cd '<agent cwd>' && <agent> --resume` from
+    /// the agent snapshot, falling back to its launch command's cwd), so the claim
+    /// directory here mirrors that lookup order. Observed live: a homeassistant
+    /// conversation auto-resumed inside the voice-rpg workspace from an agent-only
+    /// claim this pass used to ignore.
+    ///
     /// The test is deliberately "belongs to another workspace here", not "differs from
-    /// this pane's directory". A binding's cwd routinely differs from its pane's last
+    /// this pane's directory". A claim's cwd routinely differs from its pane's last
     /// tracked directory for entirely ordinary reasons -- a stale report, a scratch
     /// directory, an agent launched from elsewhere -- and rejecting on mere difference
     /// costs those panes their resume. Naming another workspace in the same file is the
@@ -5990,22 +5998,26 @@ extension TabManager {
         for (workspaceIndex, workspace) in workspaces.enumerated() {
             guard let ownDirectory = workspaceDirectories[workspaceIndex] else { continue }
             for (panelIndex, panel) in workspace.panels.enumerated() {
-                guard let binding = panel.terminal?.resumeBinding,
-                      let bindingDirectory = AgentSessionDirectoryAffinity.standardized(binding.cwd),
-                      !AgentSessionDirectoryAffinity.isAffine(bindingDirectory, ownDirectory) else {
+                guard let terminal = panel.terminal,
+                      let claimDirectory = AgentSessionDirectoryAffinity.standardized(
+                          terminal.resumeBinding?.cwd
+                              ?? terminal.agent?.workingDirectory
+                              ?? terminal.agent?.launchCommand?.workingDirectory
+                      ),
+                      !AgentSessionDirectoryAffinity.isAffine(claimDirectory, ownDirectory) else {
                     continue
                 }
                 let belongsToAnotherWorkspace = workspaceDirectories.enumerated().contains { candidate in
                     guard candidate.offset != workspaceIndex,
                           let otherDirectory = candidate.element else { return false }
-                    return AgentSessionDirectoryAffinity.isAffine(bindingDirectory, otherDirectory)
+                    return AgentSessionDirectoryAffinity.isAffine(claimDirectory, otherDirectory)
                 }
                 guard belongsToAnotherWorkspace else { continue }
 #if DEBUG
                 cmuxDebugLog(
                     "session.binding.cross-project-stripped " +
-                    "workspace=\(ownDirectory) binding=\(bindingDirectory) " +
-                    "checkpoint=\(binding.checkpointId ?? "nil")"
+                    "workspace=\(ownDirectory) claim=\(claimDirectory) " +
+                    "session=\(terminal.resumeBinding?.checkpointId ?? terminal.agent?.sessionId ?? "nil")"
                 )
 #endif
                 workspaces[workspaceIndex].panels[panelIndex].terminal?.resumeBinding = nil
