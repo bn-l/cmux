@@ -1104,6 +1104,91 @@ struct CrossProjectAgentSessionIdentityTests {
         )
     }
 
+    // A binding-less `agent` record replays through the same restore mechanics
+    // (`restoredAgentResumeLaunch` builds the resume command from the agent snapshot),
+    // and the strip pass used to require a resume binding, so this shape sailed through
+    // both it and the dedupe pass. Observed live: a homeassistant conversation
+    // auto-resumed inside the voice-rpg workspace from exactly this claim.
+    @Test func snapshotStripsAnAgentOnlyClaimRootedInAnotherWorkspacesProject() throws {
+        let stripped = TabManager.strippingCrossProjectResumeBindings([
+            Self.workspaceSnapshot(
+                currentDirectory: "/tmp/alpha-project",
+                panels: [
+                    Self.agentOnlyTerminalPanelSnapshot(
+                        id: try #require(UUID(uuidString: "AAAAAAAA-BBBB-BBBB-BBBB-BBBBBBBBBBBB")),
+                        directory: "/tmp/alpha-project",
+                        agent: Self.agent(
+                            sessionId: "agent-only-cross-project",
+                            workingDirectory: "/tmp/gamma-project"
+                        )
+                    ),
+                ]
+            ),
+            Self.workspaceSnapshot(currentDirectory: "/tmp/gamma-project", panels: []),
+        ])
+
+        #expect(
+            stripped[0].panels[0].terminal?.agent == nil,
+            "alpha's pane may not carry gamma's agent-only resume claim"
+        )
+        #expect(stripped[0].panels[0].terminal?.wasAgentRunning == false)
+    }
+
+    // Same scratch-directory rule as bindings: a cwd that names no other workspace in
+    // the snapshot is not evidence of misattribution, so the agent claim must survive.
+    @Test func snapshotKeepsAnAgentOnlyClaimWhoseCwdIsNoOtherWorkspacesProject() throws {
+        let stripped = TabManager.strippingCrossProjectResumeBindings([
+            Self.workspaceSnapshot(
+                currentDirectory: "/tmp/alpha-project",
+                panels: [
+                    Self.agentOnlyTerminalPanelSnapshot(
+                        id: try #require(UUID(uuidString: "BBBBBBBB-CCCC-CCCC-CCCC-CCCCCCCCCCCC")),
+                        directory: "/tmp/alpha-project",
+                        agent: Self.agent(
+                            sessionId: "agent-only-scratch",
+                            workingDirectory: "/tmp/some-scratch-checkout"
+                        )
+                    ),
+                ]
+            ),
+            Self.workspaceSnapshot(currentDirectory: "/tmp/gamma-project", panels: []),
+        ])
+
+        #expect(
+            stripped[0].panels[0].terminal?.agent?.sessionId == "agent-only-scratch",
+            "a cwd that belongs to no other workspace is not evidence of misattribution"
+        )
+    }
+
+    // Restore falls back to the launch command's cwd when the agent record carries no
+    // workingDirectory (`resumeSessionWorkingDirectory`), so the strip test must consult
+    // the same fallback or that variant still replays cross-project.
+    @Test func snapshotStripsAnAgentOnlyClaimWhoseLaunchCommandCwdIsAnotherWorkspacesProject() throws {
+        let stripped = TabManager.strippingCrossProjectResumeBindings([
+            Self.workspaceSnapshot(
+                currentDirectory: "/tmp/alpha-project",
+                panels: [
+                    Self.agentOnlyTerminalPanelSnapshot(
+                        id: try #require(UUID(uuidString: "CCCCCCCC-DDDD-DDDD-DDDD-DDDDDDDDDDDD")),
+                        directory: "/tmp/alpha-project",
+                        agent: Self.agent(
+                            sessionId: "agent-only-launch-cwd",
+                            workingDirectory: nil,
+                            launchCommandWorkingDirectory: "/tmp/gamma-project"
+                        )
+                    ),
+                ]
+            ),
+            Self.workspaceSnapshot(currentDirectory: "/tmp/gamma-project", panels: []),
+        ])
+
+        #expect(
+            stripped[0].panels[0].terminal?.agent == nil,
+            "the launch command's cwd is where restore would cd; it gets the same test"
+        )
+        #expect(stripped[0].panels[0].terminal?.wasAgentRunning == false)
+    }
+
     // MARK: - Fixtures
 
     private static func binding(
@@ -1120,6 +1205,60 @@ struct CrossProjectAgentSessionIdentityTests {
             source: "agent-hook",
             autoResume: true,
             updatedAt: updatedAt
+        )
+    }
+
+    private static func agent(
+        sessionId: String,
+        workingDirectory: String?,
+        launchCommandWorkingDirectory: String? = nil
+    ) -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            launchCommand: launchCommandWorkingDirectory.map {
+                AgentLaunchCommandSnapshot(
+                    launcher: "claude",
+                    executablePath: "/usr/local/bin/claude",
+                    arguments: ["claude"],
+                    workingDirectory: $0,
+                    environment: nil,
+                    capturedAt: 0,
+                    source: "test"
+                )
+            }
+        )
+    }
+
+    /// The live poison shape: an `agent` record with no resume binding and no
+    /// `wasAgentRunning` flag, which restore fails open on.
+    private static func agentOnlyTerminalPanelSnapshot(
+        id: UUID,
+        directory: String,
+        agent: SessionRestorableAgentSnapshot
+    ) -> SessionPanelSnapshot {
+        SessionPanelSnapshot(
+            id: id,
+            type: .terminal,
+            title: "Terminal",
+            customTitle: nil,
+            directory: directory,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: directory,
+                agent: agent,
+                wasAgentRunning: nil
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
         )
     }
 
