@@ -4737,6 +4737,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "split=\(splitLabel) focus=\(focus ? 1 : 0) focusWindow=\(focusWindow ? 1 : 0)"
         )
 #endif
+        // Production-visible on purpose: Release builds compile out the DEBUG event log,
+        // and "did cmux move this pane?" forensics needs a trail in the unified log too.
+        NSLog("cmux surface.move panel=%@ targetWorkspace=%@", panelId.uuidString, targetWorkspaceId.uuidString)
         guard let source = locateSurface(surfaceId: panelId) else {
 #if DEBUG
             cmuxDebugLog("surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=sourcePanelNotFound elapsedMs=\(elapsedMs(since: moveStart))")
