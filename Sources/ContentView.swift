@@ -23,6 +23,7 @@ import CmuxUpdaterUI
 import ImageIO
 import Observation
 import SwiftUI
+import os
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
@@ -10612,12 +10613,11 @@ struct VerticalTabsSidebar: View {
     }
     private func updateWorkspaceScrollContentMinHeight(_ contentMinHeight: CGFloat) {
         guard workspaceScrollContentMinHeight != contentMinHeight else { return }
-#if DEBUG
         // §6.2: rule the viewport-derived minHeight in or out as the alternating
         // input. A minHeight that flips between two values every pass is a
-        // container-level oscillation; a stable minHeight exonerates it.
+        // container-level oscillation; a stable minHeight exonerates it. No-op
+        // unless the sidebarGeometryDebugLog default (or the env var) is set.
         SidebarGeometryDebugLog.minHeight(from: workspaceScrollContentMinHeight, to: contentMinHeight)
-#endif
         var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
         withTransaction(transaction) { workspaceScrollContentMinHeight = contentMinHeight }
     }
@@ -11826,13 +11826,10 @@ struct VerticalTabsSidebar: View {
         // non-converging relayout loop (#2586 / #5764 / #5845). Fill is handled
         // by `.frame(minHeight:)` in workspaceScrollContent.
         let _ = SidebarProfilingSignposts.end(signpost)
-#if DEBUG
-        // §6.2 investigation trace; no-op unless CMUX_SIDEBAR_GEOMETRY_LOG=1.
-        // Log-only, so it does not measure the rows or feed layout.
+        // §6.2 investigation trace; no-op unless the sidebarGeometryDebugLog
+        // default (or CMUX_SIDEBAR_GEOMETRY_LOG=1) is set. Log-only, so it does
+        // not measure the rows or feed layout.
         rows.sidebarContainerGeometryDebugLog()
-#else
-        rows
-#endif
     }
     /// Conditionally installs the row-frame `overlayPreferenceValue` reader (the part
     /// that defeats `LazyVStack` virtualization) only while a drag is collecting drop
@@ -12344,10 +12341,9 @@ struct VerticalTabsSidebar: View {
             .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-#if DEBUG
-            // §6.2 investigation trace; no-op unless CMUX_SIDEBAR_GEOMETRY_LOG=1.
+            // §6.2 investigation trace; no-op unless the sidebarGeometryDebugLog
+            // default (or CMUX_SIDEBAR_GEOMETRY_LOG=1) is set.
             .sidebarRowGeometryDebugLog(id: tab.id)
-#endif
     }
 
 }
@@ -12382,21 +12378,34 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
     }
 }
 
-#if DEBUG
 /// Opt-in, log-only geometry tracing for the sidebar lazy-layout livelock
-/// investigation (`ISSUE_sidebar_scroll_livelock.md` §6.2). Disabled unless
-/// `CMUX_SIDEBAR_GEOMETRY_LOG=1` in the environment, and it only writes to the
-/// debug event log — it never writes SwiftUI state, so it cannot create the
-/// geometry→`@State` feedback that `scripts/check-sidebar-lazy-layout.py`
-/// forbids in rows. When enabled it records each realized row's rendered height
-/// and the `LazyVStack` container's height on every layout pass; a height that
-/// alternates between passes for the same id is the oscillation the incident
-/// sample points at (`RootGeometry` → `LazyVStackLayout.sizeThatFits` →
-/// `measureEstimates`). Compiled out of Release.
+/// investigation (`ISSUE_sidebar_scroll_livelock.md` §6.2). Compiled into
+/// Release so the trace can run on an installed build (the incident was on a
+/// signed build, and a Dock/Finder launch carries no environment). Enable it
+/// with the `sidebarGeometryDebugLog` UserDefaults bool
+/// (`defaults write com.cmuxterm.app sidebarGeometryDebugLog -bool true`) for a
+/// Dock/Finder launch, or `CMUX_SIDEBAR_GEOMETRY_LOG=1` for a Terminal launch;
+/// read the rows with
+///   log stream --predicate 'subsystem=="com.cmuxterm.app" AND category=="sidebar-geometry"'
+/// It only writes to os_log — it never writes SwiftUI state, so it cannot
+/// create the geometry→`@State` feedback that
+/// `scripts/check-sidebar-lazy-layout.py` forbids in rows. When enabled it
+/// records each realized row's rendered height and the `LazyVStack` container's
+/// height on every layout pass; a height that alternates between passes for the
+/// same id is the oscillation the incident sample points at (`RootGeometry` →
+/// `LazyVStackLayout.sizeThatFits` → `measureEstimates`).
 enum SidebarGeometryDebugLog {
+    private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "sidebar-geometry")
+
+    /// Evaluated once at process start, so `isActive` is a process constant and
+    /// the trace modifier's view identity never flips mid-session. Enable with
+    /// the `sidebarGeometryDebugLog` UserDefaults bool (Dock/Finder launch) or
+    /// `CMUX_SIDEBAR_GEOMETRY_LOG=1` (Terminal launch — a GUI launch has no env).
     static let isEnabled: Bool =
         ProcessInfo.processInfo.environment["CMUX_SIDEBAR_GEOMETRY_LOG"] == "1"
+        || UserDefaults.standard.bool(forKey: "sidebarGeometryDebugLog")
 
+#if DEBUG
     /// Test-only sink. When set, the row/container observers attach (regardless
     /// of `isEnabled`) and every geometry callback also calls this, so a harness
     /// can watch for the alternating-size hypothesis (§4.2). Note the limit:
@@ -12406,27 +12415,49 @@ enum SidebarGeometryDebugLog {
     /// general convergence oracle is main-thread CPU time, not this. `nonisolated
     /// (unsafe)` matches the existing DEBUG test seams; all access is on main.
     nonisolated(unsafe) static var testSink: (() -> Void)?
+#endif
 
-    /// Observers attach when either the debug log is enabled or a test is
-    /// observing. A process constant in the shipped app (no test flips it).
-    static var isActive: Bool { isEnabled || testSink != nil }
+    /// Observers attach when either the debug log is enabled or (in DEBUG) a
+    /// test is observing. A process constant in the shipped app (no test flips
+    /// it), so the trace modifier's branch never flips and view identity stays
+    /// stable across the mounted lifetime.
+    static var isActive: Bool {
+#if DEBUG
+        isEnabled || testSink != nil
+#else
+        isEnabled
+#endif
+    }
 
     static func row(_ id: UUID, _ size: CGSize) {
+#if DEBUG
         testSink?()
+#endif
         guard isEnabled else { return }
-        cmuxDebugLog("sidebar.geom.row id=\(id.uuidString.prefix(5)) h=\(fmt(size.height)) w=\(fmt(size.width))")
+        log("sidebar.geom.row id=\(id.uuidString.prefix(5)) h=\(fmt(size.height)) w=\(fmt(size.width))")
     }
 
     static func container(_ size: CGSize) {
+#if DEBUG
         testSink?()
+#endif
         guard isEnabled else { return }
-        cmuxDebugLog("sidebar.geom.container h=\(fmt(size.height)) w=\(fmt(size.width))")
+        log("sidebar.geom.container h=\(fmt(size.height)) w=\(fmt(size.width))")
     }
 
     static func minHeight(from oldValue: CGFloat, to newValue: CGFloat) {
+#if DEBUG
         testSink?()
+#endif
         guard isEnabled else { return }
-        cmuxDebugLog("sidebar.geom.minHeight \(fmt(oldValue)) -> \(fmt(newValue))")
+        log("sidebar.geom.minHeight \(fmt(oldValue)) -> \(fmt(newValue))")
+    }
+
+    /// Log the whole line as `.public` so os_log does not redact the geometry
+    /// values (the trace is opt-in and carries no private data — truncated ids
+    /// and heights only).
+    private static func log(_ message: String) {
+        logger.log("\(message, privacy: .public)")
     }
 
     private static func fmt(_ value: CGFloat) -> String { String(format: "%.1f", value) }
@@ -12462,7 +12493,6 @@ extension View {
         }
     }
 }
-#endif
 
 @MainActor
 private final class SidebarDragFailsafeMonitor: ObservableObject {
