@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import CmuxSidebar
 import CmuxUpdater
 import SwiftUI
 
@@ -74,7 +75,12 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private static func mountSidebar(workspaceCount: Int) async throws -> Harness {
+    private static func mountSidebar(
+        workspaceCount: Int,
+        groupsEnabled: Bool = true,
+        windowHeight: CGFloat = 640,
+        showPullRequests: Bool = true
+    ) async throws -> Harness {
         _ = NSApplication.shared
 
         // Hermetic defaults: VerticalTabsSidebar picks between the workspace
@@ -90,6 +96,10 @@ final class SidebarLazyLayoutScaleTests {
             CmuxExtensionSidebarSelection.defaultProviderId,
             forKey: CmuxExtensionSidebarSelection.defaultsKey
         )
+        // `sidebarShowPullRequest` (SidebarWorkspaceDetailDefaults.showPullRequestsKey)
+        // defaults to true; the incident had it off. Set it explicitly so the
+        // incident-shape test can match.
+        defaults.set(showPullRequests, forKey: "sidebarShowPullRequest")
 
         let tabManager = TabManager()
         while tabManager.tabs.count < workspaceCount {
@@ -116,16 +126,20 @@ final class SidebarLazyLayoutScaleTests {
         // Group the first workspaces (top of the list, inside the viewport) so
         // group-header rows — assembled by sidebarWorkspaceGroupHeader(...) in
         // VerticalTabsSidebar+WorkspaceGroups.swift, a historical regression
-        // site (#4385) — are exercised by the same realization bounds.
-        let groupCandidates = Array(tabManager.tabs.prefix(20).map(\.id))
-        for chunkStart in stride(from: 0, to: groupCandidates.count, by: 4) {
-            let children = Array(groupCandidates[chunkStart..<min(chunkStart + 4, groupCandidates.count)])
-            _ = tabManager.createWorkspaceGroup(
-                name: "Group \(chunkStart / 4)",
-                childWorkspaceIds: children,
-                selectAnchor: false,
-                collapseSidebarSelection: false
-            )
+        // site (#4385) — are exercised by the same realization bounds. The
+        // incident session had no groups, so the scroll-convergence test mounts
+        // with groupsEnabled == false to match its shape.
+        if groupsEnabled {
+            let groupCandidates = Array(tabManager.tabs.prefix(20).map(\.id))
+            for chunkStart in stride(from: 0, to: groupCandidates.count, by: 4) {
+                let children = Array(groupCandidates[chunkStart..<min(chunkStart + 4, groupCandidates.count)])
+                _ = tabManager.createWorkspaceGroup(
+                    name: "Group \(chunkStart / 4)",
+                    childWorkspaceIds: children,
+                    selectAnchor: false,
+                    collapseSidebarSelection: false
+                )
+            }
         }
         Self.turnMainRunLoopOnce(layingOut: nil)
 
@@ -177,7 +191,7 @@ final class SidebarLazyLayoutScaleTests {
         .defaultAppStorage(defaults)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 280, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: 280, height: windowHeight),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
@@ -394,6 +408,258 @@ final class SidebarLazyLayoutScaleTests {
             are not protecting anything. Fix the harness before trusting them.
             """
         )
+    }
+
+    /// Scroll-convergence check on a **synthetic approximation** of the incident
+    /// (`ISSUE_sidebar_scroll_livelock.md` §6.1) — not the incident state, and
+    /// not yet a full class guard. The 2026-08-29 freeze was a non-converging
+    /// lazy-layout cycle in the workspace `LazyVStack`, triggered on the first
+    /// scroll away from the top (§2). The persisted incident session was 21
+    /// workspaces, no groups, title wrapping and the PR line off, four rows with
+    /// custom-metadata status pills, and notification subtitles. This mounts an
+    /// approximation of that (known gaps in §6.1: synthetic titles, no 80-panel
+    /// topology, an every-other-row subtitle pattern, a non-reserved status key,
+    /// and `clipView.scroll` instead of the trackpad path), then scrolls the
+    /// real `NSScrollView` off the top in steps and checks the sidebar goes
+    /// quiet three ways over the following idle window:
+    ///   - row-body evaluations stop (catches a body-churning loop — the §2.1
+    ///     `TabItemView` init/destroy signature);
+    ///   - no row/container size keeps *changing* (catches the §4.2
+    ///     alternating-size hypothesis specifically — but NOT a loop that
+    ///     recomputes at constant sizes, because `onGeometryChange` fires on
+    ///     value change, not per pass; see §6.2);
+    ///   - main-thread CPU stays a small fraction of wall time — the general
+    ///     oracle, and the incident's measured symptom (94% CPU), which does not
+    ///     depend on sizes changing.
+    ///
+    /// A *returning* oscillation fails these. A true reproduction — a single
+    /// observer callout that never returns (§2.2) — would instead HANG the drain
+    /// and surface as a job timeout, because `turnMainRunLoopOnce`'s 1 ms
+    /// deadline bounds each wait but cannot interrupt a non-returning callout.
+    /// (A watchdog dumping the main-thread backtrace after N seconds would turn
+    /// that hang into a diagnosable failure; deferred.)
+    @Test(arguments: [CGFloat(320), CGFloat(480)])
+    @MainActor
+    func testIncidentShapeScrollConverges(windowHeight: CGFloat) async throws {
+        // Route the §6.2 geometry instrumentation into a counter so we can also
+        // watch for the alternating-size hypothesis. Set before mount so the
+        // row/container observers attach during initial layout.
+        let sizeChanges = GeometrySignalCounter()
+        SidebarGeometryDebugLog.testSink = { sizeChanges.count += 1 }
+        defer { SidebarGeometryDebugLog.testSink = nil }
+
+        let harness = try await Self.mountSidebar(
+            workspaceCount: 21,
+            groupsEnabled: false,
+            windowHeight: windowHeight,
+            showPullRequests: false
+        )
+        defer { harness.tearDown() }
+
+        // Non-uniform heights, matching the incident: every other row gets a
+        // two-line notification subtitle (`showNotificationMessage` defaults to
+        // true so it renders), and four rows carry a status-pill metadata row
+        // (`showCustomMetadata` defaults to true). The status key must be
+        // NON-reserved: reserved structured-agent keys (claude_code, codex, …)
+        // are hidden by sidebarStatusEntriesVisibleForDisplay() unless the
+        // workspace has an agent/PID mapping the harness never creates, so those
+        // rows would not render (review 3).
+        var summaries: [UUID: SidebarWorkspaceUnreadSummary] = [:]
+        for (offset, id) in harness.tabManager.tabs.map(\.id).enumerated() where offset.isMultiple(of: 2) {
+            summaries[id] = SidebarWorkspaceUnreadSummary(
+                unreadCount: 1,
+                latestNotificationText:
+                    "agent finished a long-running task and is waiting for your review \(offset)"
+            )
+        }
+        harness.unread.apply(
+            totalUnreadCount: summaries.count,
+            summaries: summaries,
+            unreadSurfaceKeys: [],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
+        )
+        for tab in harness.tabManager.tabs.prefix(4) {
+            tab.statusEntries["ci_build"] = SidebarStatusEntry(
+                key: "ci_build",
+                value: "Idle",
+                icon: "pause.circle.fill",
+                color: "#8E8E93"
+            )
+        }
+        await Self.drainMainRunLoop(for: harness.window)
+
+        let contentView = try #require(harness.window.contentView)
+        let scrollView = try #require(
+            Self.findScrollView(in: contentView),
+            "No NSScrollView under the hosted sidebar; the scroll harness is broken."
+        )
+        Self.turnMainRunLoopOnce(layingOut: harness.window)
+
+        let clip = scrollView.contentView
+        let documentHeight = scrollView.documentView?.frame.height ?? 0
+        let viewportHeight = clip.bounds.height
+        let overflow = documentHeight - viewportHeight
+        #expect(
+            overflow > 1,
+            """
+            Sidebar content (\(documentHeight)pt) does not overflow the \
+            \(viewportHeight)pt viewport at windowHeight \(windowHeight), so \
+            scrolling is a no-op and this repro attempt is vacuous. Shrink the \
+            window or add row height.
+            """
+        )
+
+        // Control measurement: with nothing scrolling yet, the main thread is
+        // idle. This is the calibration baseline for the CPU oracle.
+        let idle = await Self.cpuFractionPumpingRunLoop(for: harness.window, seconds: 0.4)
+
+        // Scroll off the top in steps, mimicking a gesture. Snapshot the row-body
+        // count and the size-change count first: if the programmatic scroll
+        // drives SwiftUI at all it must realize rows that were off-screen and
+        // change their sizes, so both counters must advance. Without that proof
+        // a scroll SwiftUI silently ignored would make the checks below vacuous.
+        let bodiesBeforeScroll = harness.counter.workspaceRowBodies
+        let sizeChangesBeforeScroll = sizeChanges.count
+        let initialVisibleY = scrollView.documentVisibleRect.origin.y
+        for step in 1...8 {
+            let y = overflow * CGFloat(step) / 8
+            clip.scroll(to: NSPoint(x: 0, y: y))
+            scrollView.reflectScrolledClipView(clip)
+            await Self.drainMainRunLoop(for: harness.window, iterations: 3)
+        }
+        #expect(
+            abs(scrollView.documentVisibleRect.origin.y - initialVisibleY) > 1,
+            "The clip view did not move; the programmatic scroll had no effect."
+        )
+        #expect(
+            harness.counter.workspaceRowBodies > bodiesBeforeScroll,
+            """
+            Scrolling realized no new row bodies (before=\(bodiesBeforeScroll), \
+            after=\(harness.counter.workspaceRowBodies)) at windowHeight \(windowHeight). \
+            The programmatic scroll is not driving SwiftUI's lazy realization, so a green \
+            convergence result below would be vacuous — fix the scroll driver first.
+            """
+        )
+        #expect(
+            sizeChanges.count > sizeChangesBeforeScroll,
+            """
+            The §6.2 geometry sink fired no size changes during scrolling \
+            (before=\(sizeChangesBeforeScroll), after=\(sizeChanges.count)), so the \
+            alternating-size check below would be vacuous. The observers did not attach \
+            (check SidebarGeometryDebugLog.isActive / testSink wiring).
+            """
+        )
+
+        // Let the post-scroll relayout settle before measuring steady state. The
+        // final scroll position realizes its row set once (a bounded pass, up to
+        // one body per workspace) — that is convergence completing, not a loop, so
+        // it must not count against the quiet window.
+        _ = await Self.cpuFractionPumpingRunLoop(for: harness.window, seconds: 0.3)
+
+        // Quiet window: nothing changes. Measure convergence three ways over the
+        // same idle drain — see the doc comment for what each does and does not
+        // catch.
+        harness.counter.reset()
+        let sizeChangesBeforeQuiet = sizeChanges.count
+        let quiet = await Self.cpuFractionPumpingRunLoop(for: harness.window, seconds: 0.4)
+        let quietBodyEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
+        let quietSizeChanges = sizeChanges.count - sizeChangesBeforeQuiet
+        // Calibration line (visible in the test log); the CPU ceiling below was
+        // set from the observed green fractions.
+        print("[cpu-oracle] windowHeight=\(windowHeight) idleFraction=\(idle.fraction) quietFraction=\(quiet.fraction) quietCPU=\(quiet.cpu)s quietWall=\(quiet.wall)s bodies=\(quietBodyEvals) sizeChanges=\(quietSizeChanges)")
+
+        #expect(
+            quietBodyEvals < 20,
+            """
+            \(quietBodyEvals) row bodies evaluated after scrolling settled with no \
+            input, at windowHeight \(windowHeight). The sidebar is re-invalidating \
+            itself after a scroll — the non-converging lazy-layout cycle from \
+            ISSUE_sidebar_scroll_livelock.md §2, which livelocks the main thread.
+            """
+        )
+        #expect(
+            quietSizeChanges < 20,
+            """
+            \(quietSizeChanges) row/container size CHANGES after scrolling settled with \
+            no input, at windowHeight \(windowHeight). Sizes are still alternating every \
+            pass — the §4.2 alternating-size oscillation. (A constant-size recompute loop \
+            would not show here; the CPU oracle covers that.)
+            """
+        )
+        // Relative to the pre-scroll idle baseline so the run-loop-pump overhead
+        // (observed ~0.1–0.3 of wall on this harness, machine-dependent) cancels
+        // out: a converged sidebar's quiet window ≈ the idle baseline, while the
+        // incident's 94%-CPU spin lands +0.6–0.9 above any reasonable baseline.
+        #expect(
+            quiet.fraction < idle.fraction + 0.5,
+            """
+            Main thread burned \(quiet.fraction) of wall time (\(quiet.cpu)s CPU / \
+            \(quiet.wall)s wall) after scrolling settled with no input, at windowHeight \
+            \(windowHeight) — \(quiet.fraction - idle.fraction) above the pre-scroll idle \
+            baseline \(idle.fraction). A returning lazy-layout oscillation burns most of a \
+            core; this is the incident's 94%-CPU symptom (§1, §2). An idle sidebar burns \
+            about the same as the baseline.
+            """
+        )
+    }
+
+    /// Recursive first-`NSScrollView` finder, mirroring the resolver walk the
+    /// sidebar itself uses (`SidebarScrollViewResolver`) and the pattern in
+    /// `FilePreviewPDFThumbnailSidebarTests`.
+    @MainActor
+    private static func findScrollView(in view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView { return scrollView }
+        for subview in view.subviews {
+            if let scrollView = findScrollView(in: subview) { return scrollView }
+        }
+        return nil
+    }
+
+    /// Pumps the main run loop for ~`seconds` of wall time and returns the main
+    /// thread's CPU consumption over that window as a fraction of wall. A
+    /// converged sidebar leaves the thread mostly idle (small fraction); a
+    /// returning oscillation burns most of a core (fraction → 1) — the incident's
+    /// measured symptom (94% CPU). Layout-agnostic: unlike the geometry sink it
+    /// does not depend on any observed size changing (§6.2).
+    @MainActor
+    private static func cpuFractionPumpingRunLoop(
+        for window: NSWindow,
+        seconds: Double
+    ) async -> (fraction: Double, cpu: Double, wall: Double) {
+        let cpuStart = Self.mainThreadCPUSeconds()
+        let wallStart = Date()
+        while Date().timeIntervalSince(wallStart) < seconds {
+            Self.turnMainRunLoopOnce(layingOut: window)
+            await Task.yield()
+        }
+        let wall = Date().timeIntervalSince(wallStart)
+        let cpu = Self.mainThreadCPUSeconds() - cpuStart
+        return (wall > 0 ? cpu / wall : 0, cpu, wall)
+    }
+
+    /// Current-thread (called on main) CPU time in seconds via `thread_info`.
+    private static func mainThreadCPUSeconds() -> Double {
+        let thread = mach_thread_self()
+        defer { mach_port_deallocate(mach_task_self_, thread) }
+        var info = thread_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) { infoPtr -> kern_return_t in
+            infoPtr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { intPtr in
+                thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), intPtr, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS else { return 0 }
+        let user = Double(info.user_time.seconds) + Double(info.user_time.microseconds) / 1_000_000
+        let system = Double(info.system_time.seconds) + Double(info.system_time.microseconds) / 1_000_000
+        return user + system
+    }
+
+    /// Counts §6.2 geometry callbacks routed through `SidebarGeometryDebugLog`
+    /// `.testSink`. Plain class so the sink's `() -> Void` can mutate it; the
+    /// callbacks fire on the main thread.
+    private final class GeometrySignalCounter {
+        var count = 0
     }
 }
 
