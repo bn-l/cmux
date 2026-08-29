@@ -10612,6 +10612,12 @@ struct VerticalTabsSidebar: View {
     }
     private func updateWorkspaceScrollContentMinHeight(_ contentMinHeight: CGFloat) {
         guard workspaceScrollContentMinHeight != contentMinHeight else { return }
+#if DEBUG
+        // §6.2: rule the viewport-derived minHeight in or out as the alternating
+        // input. A minHeight that flips between two values every pass is a
+        // container-level oscillation; a stable minHeight exonerates it.
+        SidebarGeometryDebugLog.minHeight(from: workspaceScrollContentMinHeight, to: contentMinHeight)
+#endif
         var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
         withTransaction(transaction) { workspaceScrollContentMinHeight = contentMinHeight }
     }
@@ -11820,7 +11826,13 @@ struct VerticalTabsSidebar: View {
         // non-converging relayout loop (#2586 / #5764 / #5845). Fill is handled
         // by `.frame(minHeight:)` in workspaceScrollContent.
         let _ = SidebarProfilingSignposts.end(signpost)
+#if DEBUG
+        // §6.2 investigation trace; no-op unless CMUX_SIDEBAR_GEOMETRY_LOG=1.
+        // Log-only, so it does not measure the rows or feed layout.
+        rows.sidebarContainerGeometryDebugLog()
+#else
         rows
+#endif
     }
     /// Conditionally installs the row-frame `overlayPreferenceValue` reader (the part
     /// that defeats `LazyVStack` virtualization) only while a drag is collecting drop
@@ -12332,6 +12344,10 @@ struct VerticalTabsSidebar: View {
             .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
+#if DEBUG
+            // §6.2 investigation trace; no-op unless CMUX_SIDEBAR_GEOMETRY_LOG=1.
+            .sidebarRowGeometryDebugLog(id: tab.id)
+#endif
     }
 
 }
@@ -12365,6 +12381,88 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
         value.merge(nextValue()) { _, next in next }
     }
 }
+
+#if DEBUG
+/// Opt-in, log-only geometry tracing for the sidebar lazy-layout livelock
+/// investigation (`ISSUE_sidebar_scroll_livelock.md` §6.2). Disabled unless
+/// `CMUX_SIDEBAR_GEOMETRY_LOG=1` in the environment, and it only writes to the
+/// debug event log — it never writes SwiftUI state, so it cannot create the
+/// geometry→`@State` feedback that `scripts/check-sidebar-lazy-layout.py`
+/// forbids in rows. When enabled it records each realized row's rendered height
+/// and the `LazyVStack` container's height on every layout pass; a height that
+/// alternates between passes for the same id is the oscillation the incident
+/// sample points at (`RootGeometry` → `LazyVStackLayout.sizeThatFits` →
+/// `measureEstimates`). Compiled out of Release.
+enum SidebarGeometryDebugLog {
+    static let isEnabled: Bool =
+        ProcessInfo.processInfo.environment["CMUX_SIDEBAR_GEOMETRY_LOG"] == "1"
+
+    /// Test-only sink. When set, the row/container observers attach (regardless
+    /// of `isEnabled`) and every geometry callback also calls this, so a harness
+    /// can watch for the alternating-size hypothesis (§4.2). Note the limit:
+    /// `onGeometryChange` fires when the observed size *changes*, not once per
+    /// layout pass, so a quiet sink does NOT prove lazy-layout processing went
+    /// idle — a loop that recomputes at constant sizes fires nothing here. The
+    /// general convergence oracle is main-thread CPU time, not this. `nonisolated
+    /// (unsafe)` matches the existing DEBUG test seams; all access is on main.
+    nonisolated(unsafe) static var testSink: (() -> Void)?
+
+    /// Observers attach when either the debug log is enabled or a test is
+    /// observing. A process constant in the shipped app (no test flips it).
+    static var isActive: Bool { isEnabled || testSink != nil }
+
+    static func row(_ id: UUID, _ size: CGSize) {
+        testSink?()
+        guard isEnabled else { return }
+        cmuxDebugLog("sidebar.geom.row id=\(id.uuidString.prefix(5)) h=\(fmt(size.height)) w=\(fmt(size.width))")
+    }
+
+    static func container(_ size: CGSize) {
+        testSink?()
+        guard isEnabled else { return }
+        cmuxDebugLog("sidebar.geom.container h=\(fmt(size.height)) w=\(fmt(size.width))")
+    }
+
+    static func minHeight(from oldValue: CGFloat, to newValue: CGFloat) {
+        testSink?()
+        guard isEnabled else { return }
+        cmuxDebugLog("sidebar.geom.minHeight \(fmt(oldValue)) -> \(fmt(newValue))")
+    }
+
+    private static func fmt(_ value: CGFloat) -> String { String(format: "%.1f", value) }
+}
+
+extension View {
+    /// §6.2 per-row geometry trace. Only attaches the observer when the trace is
+    /// enabled, so with the flag off there is no modifier, no cost, and no
+    /// perturbation of the lazy realization the scale test
+    /// (`SidebarLazyLayoutScaleTests`) counts. The observer is attached by the
+    /// container to the row it places (not a row measuring itself) and only
+    /// logs, so it is not the `onGeometryChange` row-feedback shape the
+    /// lazy-layout guard bans inside `TabItemView`. In the shipped app `isActive`
+    /// is a process constant (`isEnabled`, no test sink), so the branch never
+    /// flips and view identity is stable; a harness sets `testSink` once before
+    /// mounting, so it is likewise stable across the mounted lifetime.
+    @ViewBuilder
+    func sidebarRowGeometryDebugLog(id: UUID) -> some View {
+        if SidebarGeometryDebugLog.isActive {
+            onGeometryChange(for: CGSize.self) { $0.size } action: { SidebarGeometryDebugLog.row(id, $0) }
+        } else {
+            self
+        }
+    }
+
+    /// §6.2 container geometry trace for the whole `LazyVStack` of rows.
+    @ViewBuilder
+    func sidebarContainerGeometryDebugLog() -> some View {
+        if SidebarGeometryDebugLog.isActive {
+            onGeometryChange(for: CGSize.self) { $0.size } action: { SidebarGeometryDebugLog.container($0) }
+        } else {
+            self
+        }
+    }
+}
+#endif
 
 @MainActor
 private final class SidebarDragFailsafeMonitor: ObservableObject {
