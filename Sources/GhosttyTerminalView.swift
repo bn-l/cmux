@@ -3630,6 +3630,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var suppressingReparentFocus: Bool = false
     var tabId: UUID?
     var selectionTranslationHostView: NSView?
+    var firstResponderFocusTransactionId: UUID?
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
@@ -5461,13 +5462,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
 #endif
             if let terminalSurface {
+                var userInfo: [AnyHashable: Any] = [
+                    GhosttyNotificationKey.tabId: terminalSurface.tabId,
+                    GhosttyNotificationKey.surfaceId: terminalSurface.id,
+                ]
+                if let firstResponderFocusTransactionId {
+                    userInfo[GhosttyNotificationKey.focusTransactionId] = firstResponderFocusTransactionId
+                }
                 NotificationCenter.default.post(
                     name: .ghosttyDidBecomeFirstResponderSurface,
                     object: nil,
-                    userInfo: [
-                        GhosttyNotificationKey.tabId: terminalSurface.tabId,
-                        GhosttyNotificationKey.surfaceId: terminalSurface.id,
-                    ]
+                    userInfo: userInfo
                 )
             }
             terminalSurface?.recordExternalFocusState(true)
@@ -8774,6 +8779,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
+    private var pendingAutomaticFirstResponderFocusTransactionId: UUID?
     private var pendingSuppressedFirstResponderFocusReapply = false
     // Hidden/tiny focus retry is bounded by layout/visibility signals, not a timer loop.
 
@@ -10583,7 +10589,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
-    func moveFocus(from previous: GhosttySurfaceScrollView? = nil, delay: TimeInterval? = nil) {
+    func moveFocus(
+        from previous: GhosttySurfaceScrollView? = nil,
+        delay: TimeInterval? = nil,
+        focusTransactionId: UUID? = nil
+    ) {
 #if DEBUG
         let surfaceShort = String(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
         let searchActive = self.surfaceView.terminalSurface?.searchState != nil
@@ -10603,6 +10613,11 @@ final class GhosttySurfaceScrollView: NSView {
             guard self.canRequestSurfaceFirstResponder(in: window, reason: "moveFocus") else { return }
             if let previous, previous !== self {
                 _ = previous.surfaceView.resignFirstResponder()
+            }
+            let previousFocusTransactionId = self.surfaceView.firstResponderFocusTransactionId
+            self.surfaceView.firstResponderFocusTransactionId = focusTransactionId
+            defer {
+                self.surfaceView.firstResponderFocusTransactionId = previousFocusTransactionId
             }
             let result = window.makeFirstResponder(self.surfaceView)
 #if DEBUG
@@ -10771,7 +10786,8 @@ final class GhosttySurfaceScrollView: NSView {
     func ensureFocus(
         for tabId: UUID,
         surfaceId: UUID,
-        respectForeignFirstResponder: Bool = true
+        respectForeignFirstResponder: Bool = true,
+        focusTransactionId: UUID? = nil
     ) {
         let hasUsablePortalGeometry: Bool = {
             let size = bounds.size
@@ -10788,7 +10804,10 @@ final class GhosttySurfaceScrollView: NSView {
                 "reason=not_visible"
             )
 #endif
-            scheduleAutomaticFirstResponderApply(reason: "ensureFocus.notVisible")
+            scheduleAutomaticFirstResponderApply(
+                reason: "ensureFocus.notVisible",
+                focusTransactionId: focusTransactionId
+            )
             return
         }
         guard !isHiddenForFocus, hasUsablePortalGeometry else {
@@ -10799,7 +10818,10 @@ final class GhosttySurfaceScrollView: NSView {
                 "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
             )
 #endif
-            scheduleAutomaticFirstResponderApply(reason: "ensureFocus.hiddenOrTiny")
+            scheduleAutomaticFirstResponderApply(
+                reason: "ensureFocus.hiddenOrTiny",
+                focusTransactionId: focusTransactionId
+            )
             return
         }
 
@@ -10842,7 +10864,10 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
                 return
             }
-            let result = window.makeFirstResponder(surfaceView)
+            let result = makeSurfaceViewFirstResponder(
+                in: window,
+                focusTransactionId: focusTransactionId
+            )
 #if DEBUG
             cmuxDebugLog(
                 "focus.ensure.dock.apply surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
@@ -10858,7 +10883,10 @@ final class GhosttySurfaceScrollView: NSView {
         guard let delegate = AppDelegate.shared,
               let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager,
               tabManager.selectedTabId == tabId else {
-            scheduleAutomaticFirstResponderApply(reason: "ensureFocus.inactiveTab")
+            scheduleAutomaticFirstResponderApply(
+                reason: "ensureFocus.inactiveTab",
+                focusTransactionId: focusTransactionId
+            )
             return
         }
 
@@ -10867,13 +10895,19 @@ final class GhosttySurfaceScrollView: NSView {
               let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
                   tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
               }) else {
-            scheduleAutomaticFirstResponderApply(reason: "ensureFocus.missingPane")
+            scheduleAutomaticFirstResponderApply(
+                reason: "ensureFocus.missingPane",
+                focusTransactionId: focusTransactionId
+            )
             return
         }
 
         guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
               tab.bonsplitController.focusedPaneId == paneId else {
-            scheduleAutomaticFirstResponderApply(reason: "ensureFocus.unfocusedPane")
+            scheduleAutomaticFirstResponderApply(
+                reason: "ensureFocus.unfocusedPane",
+                focusTransactionId: focusTransactionId
+            )
             return
         }
 
@@ -10931,7 +10965,10 @@ final class GhosttySurfaceScrollView: NSView {
             }
             window.makeKeyAndOrderFront(nil)
         }
-        let result = window.makeFirstResponder(surfaceView)
+        let result = makeSurfaceViewFirstResponder(
+            in: window,
+            focusTransactionId: focusTransactionId
+        )
 #if DEBUG
         cmuxDebugLog(
             "focus.ensure.apply surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
@@ -10941,10 +10978,25 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
 
         if !isSurfaceViewFirstResponder() {
-            scheduleAutomaticFirstResponderApply(reason: "ensureFocus.afterMakeFirstResponder")
+            scheduleAutomaticFirstResponderApply(
+                reason: "ensureFocus.afterMakeFirstResponder",
+                focusTransactionId: focusTransactionId
+            )
         } else {
             reassertTerminalSurfaceFocus(reason: "ensureFocus.afterMakeFirstResponder")
         }
+    }
+
+    private func makeSurfaceViewFirstResponder(
+        in window: NSWindow,
+        focusTransactionId: UUID?
+    ) -> Bool {
+        let previousFocusTransactionId = surfaceView.firstResponderFocusTransactionId
+        surfaceView.firstResponderFocusTransactionId = focusTransactionId
+        defer {
+            surfaceView.firstResponderFocusTransactionId = previousFocusTransactionId
+        }
+        return window.makeFirstResponder(surfaceView)
     }
 
     func yieldTerminalSurfaceFocusForForeignResponder(reason: String) {
@@ -11019,7 +11071,10 @@ final class GhosttySurfaceScrollView: NSView {
                 "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
             )
 #endif
-            scheduleAutomaticFirstResponderApply(reason: "clearSuppressReparentFocus.hiddenOrTiny")
+            scheduleAutomaticFirstResponderApply(
+                reason: "clearSuppressReparentFocus.hiddenOrTiny",
+                focusTransactionId: surfaceView.firstResponderFocusTransactionId
+            )
             return
         }
         if !surfaceOwnsFirstResponder && !isSurfaceViewFirstResponder() {
@@ -11040,7 +11095,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     fileprivate func scheduleSuppressedFirstResponderFocusReapply(reason: String) {
         pendingSuppressedFirstResponderFocusReapply = true
-        scheduleAutomaticFirstResponderApply(reason: reason)
+        scheduleAutomaticFirstResponderApply(
+            reason: reason,
+            focusTransactionId: surfaceView.firstResponderFocusTransactionId
+        )
     }
 
     fileprivate func cancelSuppressedFirstResponderFocusReapply() {
@@ -11068,7 +11126,10 @@ final class GhosttySurfaceScrollView: NSView {
               AppDelegate.shared?.isCommandPaletteEffectivelyVisible(for: window) != true else {
             return
         }
-        scheduleAutomaticFirstResponderApply(reason: reason)
+        scheduleAutomaticFirstResponderApply(
+            reason: reason,
+            focusTransactionId: surfaceView.firstResponderFocusTransactionId
+        )
     }
 
     /// Returns true if the terminal's actual Ghostty surface view is (or contains) the window first responder.
@@ -11131,20 +11192,31 @@ final class GhosttySurfaceScrollView: NSView {
         guard canRequestSurfaceFirstResponder(in: window, reason: reason) else {
             return false
         }
-        return window.makeFirstResponder(surfaceView)
+        return makeSurfaceViewFirstResponder(
+            in: window,
+            focusTransactionId: surfaceView.firstResponderFocusTransactionId
+        )
     }
 
-    private func scheduleAutomaticFirstResponderApply(reason: String) {
+    private func scheduleAutomaticFirstResponderApply(
+        reason: String,
+        focusTransactionId: UUID? = nil
+    ) {
+        if let focusTransactionId {
+            pendingAutomaticFirstResponderFocusTransactionId = focusTransactionId
+        }
         guard !pendingAutomaticFirstResponderApply else { return }
         pendingAutomaticFirstResponderApply = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.pendingAutomaticFirstResponderApply = false
+            let focusTransactionId = self.pendingAutomaticFirstResponderFocusTransactionId
+            self.pendingAutomaticFirstResponderFocusTransactionId = nil
 #if DEBUG
             let surfaceShort = String(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
             cmuxDebugLog("find.applyFirstResponder.defer surface=\(surfaceShort) reason=\(reason)")
 #endif
-            self.applyFirstResponderIfNeeded()
+            self.applyFirstResponderIfNeeded(focusTransactionId: focusTransactionId)
         }
     }
 
@@ -11170,7 +11242,10 @@ final class GhosttySurfaceScrollView: NSView {
             )
 #endif
             pendingSuppressedFirstResponderFocusReapply = true
-            scheduleAutomaticFirstResponderApply(reason: "\(reason).hiddenOrTiny")
+            scheduleAutomaticFirstResponderApply(
+                reason: "\(reason).hiddenOrTiny",
+                focusTransactionId: surfaceView.firstResponderFocusTransactionId
+            )
             return false
         }
 
@@ -11209,7 +11284,7 @@ final class GhosttySurfaceScrollView: NSView {
         terminalSurface.forceRefresh(reason: "focus.surface.\(reason)")
     }
 
-    private func applyFirstResponderIfNeeded() {
+    private func applyFirstResponderIfNeeded(focusTransactionId: UUID? = nil) {
         let hasUsablePortalGeometry: Bool = {
             let size = bounds.size
             return size.width > 1 && size.height > 1
@@ -11291,7 +11366,10 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         cmuxDebugLog("find.applyFirstResponder APPLY surface=\(surfaceShort) prevFirstResponder=\(String(describing: window.firstResponder))")
 #endif
-        window.makeFirstResponder(surfaceView)
+        _ = makeSurfaceViewFirstResponder(
+            in: window,
+            focusTransactionId: focusTransactionId
+        )
         if isSurfaceViewFirstResponder() {
             reassertTerminalSurfaceFocus(reason: "applyFirstResponder.afterMakeFirstResponder")
         }
