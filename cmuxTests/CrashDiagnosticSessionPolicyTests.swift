@@ -119,6 +119,45 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
+    func sessionSnapshotDropsPhantomWindows() {
+        let projectDirectory = "/tmp/cmux-project"
+        func window(workspaces: [SessionWorkspaceSnapshot]) -> SessionWindowSnapshot {
+            SessionWindowSnapshot(
+                frame: nil,
+                display: nil,
+                tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: workspaces),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+            )
+        }
+        let mixed = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                window(workspaces: []),
+                window(workspaces: [emptyWorkspaceSnapshot(currentDirectory: projectDirectory)]),
+                window(workspaces: []),
+            ]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: mixed)
+
+        #expect(!pruned.removedAny)
+        #expect(pruned.snapshot?.windows.count == 1)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [projectDirectory])
+
+        // An all-phantom session (#6646: three 0-tab windows) is not restorable.
+        let allPhantom = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [window(workspaces: []), window(workspaces: []), window(workspaces: [])]
+        )
+        let prunedAllPhantom = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: allPhantom)
+        // Not crash-diagnostic data: callers must not treat it as such.
+        #expect(!prunedAllPhantom.removedAny)
+        #expect(prunedAllPhantom.snapshot == nil)
+    }
+
+    @Test
     func sessionSnapshotKeepsCrashWorkspaceWithPersistedScrollback() {
         let projectDirectory = "/tmp/cmux-project"
         let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
