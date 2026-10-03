@@ -3006,7 +3006,7 @@ final class BrowserPanel: Panel, ObservableObject {
     // Avoid flickering the loading indicator for very fast navigations.
     private let minLoadingIndicatorDuration: TimeInterval = 0.35
     private var loadingStartedAt: Date?
-    private var loadingEndWorkItem: DispatchWorkItem?
+    private let loadingEndScheduler = MainActorDeferredActionScheduler()
     private var loadingGeneration: Int = 0
 
     private var faviconTask: Task<Void, Never>?
@@ -3087,7 +3087,7 @@ final class BrowserPanel: Panel, ObservableObject {
     let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
     var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .detached
     var forceDeveloperToolsRefreshOnNextAttach: Bool = false
-    private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
+    private let developerToolsRestoreRetryScheduler = MainActorDeferredActionScheduler()
     private var developerToolsRestoreRetryAttempt: Int = 0
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
@@ -3110,8 +3110,8 @@ final class BrowserPanel: Panel, ObservableObject {
     var developerToolsDetachedOpenGraceDeadline: Date?
     var developerToolsTransitionTargetVisible: Bool?
     var pendingDeveloperToolsTransitionTargetVisible: Bool?
-    var developerToolsTransitionSettleWorkItem: DispatchWorkItem?
-    private var developerToolsVisibilityLossCheckWorkItem: DispatchWorkItem?
+    private let developerToolsTransitionSettleScheduler = MainActorDeferredActionScheduler()
+    private let developerToolsVisibilityLossCheckScheduler = MainActorDeferredActionScheduler()
     let developerToolsTransitionSettleDelay: TimeInterval = 0.15
     let developerToolsAttachedManualCloseDetectionDelay: TimeInterval = 0.35
     let developerToolsDetachedWindowCloseResolutionMaxDuration: TimeInterval = 2.0
@@ -3302,8 +3302,7 @@ final class BrowserPanel: Panel, ObservableObject {
         clearBrowserFocusMode(reason: "webViewDiscard")
         invalidateSearchFocusRequests(reason: "webViewDiscard")
         searchState = nil
-        loadingEndWorkItem?.cancel()
-        loadingEndWorkItem = nil
+        loadingEndScheduler.cancel()
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
@@ -5116,8 +5115,7 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask = nil
         faviconRefreshGeneration &+= 1
         loadingGeneration &+= 1
-        loadingEndWorkItem?.cancel()
-        loadingEndWorkItem = nil
+        loadingEndScheduler.cancel()
         isLoading = false
         estimatedProgress = 0
         cancelPendingInteractiveBrowserPrompts(reason: reason)
@@ -5643,8 +5641,7 @@ final class BrowserPanel: Panel, ObservableObject {
             // The loading spinner covers this gap; didFinish will fetch the new favicon.
             faviconPNGData = nil
             loadingGeneration &+= 1
-            loadingEndWorkItem?.cancel()
-            loadingEndWorkItem = nil
+            loadingEndScheduler.cancel()
             loadingStartedAt = Date()
             isLoading = true
             return
@@ -5655,8 +5652,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let elapsed = Date().timeIntervalSince(startedAt)
         let remaining = max(0, minLoadingIndicatorDuration - elapsed)
 
-        loadingEndWorkItem?.cancel()
-        loadingEndWorkItem = nil
+        loadingEndScheduler.cancel()
 
         if remaining <= 0.0001 {
             isLoading = false
@@ -5664,7 +5660,7 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
-        let work = DispatchWorkItem { [weak self] in
+        loadingEndScheduler.schedule(after: .seconds(remaining)) { [weak self] in
             guard let self else { return }
             // If loading restarted, ignore this end.
             guard self.loadingGeneration == genAtEnd else { return }
@@ -5673,8 +5669,6 @@ final class BrowserPanel: Panel, ObservableObject {
             self.isLoading = false
             self.scheduleHiddenWebViewDiscardIfNeeded(reason: "load.finished")
         }
-        loadingEndWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
     }
 
     // MARK: - Navigation
@@ -5965,12 +5959,6 @@ final class BrowserPanel: Panel, ObservableObject {
 
     deinit {
         hiddenWebViewDiscardManager.stop()
-        developerToolsRestoreRetryWorkItem?.cancel()
-        developerToolsRestoreRetryWorkItem = nil
-        developerToolsTransitionSettleWorkItem?.cancel()
-        developerToolsTransitionSettleWorkItem = nil
-        developerToolsVisibilityLossCheckWorkItem?.cancel()
-        developerToolsVisibilityLossCheckWorkItem = nil
         detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
         detachedDeveloperToolsWindowCloseResolutionTimer = nil
         detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
@@ -6093,8 +6081,7 @@ extension BrowserPanel {
         developerToolsDockControlNormalizationTask = nil
         clearWebContentTerminationRecovery()
 
-        loadingEndWorkItem?.cancel()
-        loadingEndWorkItem = nil
+        loadingEndScheduler.cancel()
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
@@ -6551,7 +6538,7 @@ extension BrowserPanel {
     }
 
     private var isDeveloperToolsTransitionInFlight: Bool {
-        developerToolsTransitionSettleWorkItem != nil
+        developerToolsTransitionSettleScheduler.isScheduled
     }
 
     private func effectiveDeveloperToolsVisibilityIntent() -> Bool {
@@ -6565,13 +6552,15 @@ extension BrowserPanel {
     }
 
     private func scheduleDeveloperToolsTransitionSettle(source: String) {
-        developerToolsTransitionSettleWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.developerToolsTransitionSettleWorkItem = nil
+        developerToolsTransitionSettleScheduler.schedule(
+            after: .seconds(developerToolsTransitionSettleDelay)
+        ) { [weak self] in
             self?.finishDeveloperToolsTransition(source: source)
         }
-        developerToolsTransitionSettleWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + developerToolsTransitionSettleDelay, execute: workItem)
+    }
+
+    func cancelDeveloperToolsTransitionSettle() {
+        developerToolsTransitionSettleScheduler.cancel()
     }
 
     private func finishDeveloperToolsTransition(source: String) {
@@ -6722,8 +6711,7 @@ extension BrowserPanel {
 
     @discardableResult
     func closeDeveloperToolsForTeardown() -> Bool {
-        developerToolsTransitionSettleWorkItem?.cancel()
-        developerToolsTransitionSettleWorkItem = nil
+        cancelDeveloperToolsTransitionSettle()
         pendingDeveloperToolsTransitionTargetVisible = nil
         developerToolsTransitionTargetVisible = nil
         cancelDetachedDeveloperToolsWindowCloseResolution()
@@ -6807,31 +6795,25 @@ extension BrowserPanel {
         isDeveloperToolsVisible()
             || forceDeveloperToolsRefreshOnNextAttach
             || developerToolsPreservedVisibleIntentForNextAttach
-            || developerToolsRestoreRetryWorkItem != nil
+            || developerToolsRestoreRetryScheduler.isScheduled
     }
 
     func scheduleDeveloperToolsVisibilityLossCheck() {
-        developerToolsVisibilityLossCheckWorkItem?.cancel()
         let attachedAge = developerToolsLastAttachedHostAt.map { Date().timeIntervalSince($0) } ?? 0
         let delay = max(
             developerToolsTransitionSettleDelay,
             developerToolsAttachedManualCloseDetectionDelay - attachedAge
         )
-        let workItem = DispatchWorkItem { [weak self] in
+        developerToolsVisibilityLossCheckScheduler.schedule(
+            after: .seconds(max(0, delay))
+        ) { [weak self] in
             guard let self else { return }
-            self.developerToolsVisibilityLossCheckWorkItem = nil
             _ = self.consumeAttachedDeveloperToolsManualCloseIfNeeded()
         }
-        developerToolsVisibilityLossCheckWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + max(0, delay),
-            execute: workItem
-        )
     }
 
     func cancelPendingDeveloperToolsVisibilityLossCheck() {
-        developerToolsVisibilityLossCheckWorkItem?.cancel()
-        developerToolsVisibilityLossCheckWorkItem = nil
+        developerToolsVisibilityLossCheckScheduler.cancel()
     }
 
     @discardableResult
@@ -6972,7 +6954,7 @@ extension BrowserPanel {
         preferredDeveloperToolsVisible &&
             (
                 forceDeveloperToolsRefreshOnNextAttach ||
-                developerToolsRestoreRetryWorkItem != nil ||
+                developerToolsRestoreRetryScheduler.isScheduled ||
                 hasPendingDetachedDeveloperToolsWindowCloseResolution ||
                 webView.superview == nil ||
                 webView.window == nil
@@ -7865,22 +7847,20 @@ extension BrowserPanel {
 
     private func scheduleDeveloperToolsRestoreRetry() {
         guard preferredDeveloperToolsVisible else { return }
-        guard developerToolsRestoreRetryWorkItem == nil else { return }
+        guard !developerToolsRestoreRetryScheduler.isScheduled else { return }
         guard developerToolsRestoreRetryAttempt < developerToolsRestoreRetryMaxAttempts else { return }
 
         developerToolsRestoreRetryAttempt += 1
-        let work = DispatchWorkItem { [weak self] in
+        developerToolsRestoreRetryScheduler.schedule(
+            after: .seconds(developerToolsRestoreRetryDelay)
+        ) { [weak self] in
             guard let self else { return }
-            self.developerToolsRestoreRetryWorkItem = nil
             self.restoreDeveloperToolsAfterAttachIfNeeded()
         }
-        developerToolsRestoreRetryWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + developerToolsRestoreRetryDelay, execute: work)
     }
 
     func cancelDeveloperToolsRestoreRetry() {
-        developerToolsRestoreRetryWorkItem?.cancel()
-        developerToolsRestoreRetryWorkItem = nil
+        developerToolsRestoreRetryScheduler.cancel()
         developerToolsRestoreRetryAttempt = 0
     }
 }
