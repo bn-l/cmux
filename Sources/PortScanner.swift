@@ -5,7 +5,8 @@ import Foundation
 ///
 /// Each shell sends a lightweight `report_tty` + `ports_kick` over the socket.
 /// PortScanner coalesces kicks across all panels, then runs a single
-/// `ps -t <ttys>` + `lsof -p <pids>` covering every panel that needs scanning.
+/// `ps -t <ttys>` plus one libproc listening-port lookup per PID
+/// (`ListeningPortLookup`) covering every panel that needs scanning.
 ///
 /// Kick → coalesce → burst flow:
 /// 1. `kick()` adds panel to `pendingKicks` set
@@ -221,9 +222,8 @@ final class PortScanner: @unchecked Sendable {
             return
         }
 
-        // 2. lsof -nP -a -p <all_pids> -iTCP -sTCP:LISTEN -F pn
-        let pidsCsv = allPids.sorted().map(String.init).joined(separator: ",")
-        let pidToPorts = runLsof(pidsCsv: pidsCsv)
+        // 2. Listening TCP ports for every PID, straight from the kernel.
+        let pidToPorts = listeningPorts(pids: allPids)
 
         // 3. Join: PID→TTY + PID→ports → TTY→ports
         var portsByTTY: [String: Set<Int>] = [:]
@@ -368,8 +368,7 @@ final class PortScanner: @unchecked Sendable {
             return
         }
 
-        let pidsCsv = agentPidToWorkspaces.keys.sorted().map(String.init).joined(separator: ",")
-        let pidToPorts = runLsof(pidsCsv: pidsCsv)
+        let pidToPorts = listeningPorts(pids: Set(agentPidToWorkspaces.keys))
         var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
         for (pid, ports) in pidToPorts {
             guard let workspaceIdsForPid = agentPidToWorkspaces[pid] else { continue }
@@ -621,42 +620,15 @@ final class PortScanner: @unchecked Sendable {
         return mapping
     }
 
-    private func runLsof(pidsCsv: String) -> [Int: Set<Int>] {
-        // `lsof -nP -a -p <pids> -iTCP -sTCP:LISTEN -F pn`
-        guard let output = Self.captureStandardOutput(
-            executablePath: "/usr/sbin/lsof",
-            arguments: ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
-        ) else {
-            return [:]
-        }
-
-        // Parse lsof -F output: lines starting with 'p' = PID, 'n' = name (host:port).
+    /// Listening TCP ports per PID, read from the kernel with libproc.
+    /// Processes we may not inspect, or that exited mid-scan, report nothing,
+    /// matching what `lsof` returned for them.
+    private func listeningPorts(pids: Set<Int>) -> [Int: Set<Int>] {
         var result: [Int: Set<Int>] = [:]
-        var currentPid: Int?
-        for line in output.split(separator: "\n") {
-            guard let first = line.first else { continue }
-            switch first {
-            case "p":
-                currentPid = Int(line.dropFirst())
-            case "n":
-                guard let pid = currentPid else { continue }
-                var name = String(line.dropFirst())
-                // Strip remote endpoint if present.
-                if let arrowIdx = name.range(of: "->") {
-                    name = String(name[..<arrowIdx.lowerBound])
-                }
-                // Port is after the last colon.
-                if let colonIdx = name.lastIndex(of: ":") {
-                    let portStr = name[name.index(after: colonIdx)...]
-                    // Strip anything non-numeric.
-                    let cleaned = portStr.prefix(while: \.isNumber)
-                    if let port = Int(cleaned), port > 0, port <= 65535 {
-                        result[pid, default: []].insert(port)
-                    }
-                }
-            default:
-                break
-            }
+        for pid in pids {
+            guard case .ports(let ports) = ListeningPortLookup.ports(pid: pid_t(pid)),
+                  !ports.isEmpty else { continue }
+            result[pid] = ports
         }
         return result
     }
