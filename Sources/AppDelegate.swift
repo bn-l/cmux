@@ -460,7 +460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private final class MainWindowController: NSWindowController, NSWindowDelegate {
+    private final class MainWindowController: ReleasingWindowController {
         var onClose: (() -> Void)?
         var shouldClose: (() -> Bool)?
 
@@ -474,7 +474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         #endif
 
-        func windowWillClose(_ notification: Notification) {
+        override func managedWindowWillClose(_ window: NSWindow) {
             onClose?()
         }
 

@@ -162,7 +162,7 @@ final class SidebarLazyLayoutScaleTests {
             windowId: UUID(),
             onToggleSidebar: {},
             onNewTab: {},
-            observedWindow: nil,
+            observedWindowReference: WeakWindowReference(),
             selection: .constant(.tabs),
             selectedTabIds: .constant([]),
             lastSidebarSelectionIndex: .constant(nil),
