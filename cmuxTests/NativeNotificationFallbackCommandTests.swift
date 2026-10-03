@@ -1,3 +1,4 @@
+import CmuxNotifications
 import Foundation
 import os
 import Testing
@@ -94,14 +95,21 @@ struct NativeNotificationFallbackCommandTests {
             commands.append(title: title, subtitle: subtitle, body: body)
         }
 
-        store.addNotification(
-            tabId: UUID(),
-            surfaceId: nil,
-            title: "Real title",
-            subtitle: "",
-            body: "Real message"
-        )
-        await Task.yield()
+        // The failed-scheduling branch plays unavailable feedback instead of
+        // the command fallback; resuming from that seam proves the branch ran
+        // to completion before the absence assertion below.
+        await withCheckedContinuation { continuation in
+            store.configureUnavailableFeedbackPlayerForTesting { _ in
+                continuation.resume()
+            }
+            store.addNotification(
+                tabId: UUID(),
+                surfaceId: nil,
+                title: "Real title",
+                subtitle: "",
+                body: "Real message"
+            )
+        }
 
         #expect(commands.invocations.isEmpty)
     }
@@ -155,7 +163,50 @@ struct NativeNotificationFallbackCommandTests {
         store.resetNotificationAuthorizationHandlerForTesting()
         store.resetUserNotificationSchedulerForTesting()
         store.resetNotificationCommandRunnerForTesting()
+        store.resetUnavailableFeedbackPlayerForTesting()
         store.resetSuppressedNotificationFeedbackHandlerForTesting()
         AppFocusState.overrideIsFocused = originalAppFocusOverride
+    }
+}
+
+extension AgentNotificationRegressionTests {
+    @Test("An unresponsive notification center never blocks its calling executor")
+    func unresponsiveNativeNotificationCenterDoesNotBlockCallingExecutor() {
+        var hooks = NativeNotificationDeliveryHooks(
+            userNotificationCenter: UserNotificationCenterService(
+                center: .current()
+            )
+        )
+        let schedulerEntered = DispatchSemaphore(value: 0)
+        let releaseScheduler = DispatchSemaphore(value: 0)
+        // Safety: written by the wedged scheduler thread, read by the test
+        // after schedule() returns.
+        let schedulerFinished = OSAllocatedUnfairLock(initialState: false)
+        hooks.scheduler = { _, _ in
+            schedulerEntered.signal()
+            // Stand-in for the framework blocking before it wires up its
+            // completion. The deadline exists only so a regression fails the
+            // test instead of wedging a runner thread indefinitely.
+            _ = releaseScheduler.wait(timeout: .now() + 5)
+            schedulerFinished.withLock { $0 = true }
+        }
+        let content = UNMutableNotificationContent()
+        let request = UNNotificationRequest(
+            identifier: "never-completes",
+            content: content,
+            trigger: nil
+        )
+
+        hooks.schedule(request) { _ in }
+
+        // Causal ordering: schedule() must hand back control while the wedged
+        // framework call still has not finished (it cannot finish until the
+        // release below).
+        #expect(
+            !schedulerFinished.withLock { $0 },
+            "schedule must return before the wedged center call completes"
+        )
+        #expect(schedulerEntered.wait(timeout: .now() + 5) == .success)
+        releaseScheduler.signal()
     }
 }
