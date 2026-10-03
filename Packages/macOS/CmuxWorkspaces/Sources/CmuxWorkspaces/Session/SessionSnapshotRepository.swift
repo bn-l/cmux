@@ -56,7 +56,9 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         guard fileManager.fileExists(atPath: fileURL.path) else { return .missing }
         guard let data = try? Data(contentsOf: fileURL) else { return .unusable }
         let decoder = JSONDecoder()
-        guard let snapshot = try? decoder.decode(SnapshotValue.self, from: data) else { return .unusable }
+        guard let snapshot = try? SessionSnapshotCodingStack().run({
+            try decoder.decode(SnapshotValue.self, from: data)
+        }) else { return .unusable }
         guard snapshot.version == schemaVersion else { return .unusable }
         guard snapshot.hasWindows else { return .unusable }
         return .loaded(snapshot)
@@ -88,7 +90,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     private func encodedSnapshotData(_ snapshot: SnapshotValue) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(snapshot)
+        return try SessionSnapshotCodingStack().run { try encoder.encode(snapshot) }
     }
 
     public func removeSnapshot(fileURL: URL? = nil) {
