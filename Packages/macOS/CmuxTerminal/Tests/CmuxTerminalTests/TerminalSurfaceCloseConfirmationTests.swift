@@ -66,6 +66,42 @@ private func setGhosttyCloseState(_ needsConfirm: Bool, _ foregroundPID: UInt64,
         #expect(surface.needsConfirmClose())
     }
 
+    @Test func snapshotQueryDoesNotConsultRendererLockedGhosttyCheck() {
+        let surface = makeSurface()
+        let runtimeSurface = fakeRuntimeSurface()
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        resetGhosttyRuntimeStubs()
+        // Ghostty's mutex-guarded prompt check says "no confirmation", but a live
+        // foreground child exists. The autosave query must answer from the lock-free
+        // process state instead (#6381).
+        setGhosttyCloseState(false, 42, nil)
+        defer {
+            resetGhosttyRuntimeStubs()
+            surface.releaseSurfaceForTesting()
+        }
+
+        #expect(!surface.needsConfirmClose())
+        #expect(surface.snapshotNeedsConfirmClose())
+    }
+
+    @Test func snapshotQueryKeepsProcessRiskGate() {
+        let surface = makeSurface()
+        let runtimeSurface = fakeRuntimeSurface()
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        resetGhosttyRuntimeStubs()
+        setGhosttyCloseState(true, 0, nil)
+        defer {
+            resetGhosttyRuntimeStubs()
+            surface.releaseSurfaceForTesting()
+        }
+
+        #expect(!surface.snapshotNeedsConfirmClose())
+    }
+
+    @Test func snapshotQueryWithoutRuntimeSurfaceIsFalse() {
+        #expect(!makeSurface().snapshotNeedsConfirmClose())
+    }
+
     private func makeSurface(initialCommand: String? = nil) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
