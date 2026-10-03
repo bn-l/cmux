@@ -43,6 +43,7 @@ let package = Package(
                 .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "CmuxRemoteDaemon", package: "CmuxRemoteDaemon"),
                 .product(name: "CmuxRemoteWorkspace", package: "CmuxRemoteWorkspace"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
             ]
         ),
     ]
