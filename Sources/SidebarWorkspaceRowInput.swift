@@ -30,10 +30,11 @@ struct SidebarWorkspaceRowInput {
     let rowSpacing: CGFloat
     let showsModifierShortcutHints: Bool
     let isPointerHovering: Bool
+    // Drop validation is owned by the parent overlay; rows carry only the
+    // paint state needed for the dragged row and its indicator lines.
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
-    let isBonsplitWorkspaceDropActive: Bool
     let settings: SidebarTabItemSettingsSnapshot
     let isRemoteContextMenuEligible: Bool
     let remoteConnectionState: WorkspaceRemoteConnectionState
@@ -66,7 +67,6 @@ struct SidebarWorkspaceRowInput {
             isBeingDragged: isBeingDragged,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropActive,
             settings: settings,
             contextMenu: SidebarWorkspaceContextMenuSnapshot(
                 targetWorkspaceIds: targetAggregate.targetWorkspaceIds,

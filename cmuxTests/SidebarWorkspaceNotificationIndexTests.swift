@@ -232,7 +232,6 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
-            isBonsplitWorkspaceDropActive: false,
             settings: settings,
             isRemoteContextMenuEligible: isRemote,
             remoteConnectionState: remoteState,

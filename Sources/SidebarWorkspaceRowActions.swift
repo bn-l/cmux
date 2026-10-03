@@ -41,10 +41,6 @@ struct SidebarWorkspaceRowActions {
     let openPullRequest: (URL) -> Void
     let openPort: (Int) -> Void
     let onDragStart: () -> NSItemProvider
-    let bonsplitSourceWorkspaceId: (UUID) -> UUID?
-    let moveBonsplitTabToWorkspace: (BonsplitTabDragPayload.Transfer, UUID) -> Bool
-    let syncAfterBonsplitDrop: () -> Void
-    let selectAfterBonsplitDrop: () -> Void
     let onContextMenuAppear: () -> Void
     let onContextMenuDisappear: () -> Void
     let onPointerFrameChange: (CGRect) -> Void
