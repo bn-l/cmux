@@ -13934,10 +13934,23 @@ struct TabItemView: View, Equatable {
     }
 
     private var showCloseButton: Bool {
-        isPointerHovering
-            && !contextMenuVisible
-            && canCloseWorkspace
-            && !(showsModifierShortcutHints || alwaysShowShortcutHints)
+        Self.showsCloseButton(
+            isPointerHovering: isPointerHovering,
+            contextMenuVisible: contextMenuVisible,
+            canCloseWorkspace: canCloseWorkspace,
+            shortcutHintsVisible: showsModifierShortcutHints || alwaysShowShortcutHints
+        )
+    }
+
+    /// Hover reveals the close button only while no context menu is open, the
+    /// workspace can be closed, and shortcut hints are not occupying the slot.
+    static func showsCloseButton(
+        isPointerHovering: Bool,
+        contextMenuVisible: Bool,
+        canCloseWorkspace: Bool,
+        shortcutHintsVisible: Bool
+    ) -> Bool {
+        isPointerHovering && !contextMenuVisible && canCloseWorkspace && !shortcutHintsVisible
     }
 
     private var workspaceShortcutLabel: String? {
