@@ -16,6 +16,7 @@ import Testing
 // table and are inherently not parallel-safe against each other. Serializing
 // also matches production, where the runner executes strictly serially per
 // coordinator, so this race window does not exist in the real app.
+extension RemoteSubprocessTests {
 @Suite("RemoteSessionProcessRunner", .serialized)
 struct RemoteSessionProcessRunnerTests {
     @Test("Capture survives the pipe read handles being torn down mid-run")
@@ -121,4 +122,5 @@ struct RemoteSessionProcessRunnerTests {
                 && nsError.localizedDescription == "sh timed out after 1s"
         }
     }
+}
 }

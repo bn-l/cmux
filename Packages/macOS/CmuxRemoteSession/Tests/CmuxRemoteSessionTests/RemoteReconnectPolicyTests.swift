@@ -103,10 +103,12 @@ struct RemoteReconnectPolicyTests {
     }
 }
 
-// `.serialized` for the same reason as the other real-subprocess suites: the
-// `resolveEndpoint` cases shell out to `/usr/bin/ssh -G` with `Process`/`Pipe`,
-// and the TCP-probe cases open real sockets, so they share the process-global
-// fd table. See ``remoteSubprocessTestLock``.
+// The `resolveEndpoint` cases shell out to `/usr/bin/ssh -G` with
+// `Process`/`Pipe` and the TCP-probe cases open real sockets, so they share the
+// process-global fd table; this suite lives under the shared serialized
+// ``RemoteSubprocessTests`` parent (its async cases cannot take
+// ``remoteSubprocessTestLock``).
+extension RemoteSubprocessTests {
 @Suite("RemoteHostReachabilityProbe", .serialized)
 struct RemoteHostReachabilityProbeTests {
     @Test("Parses hostname, port, and proxy fields from ssh -G output")
@@ -221,6 +223,7 @@ struct RemoteHostReachabilityProbeTests {
             }
         }
     }
+}
 }
 
 /// Minimal loopback TCP listener for probe tests.

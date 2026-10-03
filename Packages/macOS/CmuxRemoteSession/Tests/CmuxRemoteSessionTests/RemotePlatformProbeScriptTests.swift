@@ -12,6 +12,7 @@ import Testing
 // `.serialized`: each script case spawns a real `Process` with `Pipe`s; the
 // suite shares the process-global fd table and is not parallel-safe, matching
 // RemoteSessionProcessRunnerTests.
+extension RemoteSubprocessTests {
 @Suite("RemotePlatformProbeScript", .serialized)
 struct RemotePlatformProbeScriptTests {
     private struct ProcessResult {
@@ -215,4 +216,5 @@ struct RemotePlatformProbeScriptTests {
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
+}
 }
