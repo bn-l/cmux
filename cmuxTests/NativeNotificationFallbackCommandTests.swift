@@ -169,7 +169,11 @@ struct NativeNotificationFallbackCommandTests {
     }
 }
 
-extension AgentNotificationRegressionTests {
+/// Upstream nests this case under its `AgentNotificationRegressionTests` parent,
+/// which this fork does not have; it touches no shared store state.
+@Suite("Native notification delivery hooks")
+@MainActor
+struct NativeNotificationDeliveryHooksExecutorTests {
     @Test("An unresponsive notification center never blocks its calling executor")
     func unresponsiveNativeNotificationCenterDoesNotBlockCallingExecutor() {
         var hooks = NativeNotificationDeliveryHooks(
