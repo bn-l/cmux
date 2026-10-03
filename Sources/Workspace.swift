@@ -2888,6 +2888,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     init(
+        id: UUID? = nil,
         title: String = "Terminal",
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
@@ -2907,7 +2908,7 @@ final class Workspace: Identifiable, ObservableObject {
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil
     ) {
-        self.id = UUID()
+        self.id = id ?? UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.closeTabWarningDefaults = closeTabWarningDefaults
@@ -2979,7 +2980,7 @@ final class Workspace: Identifiable, ObservableObject {
             // Mirrors the minimal terminal branch below plus the browser panel
             // wiring `attachDetachedSurface` performs for reattached panels.
             let browserPanel = BrowserPanel(
-                workspaceId: id,
+                workspaceId: self.id,
                 profileID: resolvedNewBrowserProfileID(),
                 initialURL: initialBrowserURL,
                 omnibarVisible: initialBrowserOmnibarVisible,
@@ -3012,7 +3013,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             // Create initial terminal panel
             let terminalPanel = TerminalPanel(
-                workspaceId: id,
+                workspaceId: self.id,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB,
                 configTemplate: resolvedConfigTemplate,
                 workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,

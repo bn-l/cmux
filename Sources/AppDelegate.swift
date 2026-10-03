@@ -3368,8 +3368,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !additionalWindows.isEmpty {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                var excludedStableIdentities = self.liveStableIdentitySet()
+                var excludedWorkspaceIds = self.liveWorkspaceIdSet()
                 for windowSnapshot in additionalWindows {
-                    _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
+                    let windowId = self.createMainWindow(
+                        sessionWindowSnapshot: windowSnapshot,
+                        excludingStableIdentitiesFromSessionSnapshot: excludedStableIdentities,
+                        excludingWorkspaceIdsFromSessionSnapshot: excludedWorkspaceIds
+                    )
+                    if let context = self.mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+                        excludedStableIdentities.formUnion(context.tabManager.liveStableIdentitySet())
+                        excludedWorkspaceIds.formUnion(context.tabManager.liveWorkspaceIdSet())
+                    }
                 }
                 self.completeSessionRestoreOperation(isManualReopen: false)
             }
@@ -3422,14 +3432,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = nil
         didAttemptStartupSessionRestore = true
         var createdWindowIds: [UUID] = []
+        var excludedWorkspaceIds = liveWorkspaceIdSet()
 
         for windowSnapshot in snapshotWindows {
             let windowId = createMainWindow(
                 sessionWindowSnapshot: windowSnapshot,
                 shouldActivate: false,
-                excludingStableIdentitiesFromSessionSnapshot: liveStableIdentitySet()
+                excludingStableIdentitiesFromSessionSnapshot: liveStableIdentitySet(),
+                excludingWorkspaceIdsFromSessionSnapshot: excludedWorkspaceIds
             )
             createdWindowIds.append(windowId)
+            if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+                excludedWorkspaceIds.formUnion(context.tabManager.liveWorkspaceIdSet())
+            }
         }
 
         completeSessionRestoreOperation(isManualReopen: true)
@@ -8280,6 +8295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sourceWindow preferredSourceWindow: NSWindow? = nil,
         remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
         excludingStableIdentitiesFromSessionSnapshot: Set<UUID> = [],
+        excludingWorkspaceIdsFromSessionSnapshot: Set<UUID> = [],
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
@@ -8296,7 +8312,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(
                 sessionWindowSnapshot.tabManager,
                 remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot,
-                excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot
+                excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot,
+                excludingWorkspaceIds: excludingWorkspaceIdsFromSessionSnapshot
             )
             if let configFrames = sessionWindowSnapshot.configFrames {
                 windowConfigFrames[windowId] = SessionConfigFrameRing(entries: configFrames)
