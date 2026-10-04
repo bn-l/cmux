@@ -56,7 +56,7 @@ cmux notify --title "Done" --tab 0 --panel 1
 
 ## Navigation
 
-Use `Cmd+Shift+U` to jump to the latest unread notification. Use `Ctrl+Cmd+U` to mark the current item as oldest unread and jump to the next latest unread. Both shortcuts are configurable in Settings > Keyboard Shortcuts and in `~/.config/cmux/cmux.json`.
+Use `Cmd+Shift+U` to jump to the next thing that needs you. Agents waiting on you (a permission prompt, a question, or an error) come first, then unread notifications; within each group the oldest comes first, so a long-waiting agent is not pushed back by newer ones. The jump focuses the exact pane. A waiting agent stays in the queue until it moves on, so when you are already on one, the next press moves past it and wraps around. Use `Ctrl+Cmd+U` to send the current item to the back of the queue and jump to the next. Both shortcuts are configurable in Settings > Keyboard Shortcuts and in `~/.config/cmux/cmux.json`.
 
 ## Suppress only the focused surface
 

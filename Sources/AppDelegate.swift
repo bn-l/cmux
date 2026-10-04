@@ -511,6 +511,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     lazy var notificationNavigation: NotificationNavigationCoordinator =
         NotificationNavigationCoordinator(
             store: notificationNavSeams,
+            agentAttention: notificationNavSeams,
             windows: notificationNavSeams,
             unreadTargeting: notificationNavSeams,
             openRouting: notificationNavSeams,
@@ -15966,18 +15967,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     @MainActor
     func openTerminalNotification(_ notification: TerminalNotification) -> Bool {
-        notificationNavigation.openNotification(
-            NotificationNavSnapshot(
-                id: notification.id,
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId,
-                panelId: notification.panelId,
-                isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction),
-                scrollRow: notification.scrollPosition?.row,
-                scrollTotalRows: notification.scrollPosition?.totalRows
-            )
-        )
+        notificationNavigation.openNotification(NotificationNavSnapshot(notification))
     }
 
     /// Performs a notification click action. Forwards to the shared

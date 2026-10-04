@@ -1173,6 +1173,7 @@ final class TerminalNotificationStore: ObservableObject {
 
         var notification = updated.remove(at: index)
         notification.isRead = false
+        notification.deferredAt = Date()
         let insertionIndex = updated.lastIndex(where: { !$0.isRead }).map { $0 + 1 } ?? updated.endIndex
         updated.insert(notification, at: insertionIndex)
         setWorkspaceManualUnread(false, forTabId: tabId)

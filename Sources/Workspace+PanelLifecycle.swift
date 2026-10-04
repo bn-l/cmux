@@ -35,6 +35,12 @@ extension Workspace {
         set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
     }
 
+    /// When each panel's agent entered needs-input, for the panels whose agent
+    /// needs input now. Read by the attention jump (⌘⇧U).
+    var agentNeedsInputSinceByPanelId: [UUID: Date] {
+        sidebarAgentRuntimeObservation.needsInputSinceByPanelId
+    }
+
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 

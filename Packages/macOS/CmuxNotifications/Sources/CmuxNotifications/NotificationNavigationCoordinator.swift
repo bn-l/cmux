@@ -25,6 +25,7 @@ import Observation
 @Observable
 public final class NotificationNavigationCoordinator: NotificationDeliveryTerminalNavigating {
     private let store: any NotificationNavigationStoreReading
+    private let agentAttention: any AgentAttentionReading
     private let windows: any MainWindowContextResolving
     private let unreadTargeting: any UnreadWorkspaceTargeting
     private let openRouting: any NotificationOpenRouting
@@ -63,6 +64,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     ///   ``jumpToLatestUnread(excludingNotificationId:excludingWorkspaceId:)``.
     public init(
         store: any NotificationNavigationStoreReading,
+        agentAttention: any AgentAttentionReading,
         windows: any MainWindowContextResolving,
         unreadTargeting: any UnreadWorkspaceTargeting,
         openRouting: any NotificationOpenRouting,
@@ -71,6 +73,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         focusedJump: ((_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) -> UUID?)? = nil
     ) {
         self.store = store
+        self.agentAttention = agentAttention
         self.windows = windows
         self.unreadTargeting = unreadTargeting
         self.openRouting = openRouting
@@ -104,20 +107,36 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
 
     // MARK: Jump
 
-    /// Opens the latest openable unread notification, returning its id, or `nil`
-    /// when nothing could be opened. Mirrors `AppDelegate.jumpToLatestUnread`.
+    /// Opens the next thing that needs the user, in ``AttentionQueue`` order:
+    /// agents that need input first, then unread notifications, oldest first,
+    /// moving past the focused panel when it is itself in the queue. Falls back
+    /// to workspaces carrying a manual/restored unread indicator.
+    ///
+    /// Returns the opened notification's id. For an agent that needs input but
+    /// has no unread notification it returns that panel's latest notification,
+    /// if any. `nil` when no notification was opened. (The name predates the
+    /// attention ordering; it is kept for the existing call sites.)
     @discardableResult
     public func jumpToLatestUnread(
         excludingNotificationId excludedNotificationId: UUID? = nil,
         excludingWorkspaceId excludedWorkspaceId: UUID? = nil
     ) -> UUID? {
-        for notification in store.orderedNotifications
-        where notification.isOpenableForJump(
+        let notifications = store.orderedNotifications
+        let queue = AttentionQueue.entries(
+            notifications: notifications,
+            agentsNeedingInput: agentAttention.agentsNeedingInput,
             excludingNotificationId: excludedNotificationId,
             excludingWorkspaceId: excludedWorkspaceId
-        ) {
-            if openNotification(notification) {
-                return notification.id
+        )
+        let focused = focusedResolving.focusedTarget(preferredWindowToken: nil)
+        for entry in AttentionQueue.visitOrder(after: focused, in: queue) {
+            if let notification = entry.notification {
+                if openNotification(notification) {
+                    return notification.id
+                }
+            } else if let panelId = entry.surfaceId,
+                      open(tabId: entry.tabId, surfaceId: panelId, notificationId: nil) {
+                return notifications.first { $0.belongs(toTabId: entry.tabId, panelId: panelId) }?.id
             }
         }
         _ = openLatestWorkspaceUnread(excludingWorkspaceId: excludedWorkspaceId)

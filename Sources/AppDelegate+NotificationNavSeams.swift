@@ -31,6 +31,7 @@ import Foundation
 @MainActor
 final class NotificationNavSeamAdapter:
     NotificationNavigationStoreReading,
+    AgentAttentionReading,
     MainWindowContextResolving,
     UnreadWorkspaceTargeting,
     NotificationOpenRouting,
@@ -63,6 +64,12 @@ final class NotificationNavSeamAdapter:
 
     func markRead(id: UUID) {
         owner?.navMarkRead(id: id)
+    }
+
+    // MARK: AgentAttentionReading
+
+    var agentsNeedingInput: [AgentNeedsInputSnapshot] {
+        owner?.agentsNeedingInputForNav ?? []
     }
 
     // MARK: MainWindowContextResolving
@@ -240,6 +247,25 @@ final class NotificationNavSeamAdapter:
     }
 }
 
+extension NotificationNavSnapshot {
+    /// The navigation snapshot of an app-target notification.
+    @MainActor
+    init(_ notification: TerminalNotification) {
+        self.init(
+            id: notification.id,
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId,
+            panelId: notification.panelId,
+            isRead: notification.isRead,
+            clickAction: notification.clickAction.map(AppDelegate.navClickAction),
+            scrollRow: notification.scrollPosition?.row,
+            scrollTotalRows: notification.scrollPosition?.totalRows,
+            createdAt: notification.createdAt,
+            deferredAt: notification.deferredAt
+        )
+    }
+}
+
 /// Internal helpers the `NotificationNavSeamAdapter` forwards to. These are the
 /// original seam bodies, lifted off the protocol conformances (which now live on
 /// the adapter) and kept on `AppDelegate` so they retain access to the
@@ -250,18 +276,7 @@ extension AppDelegate {
 
     var orderedNotificationsForNav: [NotificationNavSnapshot] {
         guard let notificationStore else { return [] }
-        return notificationStore.notifications.map { notification in
-            NotificationNavSnapshot(
-                id: notification.id,
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId,
-                panelId: notification.panelId,
-                isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction),
-                scrollRow: notification.scrollPosition?.row,
-                scrollTotalRows: notification.scrollPosition?.totalRows
-            )
-        }
+        return notificationStore.notifications.map(NotificationNavSnapshot.init)
     }
 
     var workspaceUnreadIndicatorIdsForNav: Set<UUID> {
@@ -278,6 +293,24 @@ extension AppDelegate {
 
     func navMarkRead(id: UUID) {
         notificationStore?.markRead(id: id)
+    }
+
+    // MARK: AgentAttentionReading helpers
+
+    /// Every panel, across all main windows, whose agent needs input now. The
+    /// active tab manager is included for the early-startup window where the
+    /// window-context registry has not populated yet.
+    var agentsNeedingInputForNav: [AgentNeedsInputSnapshot] {
+        var seenWorkspaceIds = Set<UUID>()
+        let workspaces = (mainWindowContexts.values.flatMap { $0.tabManager.tabs } + (tabManager?.tabs ?? []))
+            .filter { seenWorkspaceIds.insert($0.id).inserted }
+        return workspaces.flatMap { workspace in
+            workspace.agentNeedsInputSinceByPanelId.compactMap { panelId, since in
+                workspace.panels[panelId] == nil
+                    ? nil
+                    : AgentNeedsInputSnapshot(tabId: workspace.id, panelId: panelId, since: since)
+            }
+        }
     }
 
     /// Maps the app-target click action onto the package's value-typed action.
@@ -300,16 +333,7 @@ extension AppDelegate {
         excludingNotificationId excludedNotificationId: UUID? = nil,
         excludingWorkspaceId excludedWorkspaceId: UUID? = nil
     ) -> Bool {
-        NotificationNavSnapshot(
-            id: notification.id,
-            tabId: notification.tabId,
-            surfaceId: notification.surfaceId,
-            panelId: notification.panelId,
-            isRead: notification.isRead,
-            clickAction: notification.clickAction.map(navClickAction),
-            scrollRow: notification.scrollPosition?.row,
-            scrollTotalRows: notification.scrollPosition?.totalRows
-        )
+        NotificationNavSnapshot(notification)
         .isOpenableForJump(
             excludingNotificationId: excludedNotificationId,
             excludingWorkspaceId: excludedWorkspaceId

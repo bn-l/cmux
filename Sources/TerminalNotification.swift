@@ -13,6 +13,9 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     var paneFlash: Bool = true
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
+    /// When the user sent this notification to the back of the attention jump
+    /// queue ("mark as oldest unread"); `nil` if never.
+    var deferredAt: Date?
 
     init(
         id: UUID,
@@ -26,7 +29,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         isRead: Bool,
         paneFlash: Bool = true,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: TerminalNotificationClickAction? = nil,
+        deferredAt: Date? = nil
     ) {
         self.id = id
         self.tabId = tabId
@@ -40,6 +44,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.paneFlash = paneFlash
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
+        self.deferredAt = deferredAt
     }
 
     func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {

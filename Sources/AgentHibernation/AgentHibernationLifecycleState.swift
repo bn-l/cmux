@@ -16,6 +16,13 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         self == .idle
     }
 
+    /// The state a panel shows when several agent keys report at once: running
+    /// wins, then needsInput, then unknown, then idle. `nil` when none report.
+    static func aggregate(_ states: some Sequence<AgentHibernationLifecycleState>) -> AgentHibernationLifecycleState? {
+        let reported = Set(states)
+        return [.running, .needsInput, .unknown, .idle].first(where: reported.contains)
+    }
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)

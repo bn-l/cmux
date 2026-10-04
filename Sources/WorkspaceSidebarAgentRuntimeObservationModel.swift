@@ -16,8 +16,20 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     private(set) var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
     @ObservationIgnored
     private(set) var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
+    /// When each panel's agent entered needs-input, for the panels whose agent
+    /// needs input now (manual loader keys ignored). Derived from
+    /// `agentLifecycleStatesByPanelId` on every write; a panel that stays
+    /// blocked keeps its original time.
+    @ObservationIgnored
+    private(set) var needsInputSinceByPanelId: [UUID: Date] = [:]
     @ObservationIgnored
     private(set) var changeGeneration: UInt64 = 0
+    @ObservationIgnored
+    private let now: () -> Date
+
+    init(now: @escaping () -> Date = Date.init) {
+        self.now = now
+    }
 
     @ObservationIgnored
     private(set) var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
@@ -60,6 +72,14 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     func setAgentLifecycleStatesByPanelId(_ newValue: [UUID: [String: AgentHibernationLifecycleState]]) {
         guard agentLifecycleStatesByPanelId != newValue else { return }
         agentLifecycleStatesByPanelId = newValue
+        let date = now()
+        needsInputSinceByPanelId = newValue.reduce(into: [:]) { since, entry in
+            let agentStates = entry.value
+                .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+                .values
+            guard AgentHibernationLifecycleState.aggregate(agentStates) == .needsInput else { return }
+            since[entry.key] = needsInputSinceByPanelId[entry.key] ?? date
+        }
         notifyChanged()
     }
 

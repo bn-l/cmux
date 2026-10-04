@@ -19,6 +19,12 @@ private final class FakeStore: NotificationNavigationStoreReading {
     func markRead(id: UUID) { markedReadIds.append(id) }
 }
 
+/// Scriptable agent lifecycle: the panels whose agent needs input.
+@MainActor
+private final class FakeAgentAttention: AgentAttentionReading {
+    var agentsNeedingInput: [AgentNeedsInputSnapshot] = []
+}
+
 /// Scriptable window resolver: an ordered target list for the unread jump.
 @MainActor
 private final class FakeWindows: MainWindowContextResolving {
@@ -64,6 +70,8 @@ private final class FakeOpenRouting: NotificationOpenRouting {
     var windowSucceeds = true
     var fallbackSucceeds = true
     var routedSucceeds = true
+    /// Workspaces whose routed open fails even when `routedSucceeds` is true.
+    var routedFailsForTabs: Set<UUID> = []
     var titles: [UUID: String] = [:]
     private(set) var log: [String] = []
 
@@ -76,7 +84,7 @@ private final class FakeOpenRouting: NotificationOpenRouting {
         scrollTotalRows: Int?
     ) -> Bool {
         log.append("routed(tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)),total=\(row(scrollTotalRows)))")
-        return routedSucceeds
+        return routedSucceeds && !routedFailsForTabs.contains(tabId)
     }
 
     func openInWindow(
@@ -126,6 +134,7 @@ private final class FakeClickRouting: NotificationClickRouting {
 @MainActor
 private func makeCoordinator(
     store: FakeStore = FakeStore(),
+    agentAttention: FakeAgentAttention = FakeAgentAttention(),
     windows: FakeWindows = FakeWindows(),
     unreadTargeting: FakeUnreadTargeting = FakeUnreadTargeting(),
     openRouting: FakeOpenRouting = FakeOpenRouting(),
@@ -134,6 +143,7 @@ private func makeCoordinator(
 ) -> NotificationNavigationCoordinator {
     NotificationNavigationCoordinator(
         store: store,
+        agentAttention: agentAttention,
         windows: windows,
         unreadTargeting: unreadTargeting,
         openRouting: openRouting,
@@ -150,6 +160,8 @@ private func snapshot(
     clickAction: NotificationNavClickAction? = nil,
     scrollRow: Int? = nil,
     scrollTotalRows: Int? = nil,
+    createdAt: Date = Date(timeIntervalSince1970: 0),
+    deferredAt: Date? = nil,
     id: UUID = UUID()
 ) -> NotificationNavSnapshot {
     NotificationNavSnapshot(
@@ -160,7 +172,9 @@ private func snapshot(
         isRead: isRead,
         clickAction: clickAction,
         scrollRow: scrollRow,
-        scrollTotalRows: scrollTotalRows
+        scrollTotalRows: scrollTotalRows,
+        createdAt: createdAt,
+        deferredAt: deferredAt
     )
 }
 
@@ -217,6 +231,138 @@ struct NotificationNavigationCoordinatorTests {
         let openedId = coordinator.jumpToLatestUnread(excludingNotificationId: excluded.id)
 
         #expect(openedId == next.id)
+    }
+
+    // MARK: - Attention order (agents needing input + unread notifications)
+
+    @Test("an agent that needs input is visited before an older unread notification, focusing its exact panel")
+    func blockedAgentBeforeOlderUnread() {
+        let store = FakeStore()
+        let agents = FakeAgentAttention()
+        let openRouting = FakeOpenRouting()
+        let tabA = UUID(), panelA = UUID(), tabB = UUID()
+        store.orderedNotifications = [snapshot(tabId: tabB, surfaceId: UUID(), createdAt: Date(timeIntervalSince1970: 100))]
+        agents.agentsNeedingInput = [AgentNeedsInputSnapshot(tabId: tabA, panelId: panelA, since: Date(timeIntervalSince1970: 500))]
+        let coordinator = makeCoordinator(store: store, agentAttention: agents, openRouting: openRouting)
+
+        let openedId = coordinator.jumpToLatestUnread()
+
+        // No notification belongs to the blocked panel, so nothing is returned
+        // or marked read, but the panel itself is focused.
+        #expect(openedId == nil)
+        #expect(openRouting.log == ["routed(tab=\(short(tabA)),surf=\(short(panelA)),notif=nil,row=nil,total=nil)"])
+        #expect(store.markedReadIds.isEmpty)
+    }
+
+    @Test("a blocked agent whose notification was already read is still visited and reports that notification")
+    func blockedAgentWithReadNotificationReportsIt() {
+        let store = FakeStore()
+        let agents = FakeAgentAttention()
+        let openRouting = FakeOpenRouting()
+        let tab = UUID(), panel = UUID()
+        let read = snapshot(tabId: tab, surfaceId: panel, isRead: true, scrollRow: 7)
+        store.orderedNotifications = [read]
+        agents.agentsNeedingInput = [AgentNeedsInputSnapshot(tabId: tab, panelId: panel, since: Date())]
+        let coordinator = makeCoordinator(store: store, agentAttention: agents, openRouting: openRouting)
+
+        let openedId = coordinator.jumpToLatestUnread()
+
+        #expect(openedId == read.id)
+        // The read notification's scroll context belongs to an old row; the
+        // panel is focused without restoring it.
+        #expect(openRouting.log == ["routed(tab=\(short(tab)),surf=\(short(panel)),notif=nil,row=nil,total=nil)"])
+    }
+
+    @Test("repeated jumps cycle through agents that stay blocked, oldest first, wrapping around")
+    func repeatedJumpsCycleBlockedAgents() {
+        let agents = FakeAgentAttention()
+        let focused = FakeFocusedResolving()
+        let openRouting = FakeOpenRouting()
+        let tab = UUID(), first = UUID(), second = UUID(), third = UUID()
+        // Supplied newest first to prove the order comes from `since`.
+        agents.agentsNeedingInput = [
+            AgentNeedsInputSnapshot(tabId: tab, panelId: third, since: Date(timeIntervalSince1970: 30)),
+            AgentNeedsInputSnapshot(tabId: tab, panelId: second, since: Date(timeIntervalSince1970: 20)),
+            AgentNeedsInputSnapshot(tabId: tab, panelId: first, since: Date(timeIntervalSince1970: 10)),
+        ]
+        let coordinator = makeCoordinator(agentAttention: agents, openRouting: openRouting, focusedResolving: focused)
+
+        // Nothing in the queue is focused: start at the oldest.
+        _ = coordinator.jumpToLatestUnread()
+        // The user is on the middle one: move past it.
+        focused.focusedTargetValue = FocusedNotificationTarget(tabId: tab, surfaceId: second)
+        _ = coordinator.jumpToLatestUnread()
+        // The user is on the newest: wrap to the oldest.
+        focused.focusedTargetValue = FocusedNotificationTarget(tabId: tab, surfaceId: third)
+        _ = coordinator.jumpToLatestUnread()
+
+        #expect(openRouting.log == [
+            "routed(tab=\(short(tab)),surf=\(short(first)),notif=nil,row=nil,total=nil)",
+            "routed(tab=\(short(tab)),surf=\(short(third)),notif=nil,row=nil,total=nil)",
+            "routed(tab=\(short(tab)),surf=\(short(first)),notif=nil,row=nil,total=nil)",
+        ])
+    }
+
+    @Test("when the focused panel is the only entry, the jump falls back to unread workspaces instead of refocusing it")
+    func onlyFocusedEntryFallsBackToUnreadWorkspace() {
+        let store = FakeStore()
+        let agents = FakeAgentAttention()
+        let windows = FakeWindows()
+        let unread = FakeUnreadTargeting()
+        let focused = FakeFocusedResolving()
+        let openRouting = FakeOpenRouting()
+        let blockedTab = UUID(), blockedPanel = UUID(), unreadTab = UUID(), unreadPanel = UUID(), windowId = UUID()
+        agents.agentsNeedingInput = [AgentNeedsInputSnapshot(tabId: blockedTab, panelId: blockedPanel, since: Date())]
+        focused.focusedTargetValue = FocusedNotificationTarget(tabId: blockedTab, surfaceId: blockedPanel)
+        store.workspaceUnreadIndicatorIds = [unreadTab]
+        windows.orderedTargetsForUnreadJump = [MainWindowTarget(windowId: windowId, workspaceIds: [blockedTab, unreadTab])]
+        unread.preferredPanelByWorkspace[unreadTab] = unreadPanel
+        let coordinator = makeCoordinator(
+            store: store, agentAttention: agents, windows: windows, unreadTargeting: unread,
+            openRouting: openRouting, focusedResolving: focused
+        )
+
+        _ = coordinator.jumpToLatestUnread()
+
+        #expect(openRouting.log == ["window(\(short(windowId)),tab=\(short(unreadTab)),surf=\(short(unreadPanel)),notif=nil,row=nil,total=nil)"])
+    }
+
+    @Test("an entry that fails to open is skipped and the next one is tried")
+    func failedOpenTriesNextEntry() {
+        let store = FakeStore()
+        let agents = FakeAgentAttention()
+        let openRouting = FakeOpenRouting()
+        let goneTab = UUID(), tab = UUID()
+        let unread = snapshot(tabId: tab, surfaceId: UUID())
+        store.orderedNotifications = [unread]
+        agents.agentsNeedingInput = [AgentNeedsInputSnapshot(tabId: goneTab, panelId: UUID(), since: Date())]
+        openRouting.routedFailsForTabs = [goneTab]
+        let coordinator = makeCoordinator(store: store, agentAttention: agents, openRouting: openRouting)
+
+        let openedId = coordinator.jumpToLatestUnread()
+
+        #expect(openedId == unread.id)
+        #expect(openRouting.log.count == 2)
+        #expect(openRouting.log.last?.contains("notif=\(short(unread.id))") == true)
+    }
+
+    @Test("excluding a just-deferred notification also skips its panel's blocked agent")
+    func excludedNotificationSkipsItsBlockedPanel() {
+        let store = FakeStore()
+        let agents = FakeAgentAttention()
+        let openRouting = FakeOpenRouting()
+        let tab = UUID(), deferredPanel = UUID(), otherPanel = UUID()
+        let deferred = snapshot(tabId: tab, surfaceId: deferredPanel)
+        store.orderedNotifications = [deferred]
+        agents.agentsNeedingInput = [
+            AgentNeedsInputSnapshot(tabId: tab, panelId: deferredPanel, since: Date(timeIntervalSince1970: 1)),
+            AgentNeedsInputSnapshot(tabId: tab, panelId: otherPanel, since: Date(timeIntervalSince1970: 2)),
+        ]
+        let coordinator = makeCoordinator(store: store, agentAttention: agents, openRouting: openRouting)
+
+        _ = coordinator.jumpToLatestUnread(excludingNotificationId: deferred.id)
+
+        #expect(openRouting.log == ["routed(tab=\(short(tab)),surf=\(short(otherPanel)),notif=nil,row=nil,total=nil)"])
     }
 
     // MARK: - Workspace-unread fallback + flash/clear

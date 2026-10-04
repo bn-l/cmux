@@ -27,6 +27,11 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
     public let scrollRow: Int?
     /// Total terminal scrollback rows visible to Ghostty when `scrollRow` was captured.
     public let scrollTotalRows: Int?
+    /// When the notification was recorded. The jump visits older entries first.
+    public let createdAt: Date
+    /// When the user sent this notification to the back of the jump queue
+    /// ("mark as oldest unread"), or `nil` if never deferred.
+    public let deferredAt: Date?
 
     /// Creates a navigation snapshot of a notification.
     public init(
@@ -37,7 +42,9 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
         isRead: Bool,
         clickAction: NotificationNavClickAction?,
         scrollRow: Int? = nil,
-        scrollTotalRows: Int? = nil
+        scrollTotalRows: Int? = nil,
+        createdAt: Date,
+        deferredAt: Date? = nil
     ) {
         self.id = id
         self.tabId = tabId
@@ -47,6 +54,15 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
         self.clickAction = clickAction
         self.scrollRow = scrollRow
         self.scrollTotalRows = scrollTotalRows
+        self.createdAt = createdAt
+        self.deferredAt = deferredAt
+    }
+
+    /// Whether this notification belongs to `panelId` in `tabId`. Terminal
+    /// notifications use the panel id as their surface id; `panelId` covers the
+    /// cases where the app recorded a more precise owning panel.
+    public func belongs(toTabId tabId: UUID, panelId: UUID) -> Bool {
+        self.tabId == tabId && (surfaceId == panelId || self.panelId == panelId)
     }
 
     /// Whether the notification carries a click action.
