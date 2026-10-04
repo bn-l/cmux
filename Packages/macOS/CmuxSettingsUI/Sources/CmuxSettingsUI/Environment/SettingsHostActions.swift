@@ -113,6 +113,19 @@ public protocol SettingsHostActions: AnyObject {
     @discardableResult
     func setSurfaceTabBarFontSize(_ points: Double) async -> Bool
 
+    /// The current font size of the workspace title in the title bar, with its
+    /// range + default. Backed by the Ghostty config file (`titlebar-font-size`).
+    func titlebarFontSize() -> SettingsFontSize
+
+    /// Persists a new title bar font size (in points) and reloads. The host
+    /// clamps to the valid range.
+    ///
+    /// - Returns: `true` if the value was written and reloaded, `false` if
+    ///   persistence failed. See ``setSidebarFontSize(_:)`` for how callers
+    ///   should react to a `false` result and why this is `async`.
+    @discardableResult
+    func setTitlebarFontSize(_ points: Double) async -> Bool
+
     /// Formats a point size for display next to a font-size slider
     /// (e.g. `12`, `13.5`), trimming trailing zeros.
     func formattedFontSize(_ points: Double) -> String
@@ -224,6 +237,12 @@ public extension SettingsHostActions {
     }
 
     func setSurfaceTabBarFontSize(_ points: Double) async -> Bool { true }
+
+    func titlebarFontSize() -> SettingsFontSize {
+        SettingsFontSize(points: 13, minimum: 10, maximum: 22, defaultValue: 13)
+    }
+
+    func setTitlebarFontSize(_ points: Double) async -> Bool { true }
 
     func formattedFontSize(_ points: Double) -> String {
         let scaled = (points * 100).rounded()

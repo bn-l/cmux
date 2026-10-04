@@ -2,7 +2,7 @@ import Foundation
 
 /// A point size plus the range and default a font-size slider should use.
 ///
-/// Font sizes (the left sidebar, the workspace tab bar) live in the Ghostty
+/// Font sizes (the left sidebar, the workspace tab bar, the title bar) live in the Ghostty
 /// config file rather than `UserDefaults`, so the package can't read them
 /// through the catalog/``DefaultsValueModel`` path. Instead the host supplies
 /// the current value together with its bounds via ``SettingsHostActions``, and

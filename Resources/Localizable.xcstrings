@@ -44994,6 +44994,91 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.titlebar-font-size": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "titlebar-font-size title bar font size text workspace project name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "titlebar-font-size title bar font size text workspace project name タイトルバー フォントサイズ テキスト ワークスペース プロジェクト 名前"
+          }
+        }
+      }
+    },
+    "settings.terminal.titlebarFontSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title Bar Font Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルバーのフォントサイズ"
+          }
+        }
+      }
+    },
+    "settings.terminal.titlebarFontSize.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        }
+      }
+    },
+    "settings.terminal.titlebarFontSize.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save title bar font size. Please try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルバーのフォントサイズを保存できませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "settings.terminal.titlebarFontSize.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls the font size of the workspace title in the title bar, above the tabs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの上にあるタイトルバーのワークスペース名のフォントサイズを調整します。"
+          }
+        }
+      }
+    },
     "sidebar.agentActivity.tooltip.many": {
       "extractionState": "manual",
       "localizations": {

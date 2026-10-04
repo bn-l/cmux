@@ -23,12 +23,12 @@ extension CMUXCLI {
             print(configUsage())
         case "get":
             guard args.count == 2, let key = canonicalFontSizeKey(args[1]) else {
-                throw CLIError(message: "Usage: cmux config get <sidebar-font-size|surface-tab-bar-font-size>")
+                throw CLIError(message: "Usage: cmux config get <sidebar-font-size|surface-tab-bar-font-size|titlebar-font-size>")
             }
             try runConfigGetFontSize(forKey: key, jsonOutput: wantsJSON)
         case "set":
             guard args.count == 3, let key = canonicalFontSizeKey(args[1]) else {
-                throw CLIError(message: "Usage: cmux config set <sidebar-font-size|surface-tab-bar-font-size> <points>")
+                throw CLIError(message: "Usage: cmux config set <sidebar-font-size|surface-tab-bar-font-size|titlebar-font-size> <points>")
             }
             try runConfigSetFontSize(
                 forKey: key,
@@ -37,7 +37,9 @@ extension CMUXCLI {
                 explicitPassword: explicitPassword,
                 jsonOutput: wantsJSON
             )
-        case CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey, CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey:
+        case CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
+             CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey,
+             CmuxGhosttyConfigSettingEditor.titlebarFontSizeKey:
             if args.count == 1 {
                 try runConfigGetFontSize(forKey: subcommand, jsonOutput: wantsJSON)
             } else if args.count == 2 {
@@ -97,7 +99,8 @@ extension CMUXCLI {
             return true
         }
         if subcommand == CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey
-            || subcommand == CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey {
+            || subcommand == CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey
+            || subcommand == CmuxGhosttyConfigSettingEditor.titlebarFontSizeKey {
             return parsedArgs.arguments.count == 1
         }
         return hasHelpRequest(beforeSeparator: parsedArgs.head) ||
@@ -106,7 +109,7 @@ extension CMUXCLI {
 
     func configUsage() -> String {
         return """
-        Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|sidebar-font-size|surface-tab-bar-font-size>
+        Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|sidebar-font-size|surface-tab-bar-font-size|titlebar-font-size>
 
         Inspect cmux.json, print configuration references, update selected Ghostty config keys, or reload the running app.
 
@@ -115,10 +118,11 @@ extension CMUXCLI {
           path|paths                              Print cmux.json paths, docs URL, and schema URL.
           docs|documentation                      Print the same output as `cmux docs settings`.
           reload                                  Reload Ghostty config + cmux.json and refresh terminals (alias for `cmux reload-config`).
-          get <key>                               Print sidebar-font-size or surface-tab-bar-font-size.
-          set <key> <points>                      Set sidebar-font-size (10-20 pt) or surface-tab-bar-font-size (8-24 pt), then reload if cmux is running.
+          get <key>                               Print sidebar-font-size, surface-tab-bar-font-size, or titlebar-font-size.
+          set <key> <points>                      Set sidebar-font-size (10-20 pt), surface-tab-bar-font-size (8-14 pt), or titlebar-font-size (10-22 pt), then reload if cmux is running.
           sidebar-font-size [points]              Get or set the left sidebar text size.
           surface-tab-bar-font-size [points]      Get or set the workspace tab bar text size.
+          titlebar-font-size [points]             Get or set the workspace title size in the title bar.
 
         Config files:
           \(Self.primarySettingsDisplayPath)
@@ -135,6 +139,7 @@ extension CMUXCLI {
           cmux config sidebar-font-size 12.5
           cmux config set surface-tab-bar-font-size 13
           cmux config surface-tab-bar-font-size 11
+          cmux config titlebar-font-size 18
           cmux config reload
         """
     }
@@ -188,6 +193,8 @@ extension CMUXCLI {
             return CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey
         case CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey:
             return CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey
+        case CmuxGhosttyConfigSettingEditor.titlebarFontSizeKey:
+            return CmuxGhosttyConfigSettingEditor.titlebarFontSizeKey
         default:
             return nil
         }
@@ -210,6 +217,13 @@ extension CMUXCLI {
                 CmuxGhosttyConfigSettingEditor().clampedSurfaceTabBarFontSize,
                 CmuxGhosttyConfigSettingEditor().formattedSurfaceTabBarFontSize,
                 { CmuxGhosttyConfigSettingEditor().parsedSurfaceTabBarFontSize(in: $0) }
+            )
+        case CmuxGhosttyConfigSettingEditor.titlebarFontSizeKey:
+            return (
+                CmuxGhosttyConfigSettingEditor.defaultTitlebarFontSize,
+                CmuxGhosttyConfigSettingEditor().clampedTitlebarFontSize,
+                CmuxGhosttyConfigSettingEditor().formattedTitlebarFontSize,
+                { CmuxGhosttyConfigSettingEditor().parsedTitlebarFontSize(in: $0) }
             )
         default:
             return nil

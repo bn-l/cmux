@@ -167,6 +167,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:keyboardShortcuts:reset-defaults",
         "setting:terminal:memory-guardrail",
         "setting:terminal:memory-guardrail-threshold",
+        "setting:terminal:titlebar-font-size",
         "setting:settingsJSON:open-file",
         "setting:settingsJSON:documentation",
         "setting:reset:reset-all",

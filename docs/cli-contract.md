@@ -407,7 +407,10 @@ Config subcommands:
 | `config get surface-tab-bar-font-size` | Print the effective workspace tab bar text size. |
 | `config set surface-tab-bar-font-size <points>` | Write the workspace tab bar text size to cmux's editable Ghostty config and reload the running app when available. |
 | `config surface-tab-bar-font-size [points]` | Get the workspace tab bar text size, or set it when a point size is provided. |
-| `config get <key>`, `config set <key> <points>` | Generic get/set for `sidebar-font-size` and `surface-tab-bar-font-size`. |
+| `config get titlebar-font-size` | Print the title bar workspace title text size. |
+| `config set titlebar-font-size <points>` | Write the title bar workspace title text size to cmux's editable Ghostty config and reload the running app when available. |
+| `config titlebar-font-size [points]` | Get the title bar workspace title text size, or set it when a point size is provided. |
+| `config get <key>`, `config set <key> <points>` | Generic get/set for `sidebar-font-size`, `surface-tab-bar-font-size`, and `titlebar-font-size`. |
 
 `config doctor --json` outputs an object with `ok`, `error_count`,
 `findings`, `reload_command`, `docs_url`, and `schema_url`. Each finding includes
@@ -466,7 +469,7 @@ the expected text without connecting to a cmux socket.
 - `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
 - `cmux settings path` -> `Config files:`
 - `cmux settings docs` -> `Config files:`
-- `cmux config --help` -> `Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|sidebar-font-size|surface-tab-bar-font-size>`
+- `cmux config --help` -> `Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|sidebar-font-size|surface-tab-bar-font-size|titlebar-font-size>`
 - `cmux config path` -> `Config files:`
 - `cmux config docs` -> `Config files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`

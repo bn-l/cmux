@@ -893,6 +893,10 @@ struct ContentView: View {
     @State private var lastReconciledPortalRenderingStatesByWorkspaceId: [UUID: Bool] = [:]
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
+    /// `titlebar-font-size` from the Ghostty config, reloaded off the main
+    /// thread on appear and after every config reload.
+    @State private var titlebarFontSize: CGFloat = GhosttyConfig.defaultTitlebarFontSize
+    @State private var titlebarFontConfigGeneration: UInt64 = 0
     @State private var isFullScreen: Bool = false
     @State private var observedWindowReference = WeakWindowReference()
     private var observedWindow: NSWindow? { observedWindowReference.window }
@@ -2045,7 +2049,7 @@ struct ContentView: View {
                 }
 
                 Text(titlebarText)
-                    .cmuxFont(size: 13, weight: .bold)
+                    .cmuxFont(size: titlebarFontSize, weight: .bold)
                     .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
                     .lineLimit(1)
                     .allowsHitTesting(false)
@@ -2615,6 +2619,14 @@ struct ContentView: View {
                 notificationPayloadHex: payloadHex
             )
         }.onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in scheduleTitlebarThemeRefresh(reason: "systemAppearanceChanged") })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            titlebarFontConfigGeneration &+= 1
+        }.task(id: titlebarFontConfigGeneration) {
+            let size = await Task.detached(priority: .utility) { GhosttyConfig.load().titlebarFontSize }.value
+            guard !Task.isCancelled else { return }
+            titlebarFontSize = size
+        })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs

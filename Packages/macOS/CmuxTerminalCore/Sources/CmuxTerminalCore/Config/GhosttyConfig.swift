@@ -43,6 +43,12 @@ public struct GhosttyConfig {
     public static let minSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize)
     /// The maximum surface tab-bar font size the parser will clamp to.
     public static let maxSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize)
+    /// The default title bar font size, in points.
+    public static let defaultTitlebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultTitlebarFontSize)
+    /// The minimum title bar font size the parser will clamp to.
+    public static let minTitlebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minTitlebarFontSize)
+    /// The maximum title bar font size the parser will clamp to.
+    public static let maxTitlebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxTitlebarFontSize)
     /// The terminal font family.
     public var fontFamily: String = "Menlo"
     /// The terminal font size, in points.
@@ -51,6 +57,9 @@ public struct GhosttyConfig {
     public var surfaceTabBarFontSize: CGFloat = Self.defaultSurfaceTabBarFontSize
     /// The sidebar font size, in points.
     public var sidebarFontSize: CGFloat = Self.defaultSidebarFontSize
+    /// The font size of the workspace title in the title bar, in points. Not
+    /// scaled by global magnification here: the title view applies it.
+    public var titlebarFontSize: CGFloat = Self.defaultTitlebarFontSize
     /// The configured `theme` directive value, or `nil` when unset.
     public var theme: String?
     /// The configured `working-directory`, or `nil` when unset.
@@ -521,6 +530,10 @@ public struct GhosttyConfig {
                     if let size = Double(value), size.isFinite {
                         sidebarFontSize = Self.clampedSidebarFontSize(CGFloat(size))
                     }
+                case "titlebar-font-size":
+                    if let size = Double(value), size.isFinite {
+                        titlebarFontSize = Self.clampedTitlebarFontSize(CGFloat(size))
+                    }
                 case "theme":
                     theme = value
                     if let preferredColorScheme {
@@ -902,6 +915,11 @@ public struct GhosttyConfig {
     /// Clamps a surface tab-bar font size into the supported range.
     public static func clampedSurfaceTabBarFontSize(_ value: CGFloat) -> CGFloat {
         CGFloat(CmuxGhosttyConfigSettingEditor().clampedSurfaceTabBarFontSize(Double(value)))
+    }
+
+    /// Clamps a title bar font size into the supported range.
+    public static func clampedTitlebarFontSize(_ value: CGFloat) -> CGFloat {
+        CGFloat(CmuxGhosttyConfigSettingEditor().clampedTitlebarFontSize(Double(value)))
     }
 
     private static func parseBackgroundBlur(_ value: String) -> GhosttyBackgroundBlur? {

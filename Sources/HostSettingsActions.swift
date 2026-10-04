@@ -245,6 +245,24 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
+    func titlebarFontSize() -> SettingsFontSize {
+        // See ``sidebarFontSize()`` — uses the cached config to avoid main-actor disk I/O.
+        SettingsFontSize(
+            points: Double(GhosttyConfig.load().titlebarFontSize),
+            minimum: CmuxGhosttyConfigSettingEditor.minTitlebarFontSize,
+            maximum: CmuxGhosttyConfigSettingEditor.maxTitlebarFontSize,
+            defaultValue: CmuxGhosttyConfigSettingEditor.defaultTitlebarFontSize
+        )
+    }
+
+    func setTitlebarFontSize(_ points: Double) async -> Bool {
+        await persistFontSize(
+            key: CmuxGhosttyConfigSettingEditor.titlebarFontSizeKey,
+            points: CmuxGhosttyConfigSettingEditor().clampedTitlebarFontSize(points),
+            reloadSource: "settings.terminal.titlebarFontSize"
+        )
+    }
+
     func formattedFontSize(_ points: Double) -> String {
         CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
     }

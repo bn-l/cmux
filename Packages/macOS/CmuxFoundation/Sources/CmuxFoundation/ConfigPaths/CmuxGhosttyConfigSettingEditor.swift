@@ -1,8 +1,8 @@
 public import Foundation
 
-/// Reads and writes cmux's numeric Ghostty config settings (sidebar and
-/// surface-tab-bar font sizes), including range clamping, display formatting,
-/// and symlink-aware writes.
+/// Reads and writes cmux's numeric Ghostty config settings (sidebar,
+/// surface-tab-bar, and title bar font sizes), including range clamping,
+/// display formatting, and symlink-aware writes.
 ///
 /// TRANSITIONAL: faithful lift of the app-target config-setting-editor namespace
 /// that ``GhosttyConfig`` and the settings UI share. Stateless config-body
@@ -26,6 +26,16 @@ public struct CmuxGhosttyConfigSettingEditor {
     public static let minSurfaceTabBarFontSize = 8.0
     /// The largest surface-tab-bar font size cmux allows.
     public static let maxSurfaceTabBarFontSize = 14.0
+
+    /// The config key for the font size of the workspace title in the title bar.
+    public static let titlebarFontSizeKey = "titlebar-font-size"
+    /// The default title bar font size in points.
+    public static let defaultTitlebarFontSize = 13.0
+    /// The smallest title bar font size cmux allows.
+    public static let minTitlebarFontSize = 10.0
+    /// The largest title bar font size cmux allows: the title row is 26 pt tall
+    /// and the bold system font's line height exceeds it from 23 pt up.
+    public static let maxTitlebarFontSize = 22.0
 
     public init() {}
 
@@ -63,6 +73,24 @@ public struct CmuxGhosttyConfigSettingEditor {
     /// or `nil` when absent.
     public func parsedSurfaceTabBarFontSize(in contents: String) -> Double? {
         parsedFontSize(in: contents, key: Self.surfaceTabBarFontSizeKey, clamp: clampedSurfaceTabBarFontSize)
+    }
+
+    /// Clamps a title bar font size to its allowed range, substituting the
+    /// default for non-finite input.
+    public func clampedTitlebarFontSize(_ value: Double) -> Double {
+        guard value.isFinite else { return Self.defaultTitlebarFontSize }
+        return min(max(value, Self.minTitlebarFontSize), Self.maxTitlebarFontSize)
+    }
+
+    /// The clamped title bar font size formatted for display.
+    public func formattedTitlebarFontSize(_ value: Double) -> String {
+        formattedFontSize(clampedTitlebarFontSize(value))
+    }
+
+    /// The clamped title bar font size parsed from a Ghostty config body, or
+    /// `nil` when absent.
+    public func parsedTitlebarFontSize(in contents: String) -> Double? {
+        parsedFontSize(in: contents, key: Self.titlebarFontSizeKey, clamp: clampedTitlebarFontSize)
     }
 
     /// Formats a point size for display, trimming trailing zeros (`12`, `13.5`, `13.75`).

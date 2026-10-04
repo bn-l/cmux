@@ -12,6 +12,8 @@ public struct TerminalSection: View {
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
 
+    @State private var titlebarFont: SettingsFontSize
+    @State private var titlebarFontSaveFailed = false
     @State private var surfaceTabBarFont: SettingsFontSize
     @State private var fontSaveFailed = false
     @State private var tasks = MainActorTaskStore<String>()
@@ -39,6 +41,7 @@ public struct TerminalSection: View {
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.hostActions = hostActions
+        _titlebarFont = State(initialValue: hostActions.titlebarFontSize())
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
         _scrollSpeed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
@@ -93,6 +96,14 @@ public struct TerminalSection: View {
         }
     }
 
+    /// Persists a new title bar font size; see ``saveSurfaceTabBarFontSize(_:)``.
+    private func saveTitlebarFontSize(_ points: Double) {
+        tasks.replaceOnMainActor("titlebarFontSave") {
+            let saved = await hostActions.setTitlebarFontSize(points)
+            if !Task.isCancelled { titlebarFontSaveFailed = !saved }
+        }
+    }
+
     private var displayedScrollSpeed: Double {
         activeScrollSpeedDragValue ?? scrollSpeed.current
     }
@@ -131,6 +142,49 @@ public struct TerminalSection: View {
     @ViewBuilder
     private var mainCard: some View {
         SettingsCard {
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                searchAnchorID: "setting:terminal:titlebar-font-size",
+                String(localized: "settings.terminal.titlebarFontSize", defaultValue: "Title Bar Font Size"),
+                subtitle: String(localized: "settings.terminal.titlebarFontSize.subtitle", defaultValue: "Controls the font size of the workspace title in the title bar, above the tabs."),
+                controlWidth: 250
+            ) {
+                VStack(alignment: .trailing, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Slider(
+                            value: Binding(get: { titlebarFont.points }, set: { titlebarFont.points = $0 }),
+                            in: titlebarFont.minimum...titlebarFont.maximum,
+                            step: 0.5
+                        ) { editing in
+                            if !editing { saveTitlebarFontSize(titlebarFont.points) }
+                        }
+                        .frame(width: 130)
+                        .accessibilityIdentifier("SettingsTitlebarFontSizeSlider")
+
+                        Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(titlebarFont.points)))
+                            .cmuxFont(size: 12, weight: .medium, design: .rounded)
+                            .monospacedDigit()
+                            .frame(width: 44, alignment: .trailing)
+
+                        Button(String(localized: "settings.terminal.titlebarFontSize.reset", defaultValue: "Reset")) {
+                            titlebarFont.points = titlebarFont.defaultValue
+                            saveTitlebarFontSize(titlebarFont.points)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(titlebarFont.isDefault)
+                    }
+
+                    if titlebarFontSaveFailed {
+                        Text(String(localized: "settings.terminal.titlebarFontSize.saveFailed", defaultValue: "Couldn't save title bar font size. Please try again."))
+                            .cmuxFont(.caption)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.trailing)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .settingsOnly,
                 String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"),
