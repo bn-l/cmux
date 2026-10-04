@@ -529,6 +529,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         )
 
+    /// Where the latest notification open landed. ``jumpToLatestUnread(excludingNotificationId:excludingWorkspaceId:)``
+    /// clears it before jumping and compares it with the workspace focused
+    /// before the jump, to flash the workspace name when the jump changed workspace.
+    var lastNotificationOpenLanding: NotificationOpenLanding?
+
     /// OS notification delivery/response coordination, extracted into
     /// `CmuxNotifications`. The app target injects the concrete
     /// `UNUserNotificationCenter`, terminal identifiers from
@@ -12054,6 +12059,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ])
         }
 #endif
+        let originWorkspaceId = resolveFocusedNotificationTarget(preferredWindow: nil)?.tabId
+        lastNotificationOpenLanding = nil
+        defer { flashWorkspaceNameIfJumpChangedWorkspace(from: originWorkspaceId) }
         guard let openedId = notificationNavigation.jumpToLatestUnread(
             excludingNotificationId: excludedNotificationId,
             excludingWorkspaceId: excludedWorkspaceId

@@ -20,6 +20,23 @@ public struct WorkspaceColorsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarNotificationBadgeColorHex"
     )
 
+    /// Show the selected workspace's color as a dot before its name in the
+    /// title bar. Workspaces without a color show no dot.
+    public let titlebarIndicator = DefaultsKey<Bool>(
+        id: "workspaceColors.titlebarIndicator",
+        defaultValue: true,
+        userDefaultsKey: "workspaceColorTitlebarIndicator"
+    )
+
+    /// Outline the focused pane in the selected workspace's color, even when
+    /// the workspace has a single pane. Workspaces without a color fall back to
+    /// the plain active-pane border (`activePaneBorderColor`).
+    public let paneBorder = DefaultsKey<Bool>(
+        id: "workspaceColors.paneBorder",
+        defaultValue: true,
+        userDefaultsKey: "workspaceColorPaneBorder"
+    )
+
     public let palette = DefaultsKey<[String: String]>(
         id: "workspaceColors.colors",
         defaultValue: [:],

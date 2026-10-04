@@ -49,6 +49,7 @@ public struct AppSection: View {
     @State private var showInMenuBar: DefaultsValueModel<Bool>
     @State private var paneRing: DefaultsValueModel<Bool>
     @State private var paneFlash: DefaultsValueModel<Bool>
+    @State private var jumpShowsWorkspaceName: DefaultsValueModel<Bool>
     @State private var agentPermissionPrompt: DefaultsValueModel<Bool>
     @State private var agentTurnComplete: DefaultsValueModel<String>
     @State private var agentIdleReminder: DefaultsValueModel<Bool>
@@ -99,6 +100,7 @@ public struct AppSection: View {
         _showInMenuBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar))
         _paneRing = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing))
         _paneFlash = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash))
+        _jumpShowsWorkspaceName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.jumpShowsWorkspaceName))
         _agentPermissionPrompt = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentPermissionPrompt))
         _agentTurnComplete = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentTurnComplete))
         _agentIdleReminder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentIdleReminder))
@@ -133,7 +135,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, jumpShowsWorkspaceName, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }
         }
     }
@@ -573,6 +575,18 @@ public struct AppSection: View {
                 subtitle: String(localized: "settings.notifications.paneFlash.subtitle", defaultValue: "Briefly flash a blue outline when cmux highlights a pane.")
             ) {
                 Toggle("", isOn: Binding(get: { paneFlash.current }, set: { paneFlash.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Workspace name after a jump
+            SettingsCardRow(
+                configurationReview: .json("notifications.jumpShowsWorkspaceName"),
+                String(localized: "settings.notifications.jumpShowsWorkspaceName.title", defaultValue: "Show Workspace Name After Jump"),
+                subtitle: String(localized: "settings.notifications.jumpShowsWorkspaceName.subtitle", defaultValue: "When Jump to Latest Unread lands in another workspace, briefly show its name and color over the window.")
+            ) {
+                Toggle("", isOn: Binding(get: { jumpShowsWorkspaceName.current }, set: { jumpShowsWorkspaceName.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }

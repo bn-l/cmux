@@ -84,6 +84,15 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationAgentIdleReminderEnabled"
     )
 
+    /// Briefly show the workspace's name, large, over the window when the
+    /// attention jump (Jump to Latest Unread / Send to Back) lands in a
+    /// different workspace, so rapid switching never loses track of the project.
+    public let jumpShowsWorkspaceName = DefaultsKey<Bool>(
+        id: "notifications.jumpShowsWorkspaceName",
+        defaultValue: true,
+        userDefaultsKey: "notificationJumpShowsWorkspaceName"
+    )
+
     public let hooks = JSONKey<[String: String]>(
         id: "notifications.hooks",
         defaultValue: [:]

@@ -85,6 +85,7 @@ struct SettingsRowAnchorResolutionTests {
         "notifications.agentTurnComplete",
         "notifications.command",
         "notifications.dockBadge",
+        "notifications.jumpShowsWorkspaceName",
         "notifications.paneFlash",
         "notifications.showInMenuBar",
         "notifications.sound",
@@ -131,7 +132,9 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.textBoxMaxLines",
         "workspaceColors.indicatorStyle",
         "workspaceColors.notificationBadgeColor",
+        "workspaceColors.paneBorder",
         "workspaceColors.selectionColor",
+        "workspaceColors.titlebarIndicator",
     ]
 
     /// Searchable rows anchored with an explicit `settingsSearchAnchors`

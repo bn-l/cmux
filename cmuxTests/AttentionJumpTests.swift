@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -23,6 +24,8 @@ private final class AttentionJumpFixture {
     private let originalTabManager: TabManager?
     private let originalNotificationStore: TerminalNotificationStore?
     private let originalAppFocusOverride: Bool?
+    static let jumpShowsWorkspaceNameKey = NotificationsCatalogSection().jumpShowsWorkspaceName.userDefaultsKey
+    private let originalJumpShowsWorkspaceName: Any?
 
     init() {
         previousShared = AppDelegate.shared
@@ -30,6 +33,8 @@ private final class AttentionJumpFixture {
         originalTabManager = appDelegate.tabManager
         originalNotificationStore = appDelegate.notificationStore
         originalAppFocusOverride = AppFocusState.overrideIsFocused
+        originalJumpShowsWorkspaceName = UserDefaults.standard.object(forKey: Self.jumpShowsWorkspaceNameKey)
+        UserDefaults.standard.removeObject(forKey: Self.jumpShowsWorkspaceNameKey)
 
         AppDelegate.shared = appDelegate
         appDelegate.tabManager = manager
@@ -64,6 +69,16 @@ private final class AttentionJumpFixture {
         appDelegate.notificationStore = originalNotificationStore
         AppFocusState.overrideIsFocused = originalAppFocusOverride
         AppDelegate.shared = previousShared
+        if let originalJumpShowsWorkspaceName {
+            UserDefaults.standard.set(originalJumpShowsWorkspaceName, forKey: Self.jumpShowsWorkspaceNameKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.jumpShowsWorkspaceNameKey)
+        }
+    }
+
+    /// The workspace-name flash showing over the fixture window, if any.
+    var flash: WorkspaceNameFlash? {
+        WorkspaceNameFlashOverlayController.existingController(for: window)?.currentFlash
     }
 
     func workspace(_ title: String, select: Bool = false) throws -> (workspace: Workspace, panelId: UUID) {
@@ -198,6 +213,74 @@ struct AttentionJumpTests {
         #expect(movedAfter?.isRead == false)
         #expect((movedAfter?.deferredAt).map { $0 >= before } == true)
         #expect(untouchedAfter?.deferredAt == nil)
+    }
+}
+
+@MainActor
+@Suite("Workspace name flash after an attention jump", .serialized)
+struct AttentionJumpWorkspaceNameFlashTests {
+    @Test("each jump into another workspace flashes that workspace's name and color over the landing window")
+    func jumpIntoAnotherWorkspaceFlashesItsName() throws {
+        let fixture = AttentionJumpFixture()
+        defer { fixture.tearDown() }
+        _ = try fixture.workspace("Home", select: true)
+        let blocked = try fixture.workspace("Blocked agent")
+        let done = try fixture.workspace("Finished agent")
+        blocked.workspace.setCustomColor("#c0392b")
+        fixture.store.replaceNotificationsForTesting([
+            fixture.notification(for: done, createdAt: Date().addingTimeInterval(-600), isRead: false),
+        ])
+        fixture.block(blocked)
+
+        _ = fixture.appDelegate.jumpToLatestUnread()
+        let first = fixture.flash
+        let firstLanding = fixture.focused.workspaceId
+        _ = fixture.appDelegate.jumpToLatestUnread()
+        let second = fixture.flash
+        let secondLanding = fixture.focused.workspaceId
+
+        #expect(firstLanding == blocked.workspace.id)
+        #expect(first?.title == "Blocked agent")
+        #expect(first?.colorHex == "#C0392B")
+        #expect(secondLanding == done.workspace.id)
+        #expect(second?.title == "Finished agent")
+        #expect(second?.colorHex == nil, "A workspace without a color gets no accent")
+        #expect(first?.id != second?.id, "Each jump restarts the flash")
+    }
+
+    @Test("a jump that stays in the focused workspace does not flash")
+    func jumpWithinFocusedWorkspaceDoesNotFlash() throws {
+        let fixture = AttentionJumpFixture()
+        defer { fixture.tearDown() }
+        let home = try fixture.workspace("Home", select: true)
+        // Workspace-level (no surface), so it is not the focused pane's own
+        // entry and the jump opens it inside the workspace already in front.
+        let workspaceLevel = TerminalNotification(
+            id: UUID(), tabId: home.workspace.id, surfaceId: nil, title: "Agent", subtitle: "", body: "",
+            createdAt: Date(), isRead: false
+        )
+        fixture.store.replaceNotificationsForTesting([workspaceLevel])
+
+        _ = fixture.appDelegate.jumpToLatestUnread()
+
+        #expect(fixture.store.notifications.first { $0.id == workspaceLevel.id }?.isRead == true, "The jump opened the notification")
+        #expect(fixture.focused.workspaceId == home.workspace.id)
+        #expect(fixture.flash == nil)
+    }
+
+    @Test("with the setting off a jump into another workspace does not flash")
+    func settingOffSuppressesFlash() throws {
+        let fixture = AttentionJumpFixture()
+        defer { fixture.tearDown() }
+        _ = try fixture.workspace("Home", select: true)
+        let blocked = try fixture.workspace("Blocked agent")
+        fixture.block(blocked)
+        UserDefaults.standard.set(false, forKey: AttentionJumpFixture.jumpShowsWorkspaceNameKey)
+
+        _ = fixture.appDelegate.jumpToLatestUnread()
+
+        #expect(fixture.focused.workspaceId == blocked.workspace.id)
+        #expect(fixture.flash == nil)
     }
 }
 

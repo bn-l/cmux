@@ -71,6 +71,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "show-menu-bar", title: "Show in Menu Bar", synonyms: "notifications.showInMenuBar menubar menu bar status item tray extra"),
             .init(section: .app, id: "unread-pane-ring", title: "Unread Pane Ring", synonyms: "notifications.unreadPaneRing blue border unread ring notification pane outline"),
             .init(section: .app, id: "pane-flash", title: "Pane Flash", synonyms: "notifications.paneFlash flash blink highlight pane notification pulse"),
+            .init(section: .app, id: "jump-shows-workspace-name", title: "Show Workspace Name After Jump", synonyms: "notifications.jumpShowsWorkspaceName jump latest unread attention next agent workspace project name banner overlay flash"),
             .init(
                 section: .app,
                 id: "agent-permission-prompt",
@@ -276,6 +277,8 @@ extension Array where Element == CuratedSettingEntry {
 
             // Workspace colors
             .init(section: .workspaceColors, id: "indicator", title: "Workspace Color Indicator", synonyms: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
+            .init(section: .workspaceColors, id: "titlebar-indicator", title: "Show Color in Title Bar", synonyms: "workspaceColors.titlebarIndicator title bar titlebar workspace project color dot"),
+            .init(section: .workspaceColors, id: "pane-border", title: "Outline Focused Pane in Workspace Color", synonyms: "workspaceColors.paneBorder focused active pane border outline frame workspace project color"),
             .init(section: .workspaceColors, id: "selection", title: "Selection Highlight", synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: "Notification Badge", synonyms: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
             .init(section: .workspaceColors, id: "palette", title: "Reset Palette", synonyms: "reset palette named colors restore built-in custom remove default"),

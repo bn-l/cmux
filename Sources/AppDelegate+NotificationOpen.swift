@@ -1,8 +1,34 @@
 import AppKit
+import CmuxSettings
 import Foundation
+
+/// The window and workspace a notification open focused.
+struct NotificationOpenLanding {
+    weak var window: NSWindow?
+    weak var tabManager: TabManager?
+    let workspaceId: UUID
+}
 
 @MainActor
 extension AppDelegate {
+    /// Flashes the landing workspace's name over its window when the jump that
+    /// just ran (see ``lastNotificationOpenLanding``) left `originWorkspaceId`.
+    func flashWorkspaceNameIfJumpChangedWorkspace(from originWorkspaceId: UUID?) {
+        guard let landing = lastNotificationOpenLanding else { return }
+        lastNotificationOpenLanding = nil
+        guard landing.workspaceId != originWorkspaceId,
+              UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().notifications.jumpShowsWorkspaceName),
+              let window = landing.window,
+              let tabManager = landing.tabManager,
+              let workspace = tabManager.workspacesById[landing.workspaceId] else { return }
+        let title = tabManager.resolvedWorkspaceDisplayTitle(for: workspace).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        WorkspaceNameFlashOverlayController.controller(for: window).show(
+            title: title,
+            colorHex: tabManager.resolvedWorkspaceIndicatorColorHex(for: workspace)
+        )
+    }
+
     @discardableResult
     func openNotification(
         tabId: UUID,
@@ -110,6 +136,7 @@ extension AppDelegate {
         )
 #endif
 
+        lastNotificationOpenLanding = NotificationOpenLanding(window: window, tabManager: context.tabManager, workspaceId: tabId)
         if let notificationId, let store = notificationStore {
             store.markRead(id: notificationId)
         }
@@ -190,6 +217,7 @@ extension AppDelegate {
         )
 #endif
 
+        lastNotificationOpenLanding = NotificationOpenLanding(window: window, tabManager: tabManager, workspaceId: tabId)
         if let notificationId, let store = notificationStore {
             store.markRead(id: notificationId)
         }

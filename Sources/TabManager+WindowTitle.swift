@@ -66,6 +66,22 @@ extension TabManager {
         anchorGroupName ?? workspace.title
     }
 
+    /// The color that identifies `tab` in window chrome (title bar dot, focused
+    /// pane outline, jump banner), as normalized hex, or `nil` when it has none.
+    /// As with ``resolvedWorkspaceDisplayTitle(for:)``, a group's anchor is
+    /// shown as its group, so the group's color wins there.
+    func resolvedWorkspaceIndicatorColorHex(for tab: Workspace) -> String? {
+        Self.workspaceIndicatorColorHex(
+            workspaceColorHex: tab.customColor,
+            anchorGroupColorHex: workspaceGroups.first(where: { $0.anchorWorkspaceId == tab.id })?.customColor
+        )
+    }
+
+    static func workspaceIndicatorColorHex(workspaceColorHex: String?, anchorGroupColorHex: String?) -> String? {
+        anchorGroupColorHex.flatMap(WorkspaceTabColorSettings.normalizedHex)
+            ?? workspaceColorHex.flatMap(WorkspaceTabColorSettings.normalizedHex)
+    }
+
     private func windowTitle(for tab: Workspace?) -> String {
         let defaultTitle = defaultWindowTitle(for: tab)
         guard let windowId, let template = WindowTitleTemplate.configured() else { return defaultTitle }

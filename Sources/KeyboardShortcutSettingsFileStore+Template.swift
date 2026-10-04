@@ -117,6 +117,7 @@ extension CmuxSettingsFileStore {
                     "showInMenuBar": MenuBarExtraSettings.defaultShowInMenuBar,
                     "unreadPaneRing": NotificationPaneRingSettings.defaultEnabled,
                     "paneFlash": NotificationPaneFlashSettings.defaultEnabled,
+                    "jumpShowsWorkspaceName": SettingCatalog().notifications.jumpShowsWorkspaceName.defaultValue,
                     "sound": NotificationSoundSettings.defaultValue,
                     "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
                     "command": NotificationSoundSettings.defaultCustomCommand,
@@ -150,6 +151,8 @@ extension CmuxSettingsFileStore {
             [
                 "workspaceColors": [
                     "indicatorStyle": SettingCatalog().workspaceColors.indicatorStyle.defaultValue.rawValue,
+                    "titlebarIndicator": SettingCatalog().workspaceColors.titlebarIndicator.defaultValue,
+                    "paneBorder": SettingCatalog().workspaceColors.paneBorder.defaultValue,
                     "selectionColor": NSNull(),
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(

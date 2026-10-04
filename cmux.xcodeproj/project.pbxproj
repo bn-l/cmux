@@ -1402,6 +1402,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5A5A505A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */; };
 		A5E380710000000000000001 /* TerminalNotificationOpenPanelFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E380710000000000000002 /* TerminalNotificationOpenPanelFallbackTests.swift */; };
 		A77E0F0000000000000AA001 /* AttentionJumpTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77E0F0000000000000AA002 /* AttentionJumpTests.swift */; };
+		A77E0F0000000000000AD001 /* WorkspaceIdentityIndicatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77E0F0000000000000AD002 /* WorkspaceIdentityIndicatorTests.swift */; };
 		A5001096 /* TerminalNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001097 /* TerminalNotificationPolicy.swift */; };
 		A5A5A501A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */; };
 		A5A5A503A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A504A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift */; };
@@ -1484,6 +1485,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E30760060000000000000002 /* TmuxWorkspacePaneOverlayModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760060000000000000001 /* TmuxWorkspacePaneOverlayModelTests.swift */; };
 		E30760050000000000000002 /* TmuxWorkspacePaneOverlayRenderState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760050000000000000001 /* TmuxWorkspacePaneOverlayRenderState.swift */; };
 		E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */; };
+		A77E0F0000000000000AC002 /* WorkspaceNameFlashOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77E0F0000000000000AC001 /* WorkspaceNameFlashOverlay.swift */; };
 		C0DE64020000000000001004 /* TrackedQLPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64020000000000001003 /* TrackedQLPreviewView.swift */; };
 		D3284001A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3284002A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift */; };
 		A5001501 /* UITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001511 /* UITestRecorder.swift */; };
@@ -3022,6 +3024,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationDirectInteractionTests.swift; sourceTree = "<group>"; };
 		A5E380710000000000000002 /* TerminalNotificationOpenPanelFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationOpenPanelFallbackTests.swift; sourceTree = "<group>"; };
 		A77E0F0000000000000AA002 /* AttentionJumpTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttentionJumpTests.swift; sourceTree = "<group>"; };
+		A77E0F0000000000000AD002 /* WorkspaceIdentityIndicatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceIdentityIndicatorTests.swift; sourceTree = "<group>"; };
 		A5001097 /* TerminalNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicy.swift; sourceTree = "<group>"; };
 		A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationQueue.swift; sourceTree = "<group>"; };
 		A5A5A504A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationQueueTests.swift; sourceTree = "<group>"; };
@@ -3104,6 +3107,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E30760060000000000000001 /* TmuxWorkspacePaneOverlayModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayModelTests.swift; sourceTree = "<group>"; };
 		E30760050000000000000001 /* TmuxWorkspacePaneOverlayRenderState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayRenderState.swift; sourceTree = "<group>"; };
 		E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayView.swift; sourceTree = "<group>"; };
+		A77E0F0000000000000AC001 /* WorkspaceNameFlashOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceNameFlashOverlay.swift; sourceTree = "<group>"; };
 		C0DE64020000000000001003 /* TrackedQLPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TrackedQLPreviewView.swift; sourceTree = "<group>"; };
 		D3284002A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraditionalChineseIMENumpadRegressionTests.swift; sourceTree = "<group>"; };
 		A5001511 /* UITestRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestRecorder.swift; sourceTree = "<group>"; };
@@ -3801,6 +3805,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E30760080000000000000001 /* WindowTmuxWorkspacePaneOverlayController.swift */,
 				E30760050000000000000001 /* TmuxWorkspacePaneOverlayRenderState.swift */,
 				E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */,
+				A77E0F0000000000000AC001 /* WorkspaceNameFlashOverlay.swift */,
 				A5001014 /* GhosttyConfig.swift */,
 				C4041001000000000000001A /* CommandClickFileOpenRouter.swift */,
 				C40410010000000000000020 /* FileExplorerDoubleClickActionSettings.swift */,
@@ -4894,6 +4899,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5A5A508A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift */,
 				A5E380710000000000000002 /* TerminalNotificationOpenPanelFallbackTests.swift */,
 				A77E0F0000000000000AA002 /* AttentionJumpTests.swift */,
+				A77E0F0000000000000AD002 /* WorkspaceIdentityIndicatorTests.swift */,
 				A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */,
 				A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */,
 				A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */,
@@ -6264,6 +6270,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B35751000000000000000002 /* TmuxResumeParser.swift in Sources */,
 				E30760050000000000000002 /* TmuxWorkspacePaneOverlayRenderState.swift in Sources */,
 				E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */,
+				A77E0F0000000000000AC002 /* WorkspaceNameFlashOverlay.swift in Sources */,
 				C0DE64020000000000001004 /* TrackedQLPreviewView.swift in Sources */,
 				A5001501 /* UITestRecorder.swift in Sources */,
 				A500120D /* UpdateLogStore.swift in Sources */,
@@ -6889,6 +6896,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5A5A505A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift in Sources */,
 				A5E380710000000000000001 /* TerminalNotificationOpenPanelFallbackTests.swift in Sources */,
 				A77E0F0000000000000AA001 /* AttentionJumpTests.swift in Sources */,
+				A77E0F0000000000000AD001 /* WorkspaceIdentityIndicatorTests.swift in Sources */,
 				A5A5A503A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift in Sources */,
 				A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
 				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,

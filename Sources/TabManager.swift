@@ -222,6 +222,29 @@ class TabManager: ObservableObject {
     /// on subscribe — the `Published.Publisher` semantics those call sites
     /// were written against.
     let workspaceGroupsPublisher = CurrentValueSubject<[WorkspaceGroup], Never>([])
+    /// The selected workspace's ``resolvedWorkspaceIndicatorColorHex(for:)``,
+    /// re-emitted when the selection, that workspace's color, or the groups
+    /// change. Built from the emitted values, which arrive during willSet.
+    /// Stored so SwiftUI's `onReceive` sees one publisher and never resubscribes.
+    private(set) lazy var selectedWorkspaceIndicatorColorHexPublisher: AnyPublisher<String?, Never> =
+        selectedTabIdPublisher
+            .map { [weak self] selectedId -> AnyPublisher<String?, Never> in
+                guard let self, let selectedId, let workspace = workspacesById[selectedId] else {
+                    return Just(nil).eraseToAnyPublisher()
+                }
+                return workspace.$customColor
+                    .combineLatest(workspaceGroupsPublisher)
+                    .map { workspaceColorHex, groups in
+                        Self.workspaceIndicatorColorHex(
+                            workspaceColorHex: workspaceColorHex,
+                            anchorGroupColorHex: groups.first { $0.anchorWorkspaceId == selectedId }?.customColor
+                        )
+                    }
+                    .eraseToAnyPublisher()
+            }
+            .switchToLatest()
+            .removeDuplicates()
+            .eraseToAnyPublisher()
     /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
     /// expanding a group on focus) that would mutate restored state mid-restore.
     private var isRestoringSessionSnapshot: Bool = false

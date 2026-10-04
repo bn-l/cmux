@@ -156,6 +156,11 @@ enum NotificationSettingsFileMapping {
             jsonKey: "agentIdleReminder",
             defaultsKey: notifications.agentIdleReminder.userDefaultsKey
         ),
+        .init(
+            jsonKey: "jumpShowsWorkspaceName",
+            defaultsKey: notifications.jumpShowsWorkspaceName.userDefaultsKey,
+            invalidPath: "notifications.jumpShowsWorkspaceName"
+        ),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
@@ -163,6 +168,23 @@ enum NotificationSettingsFileMapping {
         .init(jsonKey: "command", defaultsKey: NotificationSoundSettings.customCommandKey),
         // agentTurnComplete is enum-valued and validated explicitly in
         // parseNotificationsSection, like notifications.sound.
+    ]
+}
+
+enum WorkspaceColorsSettingsFileMapping {
+    private static let workspaceColors = WorkspaceColorsCatalogSection()
+
+    static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(
+            jsonKey: "titlebarIndicator",
+            defaultsKey: workspaceColors.titlebarIndicator.userDefaultsKey,
+            invalidPath: "workspaceColors.titlebarIndicator"
+        ),
+        .init(
+            jsonKey: "paneBorder",
+            defaultsKey: workspaceColors.paneBorder.userDefaultsKey,
+            invalidPath: "workspaceColors.paneBorder"
+        ),
     ]
 }
 
@@ -402,6 +424,7 @@ extension CmuxSettingsFileStore {
         "notifications.agentPermissionPrompt",
         "notifications.agentTurnComplete",
         "notifications.agentIdleReminder",
+        "notifications.jumpShowsWorkspaceName",
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
@@ -425,6 +448,8 @@ extension CmuxSettingsFileStore {
         "sidebar.showCustomMetadata",
         RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",
+        "workspaceColors.titlebarIndicator",
+        "workspaceColors.paneBorder",
         "workspaceColors.selectionColor",
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.colors",

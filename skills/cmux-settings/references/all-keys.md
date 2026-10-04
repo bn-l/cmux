@@ -48,6 +48,7 @@ Notification behavior from Settings > Notifications.
 | `notifications.showInMenuBar` | boolean | `true` | Show the menu bar extra. |
 | `notifications.unreadPaneRing` | boolean | `true` | Highlight panes with unread notifications. |
 | `notifications.paneFlash` | boolean | `true` | Flash the focused pane when requested. |
+| `notifications.jumpShowsWorkspaceName` | boolean | `true` | Briefly show the workspace's name over the window when Jump to Latest Unread lands in another workspace. |
 | `notifications.sound` | `"default"` or `"Basso"` or `"Blow"` or `"Bottle"` or `"Frog"` or `"Funk"` or `"Glass"` or `"Hero"` or `"Morse"` or `"Ping"` or `"Pop"` or `"Purr"` or `"Sosumi"` or `"Submarine"` or `"Tink"` or `"custom_file"` or `"none"` | `"default"` | Notification sound preset. |
 | `notifications.customSoundFilePath` | string | `""` | Local path to the custom notification sound file. |
 | `notifications.command` | string | `""` | Optional shell command to run alongside notification delivery. |
@@ -82,6 +83,8 @@ Workspace tab and badge colors from Settings > Workspace Colors.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `workspaceColors.indicatorStyle` | `"leftRail"` or `"solidFill"` or `"rail"` or `"border"` or `"wash"` or `"lift"` or `"typography"` or `"washRail"` or `"blueWashColorRail"` | `"leftRail"` | Active workspace indicator style. Legacy aliases are accepted and normalized. |
+| `workspaceColors.titlebarIndicator` | boolean | `true` | Show a dot in the selected workspace's color before its name in the title bar. |
+| `workspaceColors.paneBorder` | boolean | `true` | Outline the focused pane in the selected workspace's color, even with a single pane. Workspaces without a color fall back to `activePaneBorderColor`. |
 | `workspaceColors.selectionColor` | colorHexOrNull | `null` | Override the selected workspace background color. |
 | `workspaceColors.notificationBadgeColor` | colorHexOrNull | `null` | Override the unread notification badge color. |
 | `workspaceColors.colors` | object | `{"Red": "#C0392B", "Crimson": "#922B21", "Orange": "#A04000", "Amber": "#7D6608", "Olive": "#4A5C18", "Green": "#196F3D", "Teal": "#006B6B", "Aqua": "#0E6B8C", "Blue": "#1565C0", "Navy": "#1A5276", "Indigo": "#283593", "Purple": "#6A1B9A", "Magenta": "#AD1457", "Rose": "#880E4F", "Brown": "#7B3F00", "Charcoal": "#3E4B5E"}` | Full named workspace color palette. Include built-in entries you want to keep, remove keys to remove colors, and add more named entries to extend the picker. |

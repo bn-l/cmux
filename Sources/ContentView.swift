@@ -882,6 +882,10 @@ struct ContentView: View {
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
     @AppStorage(PaneChromeSettings.activePaneBorderColorKey) private var activePaneBorderColorHex = PaneChromeSettings.defaultColorHex
+    @AppStorage(WorkspaceColorsCatalogSection().paneBorder.userDefaultsKey)
+    private var outlinesFocusedPaneInWorkspaceColor = WorkspaceColorsCatalogSection().paneBorder.defaultValue
+    @AppStorage(WorkspaceColorsCatalogSection().titlebarIndicator.userDefaultsKey)
+    private var showsWorkspaceColorInTitlebar = WorkspaceColorsCatalogSection().titlebarIndicator.defaultValue
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
@@ -897,6 +901,9 @@ struct ContentView: View {
     /// thread on appear and after every config reload.
     @State private var titlebarFontSize: CGFloat = GhosttyConfig.defaultTitlebarFontSize
     @State private var titlebarFontConfigGeneration: UInt64 = 0
+    /// The selected workspace's color (normalized hex), fed by
+    /// `TabManager.selectedWorkspaceIndicatorColorHexPublisher`.
+    @State private var selectedWorkspaceIndicatorColorHex: String?
     @State private var isFullScreen: Bool = false
     @State private var observedWindowReference = WeakWindowReference()
     private var observedWindow: NSWindow? { observedWindowReference.window }
@@ -1033,8 +1040,8 @@ struct ContentView: View {
     private func tmuxWorkspacePaneWindowOverlayState(for window: NSWindow) -> TmuxWorkspacePaneOverlayRenderState? {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
-        let resolvedActivePaneBorderColorHex = WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex)
-        let shouldShowActivePaneBorder = shouldShowActivePaneBorder(for: workspace, colorHex: resolvedActivePaneBorderColorHex)
+        let resolvedActivePaneBorderColorHex = focusedPaneOutlineColorHex(for: workspace)
+        let shouldShowActivePaneBorder = resolvedActivePaneBorderColorHex != nil
         guard usesWorkspacePaneOverlay || shouldShowActivePaneBorder else { return nil }
 
         let layoutSnapshot = WorkspaceContentView.effectiveTmuxLayoutSnapshot(
@@ -1163,15 +1170,32 @@ struct ContentView: View {
         )?.update(state: tmuxOverlayState)
     }
 
-    private func shouldShowActivePaneBorder(for workspace: Workspace, colorHex: String?) -> Bool {
-        colorHex != nil && workspace.layoutMode != .canvas && !fileExplorerState.rightSidebarOwnsInputFocus && workspace.bonsplitController.allPaneIds.count > 1
+    /// The focused-pane outline color for `workspace` as hex, or `nil` for no
+    /// outline. The workspace's own color (when enabled) outlines even a single
+    /// pane, because it says which project this is; the configured
+    /// active-pane color only tells panes apart, so it needs more than one.
+    private func focusedPaneOutlineColorHex(for workspace: Workspace) -> String? {
+        guard workspace.layoutMode != .canvas, !fileExplorerState.rightSidebarOwnsInputFocus else { return nil }
+        if outlinesFocusedPaneInWorkspaceColor,
+           let colorHex = tabManager.resolvedWorkspaceIndicatorColorHex(for: workspace),
+           let displayColor = Self.workspaceIndicatorDisplayColor(hex: colorHex, over: GhosttyApp.shared.defaultBackgroundColor) {
+            return displayColor.hexString()
+        }
+        guard workspace.bonsplitController.allPaneIds.count > 1 else { return nil }
+        return WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex)
+    }
+
+    /// A workspace color as drawn over `background`: brightened on dark
+    /// backgrounds, matching the sidebar.
+    private static func workspaceIndicatorDisplayColor(hex: String, over background: NSColor) -> NSColor? {
+        WorkspaceTabColorSettings.displayNSColor(hex: hex, colorScheme: background.isLightColor ? .light : .dark)
     }
 
     private func shouldScheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in window: NSWindow) -> Bool {
         if TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay { return true }
         if WindowTmuxWorkspacePaneOverlayController.controller(for: window, createIfNeeded: false)?.hasRenderedState == true { return true }
         guard let workspace = tabManager.selectedWorkspace else { return false }
-        return shouldShowActivePaneBorder(for: workspace, colorHex: WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex))
+        return focusedPaneOutlineColorHex(for: workspace) != nil
     }
 
     private func scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in window: NSWindow?) {
@@ -2048,6 +2072,18 @@ struct ContentView: View {
                         .padding(.leading, -6)
                 }
 
+                if showsWorkspaceColorInTitlebar,
+                   let colorHex = selectedWorkspaceIndicatorColorHex,
+                   let dotColor = Self.workspaceIndicatorDisplayColor(hex: colorHex, over: appearance.terminalBackgroundColor) {
+                    // A symbol, not a fixed-size shape, so it follows the title's
+                    // size setting and global magnification.
+                    Image(systemName: "circle.fill")
+                        .cmuxFont(size: titlebarFontSize * 0.75)
+                        .foregroundStyle(Color(nsColor: dotColor))
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+
                 Text(titlebarText)
                     .cmuxFont(size: titlebarFontSize, weight: .bold)
                     .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
@@ -2663,6 +2699,16 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: activePaneBorderColorHex) { _, _ in
+            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
+        }.onChange(of: outlinesFocusedPaneInWorkspaceColor) { _, _ in
+            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
+        })
+
+        // Delivered on the next run loop pass: the publisher fires during
+        // willSet, and the outline refresh reads the committed selection.
+        view = AnyView(view.onReceive(tabManager.selectedWorkspaceIndicatorColorHexPublisher.receive(on: RunLoop.main)) { colorHex in
+            guard colorHex != selectedWorkspaceIndicatorColorHex else { return }
+            selectedWorkspaceIndicatorColorHex = colorHex
             refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
         })
 

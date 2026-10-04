@@ -14,6 +14,8 @@ public struct WorkspaceColorsSection: View {
     private let errorLog: SettingsErrorLog
 
     @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
+    @State private var titlebarIndicator: DefaultsValueModel<Bool>
+    @State private var paneBorder: DefaultsValueModel<Bool>
     @State private var selectionHex: DefaultsValueModel<String>
     @State private var badgeHex: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
@@ -53,6 +55,8 @@ public struct WorkspaceColorsSection: View {
         self.catalog = catalog
         self.errorLog = errorLog
         _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
+        _titlebarIndicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.titlebarIndicator))
+        _paneBorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.paneBorder))
         _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
@@ -75,6 +79,8 @@ public struct WorkspaceColorsSection: View {
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             indicator,
+            titlebarIndicator,
+            paneBorder,
             selectionHex,
             badgeHex,
             paletteModel,
@@ -97,6 +103,28 @@ public struct WorkspaceColorsSection: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("workspaceColors.titlebarIndicator"),
+                String(localized: "settings.workspaceColors.titlebarIndicator", defaultValue: "Show Color in Title Bar"),
+                subtitle: String(localized: "settings.workspaceColors.titlebarIndicator.subtitle", defaultValue: "Put a dot in the workspace's color before its name in the title bar.")
+            ) {
+                Toggle("", isOn: Binding(get: { titlebarIndicator.current }, set: { titlebarIndicator.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("workspaceColors.paneBorder"),
+                String(localized: "settings.workspaceColors.paneBorder", defaultValue: "Outline Focused Pane in Workspace Color"),
+                subtitle: String(localized: "settings.workspaceColors.paneBorder.subtitle", defaultValue: "Draw the focused pane's border in the workspace's color, even with a single pane.")
+            ) {
+                Toggle("", isOn: Binding(get: { paneBorder.current }, set: { paneBorder.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
             }
             SettingsCardDivider()
 
