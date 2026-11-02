@@ -312,6 +312,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C1A0E5C0000000000000000D /* WorkspaceSharedAgentIndexReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C0000000000000000E /* WorkspaceSharedAgentIndexReloadTests.swift */; };
 		C1A0E5C0000000000000000B /* CmuxEventLogWriterOpenHandleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C0000000000000000C /* CmuxEventLogWriterOpenHandleTests.swift */; };
 		C1A0E5C00000000000000009 /* GPUSpinnerPacingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C0000000000000000A /* GPUSpinnerPacingTests.swift */; };
+		C1A0E5C0000000000000000F /* GhosttyExternalDisplayScalingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C00000000000000010 /* GhosttyExternalDisplayScalingTests.swift */; };
 		C1A0E5C00000000000000007 /* WorkspacePortalRenderingAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C00000000000000008 /* WorkspacePortalRenderingAuthorityTests.swift */; };
 		C1A0E5C00000000000000005 /* ClaudeInterruptCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C00000000000000006 /* ClaudeInterruptCheckTests.swift */; };
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
@@ -2012,6 +2013,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C1A0E5C0000000000000000E /* WorkspaceSharedAgentIndexReloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSharedAgentIndexReloadTests.swift; sourceTree = "<group>"; };
 		C1A0E5C0000000000000000C /* CmuxEventLogWriterOpenHandleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventLogWriterOpenHandleTests.swift; sourceTree = "<group>"; };
 		C1A0E5C0000000000000000A /* GPUSpinnerPacingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPUSpinnerPacingTests.swift; sourceTree = "<group>"; };
+		C1A0E5C00000000000000010 /* GhosttyExternalDisplayScalingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyExternalDisplayScalingTests.swift; sourceTree = "<group>"; };
 		C1A0E5C00000000000000008 /* WorkspacePortalRenderingAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePortalRenderingAuthorityTests.swift; sourceTree = "<group>"; };
 		C1A0E5C00000000000000006 /* ClaudeInterruptCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeInterruptCheckTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
@@ -4560,6 +4562,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C1A0E5C0000000000000000E /* WorkspaceSharedAgentIndexReloadTests.swift */,
 				C1A0E5C0000000000000000C /* CmuxEventLogWriterOpenHandleTests.swift */,
 				C1A0E5C0000000000000000A /* GPUSpinnerPacingTests.swift */,
+				C1A0E5C00000000000000010 /* GhosttyExternalDisplayScalingTests.swift */,
 				C1A0E5C00000000000000008 /* WorkspacePortalRenderingAuthorityTests.swift */,
 				C1A0E5C00000000000000006 /* ClaudeInterruptCheckTests.swift */,
 				D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */,
@@ -6634,6 +6637,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C1A0E5C0000000000000000D /* WorkspaceSharedAgentIndexReloadTests.swift in Sources */,
 				C1A0E5C0000000000000000B /* CmuxEventLogWriterOpenHandleTests.swift in Sources */,
 				C1A0E5C00000000000000009 /* GPUSpinnerPacingTests.swift in Sources */,
+				C1A0E5C0000000000000000F /* GhosttyExternalDisplayScalingTests.swift in Sources */,
 				C1A0E5C00000000000000007 /* WorkspacePortalRenderingAuthorityTests.swift in Sources */,
 				C1A0E5C00000000000000005 /* ClaudeInterruptCheckTests.swift in Sources */,
 				D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */,

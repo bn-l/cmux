@@ -3447,6 +3447,27 @@ extension TerminalSurface {
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
+    /// Returns whether a screen transition left the terminal runtime at a
+    /// different backing scale than the window now uses. AppKit can update a
+    /// view's layer during a display move without delivering
+    /// `viewDidChangeBackingProperties`; comparing the scale last applied to
+    /// the runtime lets the screen notification repair that missed callback
+    /// while skipping a redundant size commit when the normal callback ran.
+    static func shouldReconcileBackingScale(
+        currentScale: CGFloat?,
+        targetScale: CGFloat,
+        epsilon: CGFloat = 0.0001
+    ) -> Bool {
+        guard let currentScale,
+              currentScale.isFinite,
+              currentScale > 0,
+              targetScale.isFinite,
+              targetScale > 0 else {
+            return false
+        }
+        return abs(currentScale - targetScale) > epsilon
+    }
+
     private static let focusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
             return true
@@ -4048,6 +4069,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        applyWindowBackingScale()
+    }
+
+    /// Pushes the window's backing scale to the layer and the terminal runtime.
+    private func applyWindowBackingScale() {
         if let window {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -4056,6 +4082,29 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         updateSurfaceSize()
         invalidateTextInputCoordinates()
+    }
+
+    /// Reconciles a display move after AppKit has finished the screen
+    /// transition. The backing-properties callback stays the fast path; this
+    /// only commits when the runtime still carries the previous display's
+    /// scale.
+    private func scheduleBackingScaleReconciliation() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.window else { return }
+            let targetScale = max(1.0, window.backingScaleFactor)
+            let currentScale = self.terminalSurface?.appliedContentScale ?? self.layer?.contentsScale
+            guard Self.shouldReconcileBackingScale(currentScale: currentScale, targetScale: targetScale) else {
+                return
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "surface.scale.reconcile surface=\(self.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "from=\(currentScale.map { String(format: "%.2f", $0) } ?? "nil") " +
+                "to=\(String(format: "%.2f", targetScale))"
+            )
+#endif
+            self.applyWindowBackingScale()
+        }
     }
 
     override func layout() {
@@ -7898,10 +7947,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
-        // Let AppKit's backing-properties callback own scale changes. A screen
-        // notification alone does not establish that backing geometry changed;
-        // replaying that callback schedules an extra settled geometry commit
-        // while display topology is still changing.
+        // AppKit normally sends viewDidChangeBackingProperties for a display
+        // move, but some extended-display transitions update the window and
+        // layer without that callback. Defer the check until AppKit finishes
+        // the screen transition, then repair only a stale runtime scale.
+        scheduleBackingScaleReconciliation()
     }
 
     fileprivate static func escapeDropForShell(_ value: String) -> String {

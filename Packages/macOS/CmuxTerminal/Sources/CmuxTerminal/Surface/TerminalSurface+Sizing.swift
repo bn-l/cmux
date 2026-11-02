@@ -106,6 +106,16 @@ extension TerminalSurface {
         )
     }
 
+    /// The horizontal content scale last applied to the runtime with
+    /// `ghostty_surface_set_content_scale`, or `nil` before the first apply.
+    ///
+    /// A display move that skips AppKit's backing-properties callback leaves
+    /// this at the previous display's scale; the hosting view compares it with
+    /// the window's backing scale to detect that.
+    public var appliedContentScale: CGFloat? {
+        lastXScale > 0 ? lastXScale : nil
+    }
+
     /// Applies a new backing size/scale to the runtime surface.
     ///
     /// - Parameter width: The logical surface width in points.
