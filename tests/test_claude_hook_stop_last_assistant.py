@@ -188,8 +188,12 @@ def main() -> int:
             check=False,
         )
 
+        # The wrapper no longer installs cron-create-guard, but Claude sessions
+        # launched by an older wrapper still call it. It must exit cleanly with no
+        # decision so durable jobs go through, and leave the feed event to the
+        # async pre-tool-use hook so the call is not recorded twice.
         if cron_proc.returncode != 0:
-            print("FAIL: claude cron-create-guard failed")
+            print("FAIL: claude cron-create-guard failed; old sessions would show a hook error on every CronCreate")
             print(f"stdout={cron_proc.stdout!r}")
             print(f"stderr={cron_proc.stderr!r}")
             print(f"commands={server.commands!r}")
@@ -200,14 +204,8 @@ def main() -> int:
             print("FAIL: cron-create-guard did not return JSON")
             print(f"stdout={cron_proc.stdout!r}")
             return 1
-        hook_output = cron_decision.get("hookSpecificOutput") or {}
-        if hook_output.get("permissionDecision") != "deny":
-            print("FAIL: cron-create-guard should deny durable CronCreate")
-            print(f"stdout={cron_proc.stdout!r}")
-            return 1
-        reason = hook_output.get("permissionDecisionReason") or ""
-        if "durable:true" not in reason or "session-only" not in reason:
-            print("FAIL: cron-create-guard denial should explain the unsupported durable downgrade")
+        if cron_decision != {}:
+            print("FAIL: cron-create-guard must not make a decision on durable CronCreate")
             print(f"stdout={cron_proc.stdout!r}")
             return 1
         feed_frames = []
@@ -220,12 +218,8 @@ def main() -> int:
                 continue
             if frame.get("method") == "feed.push":
                 feed_frames.append(frame)
-        if not any(
-            (frame.get("params") or {}).get("event", {}).get("hook_event_name") == "PreToolUse"
-            and (frame.get("params") or {}).get("event", {}).get("tool_name") == "CronCreate"
-            for frame in feed_frames
-        ):
-            print("FAIL: denied durable CronCreate should still emit feed telemetry")
+        if feed_frames:
+            print("FAIL: cron-create-guard must not push a feed event; the async pre-tool-use hook records the call")
             print(f"commands={server.commands!r}")
             return 1
 
@@ -266,7 +260,7 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
-    print("PASS: Claude cron guard denies durable jobs and Stop notification uses final assistant text")
+    print("PASS: retired cron guard lets durable jobs through and Stop notification uses final assistant text")
     return 0
 
 

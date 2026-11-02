@@ -535,19 +535,18 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             failures,
         )
     pre_tool_use_groups = hooks.get("PreToolUse", [])
-    cron_guard_groups = [group for group in pre_tool_use_groups if group.get("matcher") == "CronCreate"]
-    expect(cron_guard_groups, f"PreToolUse should install a CronCreate guard, got {pre_tool_use_groups}", failures)
-    if cron_guard_groups:
-        cron_guard_hooks = cron_guard_groups[0].get("hooks", [])
-        expect(
-            any(
-                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude cron-create-guard'
-                and h.get("async") is not True
-                for h in cron_guard_hooks
-            ),
-            f"CronCreate guard should synchronously call hooks claude cron-create-guard, got {cron_guard_hooks}",
-            failures,
-        )
+    # CronCreate durable:true works in Claude Code; the only downgrade to
+    # session-only is Claude's own tengu_kairos_cron_durable flag. A cmux guard on
+    # the tool denied durable jobs in every cmux-launched session.
+    cron_create_groups = [group for group in pre_tool_use_groups if group.get("matcher") == "CronCreate"]
+    expect(not cron_create_groups, f"PreToolUse must not intercept CronCreate, got {cron_create_groups}", failures)
+    cron_guard_hooks = [
+        hook
+        for group in pre_tool_use_groups
+        for hook in group.get("hooks", [])
+        if "cron-create-guard" in hook.get("command", "")
+    ]
+    expect(not cron_guard_hooks, f"PreToolUse must not call the retired cron-create-guard, got {cron_guard_hooks}", failures)
 
     # PushNotification delivers via a raw OSC notification that cmux suppresses
     # for agent surfaces and never fires the Notification hook, so a PostToolUse
