@@ -12111,6 +12111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     static func installWindowResponderSwizzlesForTesting() {
+        TextViewUndoRegistrationLifetime.install()
         _ = didInstallApplicationAccessibilitySwizzle
         _ = didInstallApplicationSendActionSwizzle
         _ = didInstallApplicationSendEventSwizzle
@@ -12135,6 +12136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func installWindowResponderSwizzles() {
+        TextViewUndoRegistrationLifetime.install()
         _ = Self.didInstallApplicationAccessibilitySwizzle
         _ = Self.didInstallApplicationSendActionSwizzle
         _ = Self.didInstallApplicationSendEventSwizzle
