@@ -235,3 +235,37 @@ struct ImageMaterializationTests {
         #expect(!service.isOwnedTemporaryImageFile(foreign))
     }
 }
+
+// An OSC 52 write with an empty payload (`ESC ] 52 ; c ; BEL`) reaches the
+// write callback as an empty string. Programs on a remote host send it (seen
+// over ssh during `gh auth refresh`), and writing it would wipe whatever the
+// user had copied on this Mac (upstream #22105).
+@Suite("Empty clipboard writes", .serialized)
+struct EmptyClipboardWriteTests {
+    @Test(arguments: [GHOSTTY_CLIPBOARD_STANDARD.rawValue, GHOSTTY_CLIPBOARD_SELECTION.rawValue])
+    func emptyWriteKeepsWhatTheUserCopied(locationRawValue: UInt32) throws {
+        // Arrange: scratch boards, so the user's real clipboard is never touched.
+        let location = ghostty_clipboard_e(rawValue: locationRawValue)
+        let standard = ScratchPasteboard()
+        let selection = ScratchPasteboard()
+        let service = TerminalPasteboardService(
+            standardPasteboard: standard.pasteboard,
+            selectionPasteboard: selection.pasteboard
+        )
+        let board = location == GHOSTTY_CLIPBOARD_STANDARD ? standard.pasteboard : selection.pasteboard
+        let copied = "copied-\(UUID().uuidString)"
+        service.writeString(copied, to: location)
+        #expect(board.string(forType: .string) == copied)
+        let changeCountBeforeEmptyWrite = board.changeCount
+
+        // Act
+        service.writeString("", to: location)
+
+        // Assert: nothing was written, and a real write still lands.
+        #expect(board.string(forType: .string) == copied)
+        #expect(board.changeCount == changeCountBeforeEmptyWrite)
+        let next = "next-\(UUID().uuidString)"
+        service.writeString(next, to: location)
+        #expect(board.string(forType: .string) == next)
+    }
+}

@@ -56,6 +56,8 @@ public final class TerminalPasteboardService: Sendable {
     // thread and the legacy code already wrote to this pasteboard from
     // ghostty runtime threads.
     nonisolated(unsafe) private let selectionPasteboard: NSPasteboard
+    // SAFETY: as above.
+    nonisolated(unsafe) private let standardPasteboard: NSPasteboard
 
     /// The directory that owned temporary image files are written into.
     let temporaryDirectory: URL
@@ -74,14 +76,23 @@ public final class TerminalPasteboardService: Sendable {
 
     /// Creates the process's pasteboard service.
     ///
-    /// - Parameter temporaryDirectory: Destination for owned temporary image
-    ///   files. Tests inject a scratch directory; the app uses the user's
-    ///   temporary directory.
-    public init(temporaryDirectory: URL = FileManager.default.temporaryDirectory) {
-        self.temporaryDirectory = temporaryDirectory
-        self.selectionPasteboard = NSPasteboard(
+    /// - Parameters:
+    ///   - temporaryDirectory: Destination for owned temporary image files.
+    ///     Tests inject a scratch directory; the app uses the user's
+    ///     temporary directory.
+    ///   - standardPasteboard: The board standard-location writes go to.
+    ///     Tests inject a scratch board so they never touch the user's clipboard.
+    ///   - selectionPasteboard: The board selection-location writes go to.
+    public init(
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        standardPasteboard: NSPasteboard = .general,
+        selectionPasteboard: NSPasteboard = NSPasteboard(
             name: NSPasteboard.Name("com.mitchellh.ghostty.selection")
         )
+    ) {
+        self.temporaryDirectory = temporaryDirectory
+        self.standardPasteboard = standardPasteboard
+        self.selectionPasteboard = selectionPasteboard
     }
 }
 
@@ -104,7 +115,10 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
             }
         }
 
-        guard let pasteboard = pasteboard(for: location) else { return }
+        // An empty payload carries nothing to paste; writing it would only
+        // wipe what the user copied. Remote programs send it as an OSC 52
+        // write (`ESC ] 52 ; c ; BEL`), which xterm defines as "clear".
+        guard !string.isEmpty, let pasteboard = pasteboard(for: location) else { return }
         pasteboard.clearContents()
         pasteboard.setString(string, forType: .string)
     }
@@ -136,7 +150,7 @@ extension TerminalPasteboardService {
     public func pasteboard(for location: ghostty_clipboard_e) -> NSPasteboard? {
         switch location {
         case GHOSTTY_CLIPBOARD_STANDARD:
-            return .general
+            return standardPasteboard
         case GHOSTTY_CLIPBOARD_SELECTION:
             return selectionPasteboard
         default:
