@@ -3124,36 +3124,24 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
 
-        // Forward shared agent-index refreshes so the bonsplit tab-bar re-evaluates
-        // Fork Conversation availability when a background refresh lands.
+        // The Fork Conversation menu reads availability from its provider when
+        // it opens, so a refresh must not publish this workspace: a full reload
+        // posts without userInfo at most every 5 s while agent hooks write the
+        // hook store, and each publish re-rendered every pane (issue 22703).
+        // SharedLiveAgentIndex is MainActor, so it posts on the main thread and
+        // the change is handled before post returns.
         sharedLiveAgentIndexObserver = NotificationCenter.default.addObserver(
             forName: .sharedLiveAgentIndexDidChange,
             object: SharedLiveAgentIndex.shared,
-            queue: nil
+            queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if let index = SharedLiveAgentIndex.shared.index {
-                    let completedPanelIds = self.restoredAgentResumeStatesByPanelId.compactMap { panelId, state in
-                        state == .completedAgentExit ? panelId : nil
-                    }
-                    for panelId in completedPanelIds {
-                        guard let observation = index.entry(
-                            workspaceId: self.id,
-                            panelId: panelId,
-                            directory: self.agentSessionAffinityDirectory(panelId: panelId)
-                        ) else {
-                            continue
-                        }
-                        self.reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
-                    }
-                }
-                self.objectWillChange.send()
+            MainActor.assumeIsolated {
+                self?.handleSharedLiveAgentIndexChange()
             }
         }
     }
 
-    private var sharedLiveAgentIndexObserver: NSObjectProtocol?
+    private(set) var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
     deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
