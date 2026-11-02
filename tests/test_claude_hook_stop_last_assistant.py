@@ -153,12 +153,13 @@ def main() -> int:
     payload = {
         "session_id": f"sess-{uuid.uuid4().hex}",
         "hook_event_name": "Stop",
+        "stop_hook_active": True,
         "cwd": "/Users/lawrence/fun",
         "last_assistant_message": "2",
     }
 
     with CapturingSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
-        env = os.environ.copy()
+        env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
         env["CMUX_SOCKET_PATH"] = server.socket_path
         env["CMUX_WORKSPACE_ID"] = workspace_id
         env["CMUX_SURFACE_ID"] = surface_id
@@ -258,6 +259,14 @@ def main() -> int:
             print(f"expected={expected_payload!r}")
             print(f"actual={notify!r}")
             print(f"commands={server.commands!r}")
+            return 1
+        if not any(
+            command.startswith("set_status claude_code Idle ")
+            and f"--tab={workspace_id}" in command
+            and f"--panel={surface_id}" in command
+            for command in server.commands
+        ):
+            print(f"FAIL: final Stop with stop_hook_active=true did not settle Idle: {server.commands!r}")
             return 1
 
     print("PASS: retired cron guard lets durable jobs through and Stop notification uses final assistant text")
