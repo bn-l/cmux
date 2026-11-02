@@ -2052,6 +2052,138 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         }
     }
 
+    // MARK: - Leftover Modes From A Killed Program
+
+    /// Runs the main run loop until `condition` holds or `timeout` seconds pass
+    /// (stands in for upstream's AppKitTestEventPump).
+    private func pumpRunLoopUntil(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        return condition()
+    }
+
+    /// A raw-mode child that writes the PTY input bytes it reads, as hex, to
+    /// `<script>.capture` once input goes idle.
+    private func ptyInputCaptureScript() -> String {
+        """
+        import os
+        from pathlib import Path
+        import select
+        import sys
+        import termios
+        import time
+        import tty
+
+        fd = 0
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            Path(__file__ + ".ready").write_text("ready")
+            data = bytearray()
+            if select.select([sys.stdin], [], [], 4.0)[0]:
+                data.extend(os.read(fd, 64))
+                deadline = time.monotonic() + 2.0
+                idle_deadline = time.monotonic() + 0.5
+                while time.monotonic() < deadline and time.monotonic() < idle_deadline:
+                    if select.select([sys.stdin], [], [], 0.05)[0]:
+                        data.extend(os.read(fd, 64))
+                        idle_deadline = time.monotonic() + 0.5
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+        capture = Path(__file__ + ".capture.pending")
+        capture.write_text(data.hex())
+        capture.replace(__file__ + ".capture")
+        """
+    }
+
+    func testMouseMovesAtThePromptAfterAKilledMouseTrackingProgramWriteNoReports() throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mouse-reset-\(UUID().uuidString)")
+        let scriptURL = base.appendingPathExtension("py")
+        let wrapperURL = base.appendingPathExtension("sh")
+        let readyURL = scriptURL.appendingPathExtension("ready")
+        let captureURL = scriptURL.appendingPathExtension("capture")
+        defer {
+            for url in [scriptURL, wrapperURL, readyURL, captureURL,
+                        scriptURL.appendingPathExtension("capture.pending")] {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+        let integrationPath = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/shell-integration/cmux-zsh-integration.zsh")
+            .path
+        try ptyInputCaptureScript().write(to: scriptURL, atomically: true, encoding: .utf8)
+        // A TUI turns on any-motion SGR mouse reports and is SIGKILLed;
+        // then the shell's prompt hook runs on the same PTY, then a child
+        // records what the next mouse moves and key write to PTY input.
+        let wrapper = """
+        /bin/sh -c 'printf "\\033[?1003h\\033[?1006h"; kill -9 $$'
+        /bin/zsh -f -c 'source "$1" >/dev/null 2>&1; _cmux_reset_terminal_leftover_modes' prompt "$2"
+        exec /usr/bin/python3 "$1"
+        """
+        try wrapper.write(to: wrapperURL, atomically: true, encoding: .utf8)
+
+        let hostedTerminal = try makeHostedTerminalWindow(
+            initialCommand: "/bin/sh \(shellSingleQuoted(wrapperURL.path)) "
+                + "\(shellSingleQuoted(scriptURL.path)) \(shellSingleQuoted(integrationPath))"
+        )
+        let window = hostedTerminal.window
+        defer {
+            hostedTerminal.surface.releaseSurfaceForTesting()
+            window.orderOut(nil)
+        }
+
+        // The fork's window helper returns before the runtime surface (and
+        // so the initial command) exists; wait for it first.
+        let surfaceStarted = pumpRunLoopUntil(timeout: 10) { hostedTerminal.surface.surface != nil }
+        XCTAssertTrue(surfaceStarted, "Expected the runtime surface to start the wrapper command")
+        guard surfaceStarted else { return }
+        let childReady = pumpRunLoopUntil(timeout: 10) {
+            FileManager.default.fileExists(atPath: readyURL.path)
+        }
+        XCTAssertTrue(childReady, "Expected the byte-capture child to enter raw mode")
+        guard childReady else { return }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        for point in [NSPoint(x: 40, y: 40), NSPoint(x: 90, y: 70), NSPoint(x: 140, y: 100)] {
+            let moved = try XCTUnwrap(NSEvent.mouseEvent(
+                with: .mouseMoved,
+                location: point,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 0,
+                pressure: 0
+            ))
+            hostedTerminal.surfaceView.mouseMoved(with: moved)
+        }
+        let sent = hostedTerminal.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            keyCode: 8
+        )
+        XCTAssertTrue(sent, "Expected ordinary c keyDown to be dispatched through ghostty_surface_key")
+
+        let captured = pumpRunLoopUntil(timeout: 10) {
+            FileManager.default.fileExists(atPath: captureURL.path)
+        }
+        XCTAssertTrue(captured, "Expected the PTY child to publish its captured bytes")
+        guard captured else { return }
+        let capturedHex = try String(contentsOf: captureURL, encoding: .utf8)
+        XCTAssertEqual(
+            capturedHex,
+            "63",
+            "Mouse moves at the prompt must write nothing to PTY input; only the typed c"
+        )
+    }
+
     func testCommandShiftVPasteAsPlainTextStillInvokesTerminalFallbackWhenMainMenuMisses() throws {
         installGhosttyPasteActionSwizzle()
 
