@@ -8347,6 +8347,21 @@ class GhosttyTerminalScroller: NSScroller {
         gutterWidth
     }
 
+    /// When the knob moves, AppKit invalidates only its own knob rect (x 10–21 in
+    /// the 24pt gutter) at the old and new positions, but the knob is drawn at
+    /// x 7.5–16.5. Left as is, the new knob loses its left edge and a strip of
+    /// the old knob is never erased, so the thumb looks split in two until
+    /// something redraws the whole scroller. Widening every invalidation to the
+    /// full gutter width, keeping AppKit's vertical range, covers both.
+    override func setNeedsDisplay(_ invalidRect: NSRect) {
+        super.setNeedsDisplay(NSRect(
+            x: bounds.minX,
+            y: invalidRect.minY,
+            width: bounds.width,
+            height: invalidRect.height
+        ))
+    }
+
     override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {
         // The terminal background remains visible through the reserved gutter.
     }
