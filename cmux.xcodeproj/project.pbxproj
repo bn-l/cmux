@@ -309,6 +309,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CA52B0070000000000000000 /* CanvasPaneContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0070000000000000000 /* CanvasPaneContent.swift */; };
 		C4A570030000000000000001 /* CanvasShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570030000000000000002 /* CanvasShortcutContextTests.swift */; };
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
+		C1A0E5C00000000000000009 /* GPUSpinnerPacingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C0000000000000000A /* GPUSpinnerPacingTests.swift */; };
 		C1A0E5C00000000000000007 /* WorkspacePortalRenderingAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C00000000000000008 /* WorkspacePortalRenderingAuthorityTests.swift */; };
 		C1A0E5C00000000000000005 /* ClaudeInterruptCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C00000000000000006 /* ClaudeInterruptCheckTests.swift */; };
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
@@ -2003,6 +2004,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		CA52C0070000000000000000 /* CanvasPaneContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasPaneContent.swift"; sourceTree = "<group>"; };
 		C4A570030000000000000002 /* CanvasShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasShortcutContextTests.swift; sourceTree = "<group>"; };
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
+		C1A0E5C0000000000000000A /* GPUSpinnerPacingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPUSpinnerPacingTests.swift; sourceTree = "<group>"; };
 		C1A0E5C00000000000000008 /* WorkspacePortalRenderingAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePortalRenderingAuthorityTests.swift; sourceTree = "<group>"; };
 		C1A0E5C00000000000000006 /* ClaudeInterruptCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeInterruptCheckTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
@@ -4543,6 +4545,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			children = (
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
 				F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */,
+				C1A0E5C0000000000000000A /* GPUSpinnerPacingTests.swift */,
 				C1A0E5C00000000000000008 /* WorkspacePortalRenderingAuthorityTests.swift */,
 				C1A0E5C00000000000000006 /* ClaudeInterruptCheckTests.swift */,
 				D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */,
@@ -6611,6 +6614,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				0A0F00580000000000000003 /* CampfireSupportTestSupport.swift in Sources */,
 				C4A570030000000000000001 /* CanvasShortcutContextTests.swift in Sources */,
 				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
+				C1A0E5C00000000000000009 /* GPUSpinnerPacingTests.swift in Sources */,
 				C1A0E5C00000000000000007 /* WorkspacePortalRenderingAuthorityTests.swift in Sources */,
 				C1A0E5C00000000000000005 /* ClaudeInterruptCheckTests.swift in Sources */,
 				D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */,
