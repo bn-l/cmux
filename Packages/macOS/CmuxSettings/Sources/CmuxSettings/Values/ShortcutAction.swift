@@ -52,6 +52,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case prevSidebarTab
     case focusHistoryBack
     case focusHistoryForward
+    /// Toggles focus between the current position and the one it last left.
+    case focusHistoryLast
     case selectWorkspaceByNumber
     case renameTab
     case renameWorkspace
@@ -183,7 +185,7 @@ extension ShortcutAction {
              .switchRightSidebarToDock, .triggerFlash:
             return .workspace
         case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
-             .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
+             .prevSidebarTab, .focusHistoryBack, .focusHistoryForward, .focusHistoryLast,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
@@ -366,6 +368,7 @@ extension ShortcutAction {
         case .prevSidebarTab: return "Previous Workspace"
         case .focusHistoryBack: return "Focus Back"
         case .focusHistoryForward: return "Focus Forward"
+        case .focusHistoryLast: return "Focus Last"
         case .selectWorkspaceByNumber: return "Select Workspace 1…9"
         case .renameTab: return "Rename Tab"
         case .renameWorkspace: return "Rename Workspace"

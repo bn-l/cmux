@@ -103,6 +103,7 @@ enum KeyboardShortcutSettings {
         case prevSidebarTab
         case focusHistoryBack
         case focusHistoryForward
+        case focusHistoryLast
         case selectWorkspaceByNumber
         case renameTab
         case renameWorkspace
@@ -225,6 +226,7 @@ enum KeyboardShortcutSettings {
             case .prevSidebarTab: return String(localized: "shortcut.previousWorkspace.label", defaultValue: "Previous Workspace")
             case .focusHistoryBack: return String(localized: "shortcut.focusHistoryBack.label", defaultValue: "Focus Back")
             case .focusHistoryForward: return String(localized: "shortcut.focusHistoryForward.label", defaultValue: "Focus Forward")
+            case .focusHistoryLast: return String(localized: "shortcut.focusHistoryLast.label", defaultValue: "Focus Last")
             case .selectWorkspaceByNumber: return String(localized: "shortcut.selectWorkspaceByNumber.label", defaultValue: "Select Workspace 1…9")
             case .renameTab: return String(localized: "shortcut.renameTab.label", defaultValue: "Rename Tab")
             case .renameWorkspace: return String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace")
@@ -392,6 +394,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
             case .focusHistoryForward:
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: false)
+            case .focusHistoryLast:
+                return .unbound
             case .renameTab:
                 return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
             case .renameWorkspace:
