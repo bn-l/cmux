@@ -204,6 +204,64 @@ struct CompletedRestoredAgentGenerationTests {
         #expect(!workspace.allowsAgentContinuation(forPanelId: panelId))
     }
 
+    /// Upstream manaflow-ai/cmux#21226: after two quick quits, Claude tabs came
+    /// back as plain shells. Quit #2 lands before the paced `claude --resume`
+    /// has run, so the hook record still names the first instance's dead
+    /// process and no live process backs the binding. The autosave of that
+    /// second instance must still write the agent and its hook binding.
+    @Test
+    func quitBeforeThePacedResumeRunsKeepsTheClaudeAgentAndBinding() throws {
+        // Arrange: instance #1 saves a Claude tab with a hook binding.
+        let first = Workspace()
+        let firstPanelId = try #require(first.focusedPanelId)
+        let sessionId = "double-quit-claude-session"
+        let fixture = try makeIndexFixture(
+            workspaceId: first.id,
+            panelId: firstPanelId,
+            sessionId: sessionId,
+            updatedAt: Date.now.timeIntervalSince1970 - 30
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        try #require(first.updatePanelDirectory(panelId: firstPanelId, directory: fixture.workingDirectory.path))
+        try #require(first.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "claude",
+                command: "claude --resume \(sessionId)",
+                cwd: fixture.workingDirectory.path,
+                checkpointId: sessionId,
+                source: "agent-hook"
+            ),
+            panelId: firstPanelId
+        ))
+        let firstSave = first.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: fixture.index,
+            surfaceResumeBindingIndex: .empty
+        )
+        try #require(firstSave.panels.first?.terminal?.agent?.sessionId == sessionId)
+        try #require(firstSave.panels.first?.terminal?.resumeBinding?.checkpointId == sessionId)
+
+        // Act: instance #2 restores it and quits before the resume runs.
+        let second = Workspace()
+        let panelMapping = second.restoreSessionSnapshot(firstSave)
+        let secondPanelId = try #require(panelMapping[firstPanelId])
+        let secondSave = second.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path),
+            surfaceResumeBindingIndex: .empty
+        )
+
+        // Assert: instance #3 gets the same Claude tab back.
+        let terminal = try #require(secondSave.panels.first { $0.id == secondPanelId }?.terminal)
+        #expect(terminal.agent?.sessionId == sessionId, "The second quit dropped the restorable agent")
+        #expect(terminal.resumeBinding?.checkpointId == sessionId, "The second quit dropped the resume binding")
+        #expect(terminal.resumeBinding?.isAgentHookBinding == true)
+        let third = Workspace()
+        let thirdPanelId = try #require(third.restoreSessionSnapshot(secondSave)[secondPanelId])
+        #expect(third.restoredAgentSnapshotsByPanelId[thirdPanelId]?.sessionId == sessionId)
+        #expect(third.surfaceResumeBinding(panelId: thirdPanelId)?.checkpointId == sessionId)
+    }
+
     private func agentSnapshot(
         sessionId: String,
         workingDirectory: String,
