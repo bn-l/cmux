@@ -2,6 +2,7 @@ import CmuxFoundation
 import CmuxRemoteSession
 import Foundation
 import Darwin
+import os
 
 struct DetectedSSHSession: Equatable {
     let destination: String
@@ -441,7 +442,7 @@ enum TerminalSSHSessionDetector {
         return nil
     }
 
-    private static let psPath = "/bin/ps"
+    private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "ssh-session-detector")
     private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
     private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
 
@@ -462,50 +463,41 @@ enum TerminalSSHSessionDetector {
             process.pgid == process.tpgid
     }
 
+    /// Lists the processes whose controlling terminal is `ttyName`, the rows
+    /// `ps -t <tty> -o pid,pgid,tpgid,tty,ucomm` prints, read with the same
+    /// `KERN_PROC_TTY` sysctl `ps` uses. Image paste resolves its target on the
+    /// main thread, so this must not launch a process.
     static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: psPath)
-        process.arguments = ["-ww", "-t", ttyName, "-o", "pid=,pgid=,tpgid=,tty=,ucomm="]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
+        var ttyStatus = stat()
+        guard stat("/dev/\(ttyName)", &ttyStatus) == 0 else {
+            logger.error("stat /dev/\(ttyName, privacy: .public) failed: errno \(errno)")
             return []
         }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0,
-              let output = String(data: data, encoding: .utf8) else {
+        var mib = [CTL_KERN, KERN_PROC, KERN_PROC_TTY, ttyStatus.st_rdev]
+        var size = 0
+        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0 else {
+            logger.error("KERN_PROC_TTY size query for \(ttyName, privacy: .public) failed: errno \(errno)")
             return []
         }
-
-        return output
-            .split(separator: "\n")
-            .compactMap(parseProcessSnapshot)
-    }
-
-    private static func parseProcessSnapshot(_ line: Substring) -> ProcessSnapshot? {
-        let parts = line.split(maxSplits: 4, whereSeparator: \.isWhitespace)
-        guard parts.count == 5,
-              let pid = Int32(parts[0]),
-              let pgid = Int32(parts[1]),
-              let tpgid = Int32(parts[2]) else {
-            return nil
+        let stride = MemoryLayout<kinfo_proc>.stride
+        // Room for processes that start between the size query and the read.
+        var processes = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 8)
+        size = processes.count * stride
+        guard sysctl(&mib, u_int(mib.count), &processes, &size, nil, 0) == 0 else {
+            logger.error("KERN_PROC_TTY read for \(ttyName, privacy: .public) failed: errno \(errno)")
+            return []
         }
-
-        return ProcessSnapshot(
-            pid: pid,
-            pgid: pgid,
-            tpgid: tpgid,
-            tty: String(parts[3]),
-            executableName: String(parts[4]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        )
+        return processes.prefix(size / stride).map { info in
+            ProcessSnapshot(
+                pid: info.kp_proc.p_pid,
+                pgid: info.kp_eproc.e_pgid,
+                tpgid: info.kp_eproc.e_tpgid,
+                tty: ttyName,
+                executableName: withUnsafeBytes(of: info.kp_proc.p_comm) { bytes in
+                    String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
+                }.lowercased()
+            )
+        }
     }
 
     static func commandLineArguments(forPID pid: Int32) -> [String]? {
