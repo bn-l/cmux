@@ -22051,6 +22051,13 @@ struct CMUXCLI {
                 // so pending=true is correct. Deliberately no freshness heuristic;
                 // permission_prompt is never gated by this flag.
                 notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
+            case "agent_completed":
+                // The user-facing form of SubagentStop: a Task subagent finished
+                // while the parent agent keeps working on its turn. Classified
+                // explicitly (rather than through the completion cue below) so a
+                // localized or reworded message cannot resurface it as attention.
+                notifyCategory = .turnComplete
+                notifyPending = false
             default:
                 // No (or unknown) notification_type: fall back to the summarizer's
                 // cue classification so older clients still gate under the right
@@ -22082,8 +22089,20 @@ struct CMUXCLI {
             // The untyped fallback path is deliberately excluded: an old client's
             // waiting cue can be a real question prompt, so only a pending idle
             // reminder is suppressed there.
+            //
+            // A completion notification reports progress, not a state that needs
+            // the user. Claude Code raises it when a Task subagent finishes
+            // (`agent_completed`) while the parent is still mid-turn, so flipping
+            // the pane to "Needs input" lied about a running agent, and its ping
+            // duplicated the one the parent's own Stop delivers at the real turn
+            // boundary. Keyed on the CATEGORY, not the tag, so an older client's
+            // untyped completion cue is handled the same way: the Stop hook is the
+            // sole owner of the turn-complete transition and its ping.
+            // https://github.com/manaflow-ai/cmux/issues/10233 (upstream #10343)
+            let isTurnCompleteCategoryNotification = (notifyCategory == .turnComplete)
             let suppressNeedsInputState =
                 notificationType == "idle_prompt" ||
+                isTurnCompleteCategoryNotification ||
                 (notifyCategory == .idleReminder && notifyPending)
 
             // `.other` means "ungated, always deliver" — identical to an untagged
@@ -22126,6 +22145,10 @@ struct CMUXCLI {
                     icon: "bell.fill",
                     color: "#4C8DFF", pid: claudePid
                 )
+            }
+            guard !isTurnCompleteCategoryNotification else {
+                print("OK")
+                return
             }
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)

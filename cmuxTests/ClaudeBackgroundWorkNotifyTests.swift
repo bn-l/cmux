@@ -128,6 +128,47 @@ struct ClaudeBackgroundWorkNotifyTests {
         ))
     }
 
+    // MARK: - A finished subagent mid-turn (upstream #10343)
+
+    /// `agent_completed` is Claude Code's user-facing form of SubagentStop: a Task
+    /// subagent finished while the parent keeps working. Untyped older clients
+    /// send the same thing as a "completed" message, which the cue classifier
+    /// files under the same turn-complete category.
+    @Test(arguments: [#","notification_type":"agent_completed"#, ""])
+    func subagentCompletionLeavesPaneRunningWithoutPing(typeField: String) throws {
+        try withHookSession(name: "subagent-done\(typeField.isEmpty ? "-untyped" : "")") { hooks in
+            hooks.run("prompt-submit", hooks.prompt)
+            let afterPrompt = hooks.snapshot().count
+            hooks.run("notification", #"{"session_id":"\#(hooks.session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Agent code-reviewer completed"\#(typeField)}"#)
+            let afterNotification = Array(hooks.snapshot().dropFirst(afterPrompt))
+
+            #expect(statusLine(afterNotification, value: "Needs input") == nil,
+                    "A finished subagent must not set the Needs input pill; saw \(afterNotification)")
+            #expect(lifecycleLine(afterNotification, value: "needsInput") == nil, "saw \(afterNotification)")
+            #expect(notifyLine(afterNotification, containing: "Agent code-reviewer completed") == nil,
+                    "A finished subagent must not ping: the parent's Stop sends the one completion ping; saw \(afterNotification)")
+            #expect(hooks.lifecycle == "running", "The parent is still mid-turn")
+            let lastStatus = hooks.snapshot().last { $0.hasPrefix("set_status claude_code ") }
+            #expect(lastStatus?.hasPrefix("set_status claude_code Running ") == true,
+                    "The pane must be left Running; last status was \(String(describing: lastStatus))")
+        }
+    }
+
+    @Test func subagentCompletionDoesNotSwallowTheParentStop() throws {
+        try withHookSession(name: "subagent-then-stop") { hooks in
+            hooks.run("prompt-submit", hooks.prompt)
+            hooks.run("notification", #"{"session_id":"\#(hooks.session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Agent code-reviewer completed","notification_type":"agent_completed"}"#)
+            hooks.run("stop", hooks.stop(pendingWork: false))
+            let snapshot = hooks.snapshot()
+            #expect(notifyLine(snapshot, containing: "c=turn-complete") != nil,
+                    "The parent's Stop must still deliver the turn-complete ping; saw \(snapshot)")
+            #expect(hooks.lifecycle == "idle")
+            let lastStatus = snapshot.last { $0.hasPrefix("set_status claude_code ") }
+            #expect(lastStatus?.hasPrefix("set_status claude_code Idle ") == true,
+                    "The parent's Stop owns the turn-complete transition; last status was \(String(describing: lastStatus))")
+        }
+    }
+
     // MARK: - A helper's PreToolUse after Stop (upstream #20262)
 
     @Test func preToolUseAfterStopDoesNotReopenRunningState() throws {
