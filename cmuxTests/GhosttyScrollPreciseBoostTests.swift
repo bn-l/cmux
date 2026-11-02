@@ -276,6 +276,94 @@ struct GhosttyTerminalScrollerKnobTests {
     }
 }
 
+/// When the knob moves, AppKit redraws only its own 11pt knob rect at the old and
+/// new positions, but the knob is painted centered in the 24pt gutter, partly left
+/// of that rect. A draw pass clipped to AppKit's rect cut the new knob's left edge
+/// and never erased a strip of the old one, so the thumb looked split in two after
+/// every scroll until something redrew the whole scroller.
+@MainActor
+@Suite
+struct GhosttyTerminalScrollerRedrawTests {
+    private struct KnobDraw {
+        let knob: NSRect
+        let clip: [NSRect]
+
+        func covers(_ rect: NSRect) -> Bool {
+            clip.contains { $0.contains(rect) }
+        }
+    }
+
+    /// Records the clip AppKit hands each real draw pass, next to the knob it paints.
+    private final class DrawRecordingScroller: GhosttyTerminalScroller {
+        var draws: [KnobDraw] = []
+
+        override func drawKnob() {
+            var rects: UnsafePointer<NSRect>?
+            var count = 0
+            getRectsBeingDrawn(&rects, count: &count)
+            draws.append(KnobDraw(knob: drawnKnobRect, clip: (0..<count).map { rects![$0] }))
+            super.drawKnob()
+        }
+    }
+
+    @Test
+    func scrollingRedrawsTheWholeOldAndNewKnob() throws {
+        // Arrange: the scroll view configured the way GhosttySurfaceScrollView sets it up.
+        _ = NSApplication.shared
+        let scroller = DrawRecordingScroller()
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 400))
+        scrollView.verticalScroller = scroller
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = false
+        scrollView.scrollerStyle = .legacy
+        scrollView.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 276, height: 4000))
+        let window = NSWindow(
+            contentRect: scrollView.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        window.contentView = scrollView
+        try waitForDraw(of: scroller, "the initial draw")
+        let oldKnob = scroller.drawnKnobRect
+        scroller.draws.removeAll()
+
+        // Act
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: 1200))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        try waitForDraw(of: scroller, "the redraw after scrolling")
+
+        // Assert
+        let newKnob = scroller.drawnKnobRect
+        try #require(!newKnob.intersects(oldKnob), "the knob must move clear of \(oldKnob) for the old strip to matter, got \(newKnob)")
+        #expect(newKnob.minX < scroller.rect(for: .knob).minX, "the knob no longer extends left of AppKit's knob rect, so this test no longer covers the split")
+        for draw in scroller.draws {
+            #expect(draw.covers(draw.knob), "knob \(draw.knob) is clipped by \(draw.clip), so its left edge is not painted")
+        }
+        #expect(
+            scroller.draws.contains { $0.covers(oldKnob) },
+            "no redraw covered the old knob \(oldKnob), so part of it stays on screen; clips: \(scroller.draws.map(\.clip))"
+        )
+    }
+
+    /// AppKit draws layer-backed views on the next Core Animation commit, so the run
+    /// loop has to turn before a draw happens.
+    private func waitForDraw(of scroller: DrawRecordingScroller, _ pass: String) throws {
+        let start = scroller.draws.count
+        let deadline = Date().addingTimeInterval(2)
+        while scroller.draws.count == start, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        try #require(scroller.draws.count > start, "AppKit never drew the scroller for \(pass) within 2s")
+    }
+}
+
 /// libghostty's `scroll_to_row` is absolute from the top of scrollback, while captured
 /// notification positions are measured from the bottom. Feeding one to the other
 /// mirrored the target: a notification recorded at the bottom jumped to the top.

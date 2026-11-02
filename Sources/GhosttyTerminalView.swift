@@ -8317,7 +8317,8 @@ struct GhosttyTerminalScrollReportTracker {
     }
 }
 
-private final class GhosttyTerminalScroller: NSScroller {
+/// Not `final` so tests can subclass it to observe the clip of a real draw pass.
+class GhosttyTerminalScroller: NSScroller {
     static let gutterWidth: CGFloat = 24
     static let knobWidth: CGFloat = 9
 
@@ -8326,6 +8327,17 @@ private final class GhosttyTerminalScroller: NSScroller {
             isEnabled = presentsKnob
             needsDisplay = true
         }
+    }
+
+    /// Where `drawKnob` paints the knob: centered in the gutter, which is wider
+    /// than AppKit's own knob rect and extends left of it.
+    var drawnKnobRect: NSRect {
+        GhosttyTerminalScrollGeometry.knobRect(
+            appKitKnobRect: rect(for: .knob),
+            scrollerBounds: bounds,
+            knobWidth: Self.knobWidth,
+            verticalInset: 2
+        )
     }
 
     override class func scrollerWidth(
@@ -8341,12 +8353,7 @@ private final class GhosttyTerminalScroller: NSScroller {
 
     override func drawKnob() {
         guard presentsKnob else { return }
-        let knobRect = GhosttyTerminalScrollGeometry.knobRect(
-            appKitKnobRect: rect(for: .knob),
-            scrollerBounds: bounds,
-            knobWidth: Self.knobWidth,
-            verticalInset: 2
-        )
+        let knobRect = drawnKnobRect
         guard knobRect.width > 0, knobRect.height > 0 else { return }
         NSColor.tertiaryLabelColor.withAlphaComponent(isHighlighted ? 0.72 : 0.5).setFill()
         NSBezierPath(
