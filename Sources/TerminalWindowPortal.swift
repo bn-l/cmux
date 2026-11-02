@@ -1079,13 +1079,16 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    /// Hide a portal entry for permanent workspace unmounts without detaching it.
+    /// Removes an inactive terminal's view tree from the window while retaining its binding and PTY.
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
         entry.visibleInUI = false
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
         entry.hostedView?.isHidden = true
+        if let hostedView = entry.hostedView, hostedView.superview === hostView {
+            hostedView.removeFromSuperview()
+        }
 #if DEBUG
         cmuxDebugLog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
 #endif
