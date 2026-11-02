@@ -126,6 +126,78 @@ import CmuxGit
         service.stopWorkspaceGitMetadataWatcher(for: key)
     }
 
+    /// Polls `condition` on the main actor, yielding so the descriptor apply task can run.
+    private func waitUntil(_ condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !condition(), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return condition()
+    }
+
+    /// A rescan whose descriptor read fails (git briefly rewriting `.git` during a
+    /// checkout or commit) keeps the working watcher for the same directory.
+    /// Stopping it left the workspace's sidebar git state stale until its
+    /// directory changed (upstream #12834).
+    @Test(.timeLimit(.minutes(1)))
+    func failedRescanKeepsTheInstalledWatcherForTheSameDirectory() async throws {
+        // Arrange: a watcher installed from a successful descriptor read.
+        let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let descriptorReader = GatedWatchDescriptorReader()
+        let service = makeService(host: host, descriptorReader: descriptorReader)
+        service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        await descriptorReader.resumeNext(with: descriptor(repositoryRoot: fixture.root.path, identity: "installed"))
+        #expect(await waitUntil { service.workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey[key] != nil })
+        let installed = try #require(service.workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey[key])
+
+        // Act: a git metadata event forces a rescan, and the read fails.
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path, forceDescriptorRefresh: true)
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        await descriptorReader.resumeNext(with: nil)
+        #expect(await waitUntil { service.workspaceGitMetadataWatcherDescriptorRequestsByKey[key] == nil })
+
+        // Assert
+        #expect(service.workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey[key] == installed)
+        #expect(service.workspaceGitMetadataWatchersByWatchedPathsKey[installed] != nil)
+        #expect(service.workspaceGitMetadataWatcherSourceDirectoryByKey[key] == fixture.root.path)
+        service.stopWorkspaceGitMetadataWatcher(for: key)
+    }
+
+    /// The control: a failed read for a directory the pane has moved to still
+    /// releases the watcher it held for the old directory.
+    @Test(.timeLimit(.minutes(1)))
+    func failedReadAfterADirectoryChangeReleasesTheOldWatcher() async throws {
+        // Arrange
+        let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
+        let other = try SidebarGitLargeRepositoryFixture(entryCount: 1)
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let descriptorReader = GatedWatchDescriptorReader()
+        let service = makeService(host: host, descriptorReader: descriptorReader)
+        service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        await descriptorReader.resumeNext(with: descriptor(repositoryRoot: fixture.root.path, identity: "installed"))
+        #expect(await waitUntil { service.workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey[key] != nil })
+
+        // Act: the pane moves to another directory and that read fails.
+        service.workspaceGitTrackedDirectoryByKey[key] = other.root.path
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: other.root.path)
+        #expect(await descriptorReader.nextRequestedDirectory() == other.root.path)
+        await descriptorReader.resumeNext(with: nil)
+        #expect(await waitUntil { service.workspaceGitMetadataWatcherDescriptorRequestsByKey[key] == nil })
+
+        // Assert
+        #expect(service.workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey[key] == nil)
+        #expect(service.workspaceGitMetadataWatchersByWatchedPathsKey.isEmpty)
+    }
+
     /// Session restoration clears watcher state even after its probe state has
     /// already completed and no longer owns the key.
     @Test func globalResetStopsWatcherOnlyState() {

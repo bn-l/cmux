@@ -80,9 +80,23 @@ extension SidebarGitMetadataService {
         }
 
         guard sidebarGitMetadataWatchEnabled,
-              workspaceGitTrackedDirectoryByKey[key] == request.directory,
-              let descriptor else {
+              workspaceGitTrackedDirectoryByKey[key] == request.directory else {
             stopWorkspaceGitMetadataWatcher(for: key)
+            return
+        }
+        guard let descriptor else {
+            // A failed rescan (git briefly rewriting .git during a checkout or
+            // commit) cannot retire a working watcher for this same directory;
+            // stopping it left the sidebar's git state stale. A directory change
+            // still releases the old watcher.
+            let installedPathsKey = workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey[key]
+            let hasInstalledWatcher = workspaceGitMetadataWatcherSourceDirectoryByKey[key] == request.directory
+                && installedPathsKey.flatMap { workspaceGitMetadataWatchersByWatchedPathsKey[$0] } != nil
+            if hasInstalledWatcher {
+                debugLog("workspace.gitWatch.rescanFailed keepInstalledWatcher=1")
+            } else {
+                stopWorkspaceGitMetadataWatcher(for: key)
+            }
             return
         }
 
