@@ -232,6 +232,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    /// Ghostty's renderer layer for the live runtime surface. Every free path
+    /// takes it and detaches its display callback on the main actor before
+    /// the native free (#17483).
+    var runtimeDisplayLayer: TerminalSurfaceRuntimeDisplayLayer?
     var claudeCommandShim: ClaudeCommandShim?
     var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
     var claudeCommandShimCompletionTask: Task<Void, Never>?
@@ -565,7 +569,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             workspaceId: tabId,
             reason: "deinit",
             surface: surfaceToFree,
-            callbackContext: callbackContext
+            callbackContext: callbackContext,
+            displayLayer: runtimeDisplayLayer
         )
         // The teardown coordinator releases callbackContext; manualIOContext and
         // teeLease are not transported through the request, so release them here.

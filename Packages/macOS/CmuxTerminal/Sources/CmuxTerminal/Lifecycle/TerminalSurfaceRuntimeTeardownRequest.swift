@@ -15,6 +15,10 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let reason: String
     let surface: ghostty_surface_t
     let callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    /// Ghostty's renderer layer, detached on the main actor before
+    /// `freeSurface` runs so no later Core Animation display can call into
+    /// the renderer the free destroys (#17483).
+    let displayLayer: TerminalSurfaceRuntimeDisplayLayer?
     let freeSurface: @Sendable (ghostty_surface_t) -> Void
 #if DEBUG
     let surfaceToken: String
@@ -27,6 +31,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         reason: String,
         surface: ghostty_surface_t,
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
+        displayLayer: TerminalSurfaceRuntimeDisplayLayer? = nil,
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void
     ) {
         self.id = id
@@ -34,6 +39,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         self.reason = reason
         self.surface = surface
         self.callbackContext = callbackContext
+        self.displayLayer = displayLayer
         self.freeSurface = freeSurface
 #if DEBUG
         self.surfaceToken = String(id.uuidString.prefix(5))

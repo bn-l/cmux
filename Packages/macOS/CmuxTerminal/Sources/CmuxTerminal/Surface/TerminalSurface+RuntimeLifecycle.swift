@@ -134,6 +134,9 @@ extension TerminalSurface {
             mobileByteTeeLease = nil
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
+            // The native surface is already gone, so its renderer may be too.
+            runtimeDisplayLayer?.detachRendererDisplayCallback()
+            runtimeDisplayLayer = nil
             activePortalHostLease = nil
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
@@ -236,6 +239,8 @@ extension TerminalSurface {
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
+        let displayLayer = runtimeDisplayLayer
+        runtimeDisplayLayer = nil
         byteTee.dropSurface(surfaceID: id)
 
         let surfaceToFree = surface
@@ -245,6 +250,7 @@ extension TerminalSurface {
         surface = nil
 
         guard let surfaceToFree else {
+            displayLayer?.detachRendererDisplayCallback()
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
@@ -254,6 +260,7 @@ extension TerminalSurface {
 #if DEBUG
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
+            displayLayer?.detachRendererDisplayCallback()
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
@@ -269,6 +276,7 @@ extension TerminalSurface {
                 reason: "teardown",
                 surface: surfaceToFree,
                 callbackContext: callbackContext,
+                displayLayer: displayLayer,
                 freeSurface: freeSurface
             )
             // The teardown coordinator releases callbackContext; manualIOContext
@@ -282,6 +290,7 @@ extension TerminalSurface {
         Task { @MainActor in
             // Keep free behavior aligned with deinit: perform the runtime teardown on
             // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
+            displayLayer?.detachRendererDisplayCallback()
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
             manualIOContext?.release()
@@ -304,6 +313,8 @@ extension TerminalSurface {
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
+        let displayLayer = runtimeDisplayLayer
+        runtimeDisplayLayer = nil
         byteTee.dropSurface(surfaceID: id)
 
         let surfaceToFree = surface
@@ -317,6 +328,7 @@ extension TerminalSurface {
         desiredFocusState = false
 
         guard let surfaceToFree else {
+            displayLayer?.detachRendererDisplayCallback()
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
@@ -338,6 +350,7 @@ extension TerminalSurface {
                 reason: reason,
                 surface: surfaceToFree,
                 callbackContext: callbackContext,
+                displayLayer: displayLayer,
                 freeSurface: freeSurface
             )
             // The teardown coordinator releases callbackContext; manualIOContext
@@ -349,6 +362,7 @@ extension TerminalSurface {
 #endif
 
         Task { @MainActor in
+            displayLayer?.detachRendererDisplayCallback()
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
             manualIOContext?.release()
@@ -542,6 +556,9 @@ extension TerminalSurface {
             return
         }
         guard let createdSurface = surface else { return }
+        // `ghostty_surface_new` has just made `view` layer-hosting with this
+        // surface's renderer layer.
+        runtimeDisplayLayer = TerminalSurfaceRuntimeDisplayLayer(hostingLayerOf: view)
         if source == .scheduledRestore || source == .inputDemand {
             requiresRestoreSpawnPacing = false
         }

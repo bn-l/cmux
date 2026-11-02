@@ -189,6 +189,8 @@ extension TerminalSurface {
 
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         surface = nil
+        runtimeDisplayLayer?.detachRendererDisplayCallback()
+        runtimeDisplayLayer = nil
         ghostty_surface_free(surfaceToFree)
         callbackContext?.release()
     }
@@ -208,6 +210,8 @@ extension TerminalSurface {
         }
 
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
+        runtimeDisplayLayer?.detachRendererDisplayCallback()
+        runtimeDisplayLayer = nil
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
         callbackContext?.release()
@@ -217,6 +221,8 @@ extension TerminalSurface {
     @MainActor
     public func installRuntimeSurfaceForTesting(_ runtimeSurface: ghostty_surface_t) {
         surface = runtimeSurface
+        // Mirror `createSurface`: capture a Ghostty layer the test hosted.
+        runtimeDisplayLayer = TerminalSurfaceRuntimeDisplayLayer(hostingLayerOf: surfaceView)
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
     }

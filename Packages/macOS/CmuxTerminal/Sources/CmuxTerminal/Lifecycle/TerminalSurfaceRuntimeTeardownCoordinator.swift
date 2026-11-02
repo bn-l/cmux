@@ -43,12 +43,38 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             ghostty_surface_free(surface)
         }
     ) {
+        enqueueRuntimeTeardown(
+            id: id,
+            workspaceId: workspaceId,
+            reason: reason,
+            surface: surface,
+            callbackContext: callbackContext,
+            displayLayer: nil,
+            freeSurface: freeSurface
+        )
+    }
+
+    /// ``enqueueRuntimeTeardown(id:workspaceId:reason:surface:callbackContext:freeSurface:)``
+    /// plus Ghostty's renderer layer, whose display callback is detached on
+    /// the main actor before the native free runs.
+    nonisolated func enqueueRuntimeTeardown(
+        id: UUID,
+        workspaceId: UUID,
+        reason: String,
+        surface: ghostty_surface_t,
+        callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
+        displayLayer: TerminalSurfaceRuntimeDisplayLayer?,
+        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void = { surface in
+            ghostty_surface_free(surface)
+        }
+    ) {
         let request = TerminalSurfaceRuntimeTeardownRequest(
             id: id,
             workspaceId: workspaceId,
             reason: reason,
             surface: surface,
             callbackContext: callbackContext,
+            displayLayer: displayLayer,
             freeSurface: freeSurface
         )
         Task {
@@ -88,6 +114,14 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             "workspace=\(request.workspaceToken) reason=\(request.reason)"
         )
 #endif
+        if request.displayLayer != nil {
+            // `ghostty_surface_free` leaves the layer's display callback
+            // pointing at the renderer it frees, and Core Animation calls it
+            // on the main thread (#17483). Cut it there before the free.
+            await MainActor.run {
+                request.displayLayer?.detachRendererDisplayCallback()
+            }
+        }
         request.freeSurface(request.surface)
         if request.callbackContext != nil {
             // The request is the @unchecked Sendable transport for the
