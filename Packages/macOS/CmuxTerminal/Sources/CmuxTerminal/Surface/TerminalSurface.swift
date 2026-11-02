@@ -229,6 +229,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
     var restoredRuntimeSurfaceStartQueued = false
     var requiresRestoreSpawnPacing = false
+    /// Whether the paced restore spawn runs a restored agent resume command
+    /// (``TerminalSurfaceRuntimeSpawnPolicy/pacedAgentResumeRestore``).
+    public let restoredSpawnResumesAgent: Bool
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
@@ -418,7 +421,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.runtimeTeardown = dependencies.runtimeTeardown
         self.restoreSpawnScheduler = dependencies.restoreSpawnScheduler
         self.runtimeFilesystem = dependencies.runtimeFilesystem
-        self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
+        self.requiresRestoreSpawnPacing = runtimeSpawnPolicy.pacesSessionRestore
+        self.restoredSpawnResumesAgent = runtimeSpawnPolicy == .pacedAgentResumeRestore
         self.sessionPortBase = dependencies.sessionPortBase
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey

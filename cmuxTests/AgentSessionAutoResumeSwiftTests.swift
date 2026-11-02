@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import CmuxCore
 import CmuxSidebar
+import CmuxTerminal
 import Testing
 
 #if canImport(cmux_DEV)
@@ -128,6 +129,54 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.cwd == launchCwd
             )
+        }
+    }
+
+    /// Upstream #21354: a restored pane whose first spawn resumes an agent is
+    /// paced as an agent resume (the restore queue holds a longer cooldown
+    /// after it); a plain restored shell keeps the shell cadence.
+    @MainActor
+    @Test func restoredAgentResumePaneIsPacedAsAgentResumeAndPlainShellIsNot() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            // Arrange: one workspace with a Claude agent-hook binding, one plain.
+            let agentSource = Workspace()
+            let agentPanelId = try #require(agentSource.focusedPanelId)
+            let sessionId = "claude-paced-resume-session"
+            let cwd = "/tmp/cmux-claude-paced-resume"
+            agentSource.updatePanelShellActivityState(panelId: agentPanelId, state: .commandRunning)
+            agentSource.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(kind: .claude, sessionId: sessionId, workingDirectory: cwd),
+                panelId: agentPanelId
+            )
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: agentSource.id, panelId: agentPanelId): SurfaceResumeBindingSnapshot(
+                    name: "Claude",
+                    kind: "claude",
+                    command: "'claude' '--resume' '\(sessionId)'",
+                    cwd: cwd,
+                    checkpointId: sessionId,
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 1_777_777_777
+                ),
+            ])
+            let agentSnapshot = agentSource.sessionSnapshot(includeScrollback: false, surfaceResumeBindingIndex: bindingIndex)
+            let plainSnapshot = Workspace().sessionSnapshot(includeScrollback: false)
+
+            // Act
+            let restoredAgent = Workspace()
+            restoredAgent.restoreSessionSnapshot(agentSnapshot)
+            let restoredPlain = Workspace()
+            restoredPlain.restoreSessionSnapshot(plainSnapshot)
+
+            // Assert
+            let agentPanel = try #require(restoredAgent.focusedPanelId.flatMap { restoredAgent.terminalPanel(for: $0) })
+            let plainPanel = try #require(restoredPlain.focusedPanelId.flatMap { restoredPlain.terminalPanel(for: $0) })
+            try assertAgentAutoResumeUsesStartupCommand(agentPanel, scriptContains: ["--resume", sessionId], scriptDoesNotContain: [])
+            #expect(agentPanel.surface.restoredSpawnResumesAgent, "A restored agent resume should take the agent cooldown")
+            #expect(!plainPanel.surface.restoredSpawnResumesAgent, "A plain restored shell should keep the shell cadence")
         }
     }
 

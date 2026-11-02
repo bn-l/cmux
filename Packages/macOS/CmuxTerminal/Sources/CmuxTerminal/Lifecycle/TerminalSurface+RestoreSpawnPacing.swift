@@ -12,7 +12,10 @@ extension TerminalSurface {
         guard !restoredRuntimeSurfaceStartQueued else { return }
         restoredRuntimeSurfaceStartQueued = true
         let surfaceId = id
-        restoreSpawnScheduler.scheduleRestoredSurfaceSpawn(surfaceId: surfaceId) { [weak self, weak view] in
+        restoreSpawnScheduler.scheduleRestoredSurfaceSpawn(
+            surfaceId: surfaceId,
+            resumesAgent: restoredSpawnResumesAgent
+        ) { [weak self, weak view] in
             guard let self else { return }
             self.restoredRuntimeSurfaceStartQueued = false
             guard self.allowsRuntimeSurfaceCreation() else { return }

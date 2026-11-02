@@ -41,6 +41,9 @@ public final class WorkstreamStore {
     private let clock: @Sendable () -> Date
     private let titleProvider: (WorkstreamEvent) -> String?
     private var oldestLoadedPersistenceOffset: UInt64?
+    /// The one startup pass for this store. Later ``start()`` calls await it
+    /// instead of re-reading persisted history or subscribing again.
+    private var startTask: Task<Void, Never>?
 
     /// Last known conversational context for each workstream. Tool hooks
     /// usually arrive without the surrounding user prompt, so the store
@@ -75,7 +78,26 @@ public final class WorkstreamStore {
         self.titleProvider = titleProvider
     }
 
+    /// Loads persisted history and subscribes to the transport, once.
+    ///
+    /// Concurrent and repeated calls share the first pass. A later pass
+    /// would re-read the Feed log, replace items ingested after the first
+    /// load and subscribe to the transport again, delivering every event twice.
+    /// A subscription that fails in the first pass is therefore not retried.
     public func start() async {
+        if let startTask {
+            await startTask.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performStart()
+        }
+        startTask = task
+        await task.value
+    }
+
+    private func performStart() async {
         if let persistence {
             if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
                 items = page.items

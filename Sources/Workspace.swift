@@ -1480,6 +1480,11 @@ extension Workspace {
             // handle it, exactly as before.
             let reusableSurfaceId: UUID? =
                 GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil ? snapshot.id : nil
+            // A pane whose first spawn runs an agent resume (not a remote PTY
+            // attach) costs far more than a login shell; the restore queue
+            // holds a longer cooldown after it.
+            let restoredSpawnResumesAgent = restoredRemotePTYAttachCommand == nil &&
+                (restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil)
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
@@ -1488,7 +1493,7 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredStartupInput,
                 startupEnvironment: replayEnvironment,
-                runtimeSpawnPolicy: .pacedSessionRestore,
+                runtimeSpawnPolicy: restoredSpawnResumesAgent ? .pacedAgentResumeRestore : .pacedSessionRestore,
                 remotePTYSessionID: restoredRemotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
                 restoredSurfaceId: reusableSurfaceId

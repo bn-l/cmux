@@ -61,6 +61,37 @@ import CmuxTerminalCore
         #expect(spawned == ids)
     }
 
+    @Test func restoredAgentResumeHoldsALongerCooldownThanAShell() async {
+        let delayer = ManualRestoreSpawnDelayer()
+        let scheduler = TerminalSurfaceRestoreSpawnScheduler(
+            interSpawnDelay: .milliseconds(125),
+            agentResumeInterSpawnDelay: .milliseconds(750),
+            delayer: delayer
+        )
+        let ids = (0..<3).map { _ in UUID() }
+        var spawned: [UUID] = []
+
+        scheduler.scheduleRestoredSurfaceSpawn(surfaceId: ids[0], resumesAgent: true) {
+            spawned.append(ids[0])
+        }
+        scheduler.scheduleRestoredSurfaceSpawn(surfaceId: ids[1], resumesAgent: true) {
+            spawned.append(ids[1])
+        }
+        scheduler.scheduleRestoredSurfaceSpawn(surfaceId: ids[2], resumesAgent: false) {
+            spawned.append(ids[2])
+        }
+
+        await delayer.waitForDelayCount(1)
+        #expect(spawned == [ids[0]])
+        delayer.releaseNextDelay()
+        await delayer.waitForDelayCount(2)
+        #expect(spawned == [ids[0], ids[1]])
+        delayer.releaseNextDelay()
+        await delayer.waitForDelayCount(3)
+        #expect(spawned == ids)
+        #expect(delayer.delayDurations == [.milliseconds(750), .milliseconds(750), .milliseconds(125)])
+    }
+
     @Test func duplicateReadinessCallbacksForOneSurfaceCoalesce() async {
         let scheduler = TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero)
         let id = UUID()
@@ -115,6 +146,43 @@ import CmuxTerminalCore
 
         #expect(scheduler.scheduledSurfaceIds == [surface.id])
         #expect(surface.runtimeSurfacePointer == nil)
+    }
+
+    @Test func restoredAgentResumeEntersSpawnQueueAsAgentResume() {
+        let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            runtimeSpawnPolicy: .pacedAgentResumeRestore,
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+        surface.claudeCommandShimInstallCompleted = true
+
+        surface.createSurface(for: nativeView)
+
+        #expect(scheduler.scheduledSurfaceIds == [surface.id])
+        #expect(scheduler.scheduledResumesAgent == [true])
+        #expect(surface.runtimeSurfacePointer == nil)
+    }
+
+    @Test func plainRestoredTerminalEntersSpawnQueueAsShell() {
+        let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            runtimeSpawnPolicy: .pacedSessionRestore,
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+        surface.claudeCommandShimInstallCompleted = true
+
+        surface.createSurface(for: nativeView)
+
+        #expect(scheduler.scheduledSurfaceIds == [surface.id])
+        #expect(scheduler.scheduledResumesAgent == [false])
     }
 
     @Test func restorePacedTerminalSurfaceWaitsForClaudeShimBeforeEnteringSpawnQueue() async throws {
