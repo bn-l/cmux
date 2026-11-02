@@ -169,6 +169,7 @@ extension TerminalController: ControlSidebarContext {
             if let panelId = panelID, !tab.panels.keys.contains(panelId) {
                 return
             }
+            tab.supersedeClaudeInterruptCheck(key: key, panelId: panelID)
             tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
         }
     }

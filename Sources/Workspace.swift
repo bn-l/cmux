@@ -2388,6 +2388,10 @@ final class Workspace: Identifiable, ObservableObject {
         set { restoredAgentLifecycle.snapshotsByPanelId = newValue }
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// The token of the one queued Esc/Ctrl+C transcript check per panel
+    /// (`Workspace+ClaudeInterruptCheck`); a hook-reported `claude_code`
+    /// lifecycle clears it, which cancels the check.
+    var pendingClaudeInterruptCheckTokens: [UUID: UUID] = [:]
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the lifetime of the resumed run (unlike the one-shot report guard

@@ -5835,6 +5835,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
 #endif
+        if !hasMarkedText(), let terminalSurface, ClaudeInterruptCheck.isInterruptKey(event) {
+            // Claude Code fires no hook for an Esc/Ctrl+C interrupt. Only queue
+            // the transcript check here; the lookup runs after this keystroke.
+            Task { @MainActor [weak terminalSurface] in
+                guard let terminalSurface else { return }
+                terminalSurface.owningWorkspace()?.noteClaudeInterruptKey(panelId: terminalSurface.id)
+            }
+        }
 #if DEBUG
         recordKeyLatency(path: "keyDown", event: event)
 #endif
