@@ -704,6 +704,14 @@ final class CmuxSettingsFileStore {
     ) {
         // Before the parsers below: several of them return early.
         applyBooleanSettings(WorkspaceColorsSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+        if section.keys.contains("unselectedFillOpacity") {
+            if let value = jsonDouble(section["unselectedFillOpacity"]) {
+                snapshot.managedUserDefaults[SettingCatalog().workspaceColors.unselectedFillOpacity.userDefaultsKey] =
+                    .double(min(max(value, 0), 1))
+            } else {
+                logInvalid("workspaceColors.unselectedFillOpacity", sourcePath: sourcePath)
+            }
+        }
         if let raw = jsonString(section["indicatorStyle"]) {
             let indicatorKey = SettingCatalog().workspaceColors.indicatorStyle
             let normalized = (WorkspaceIndicatorStyle.decodeFromJSON(raw) ?? indicatorKey.defaultValue).rawValue

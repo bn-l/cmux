@@ -44,6 +44,87 @@ func makeTemporaryBrowserProfile(named prefix: String) throws -> BrowserProfileD
 }
 
 final class SidebarSelectedWorkspaceColorTests: XCTestCase {
+    func testSolidFillUnselectedRowUsesConfiguredFillOpacity() {
+        XCTAssertEqual(SettingCatalog().workspaceColors.unselectedFillOpacity.defaultValue, 0.7, accuracy: 0.001)
+        func style(isActive: Bool = false, isMultiSelected: Bool = false, opacity: Double? = nil) -> SidebarWorkspaceRowBackgroundStyle {
+            if let opacity {
+                return sidebarWorkspaceRowBackgroundStyle(
+                    activeTabIndicatorStyle: .solidFill,
+                    isActive: isActive,
+                    isMultiSelected: isMultiSelected,
+                    customColorHex: "#87FF00",
+                    colorScheme: .dark,
+                    sidebarSelectionColorHex: nil,
+                    unselectedFillOpacity: opacity
+                )
+            }
+            return sidebarWorkspaceRowBackgroundStyle(
+                activeTabIndicatorStyle: .solidFill,
+                isActive: isActive,
+                isMultiSelected: isMultiSelected,
+                customColorHex: "#87FF00",
+                colorScheme: .dark,
+                sidebarSelectionColorHex: nil
+            )
+        }
+
+        // The default keeps the existing 70% fill and half of it for multi-selection.
+        XCTAssertEqual(style().opacity, 0.7, accuracy: 0.001)
+        XCTAssertEqual(style(isMultiSelected: true).opacity, 0.35, accuracy: 0.001)
+
+        XCTAssertEqual(style(opacity: 1).opacity, 1, accuracy: 0.001)
+        XCTAssertEqual(style(isMultiSelected: true, opacity: 1).opacity, 0.5, accuracy: 0.001)
+        XCTAssertEqual(style(opacity: 0.4).opacity, 0.4, accuracy: 0.001)
+
+        // Out-of-range values are clamped, and the selected row stays opaque.
+        XCTAssertEqual(style(opacity: 3).opacity, 1, accuracy: 0.001)
+        XCTAssertEqual(style(opacity: -1).opacity, 0, accuracy: 0.001)
+        XCTAssertEqual(style(isActive: true, opacity: 0.2).opacity, 1, accuracy: 0.001)
+    }
+
+    func testSolidFillDarkModeRowUsesChosenColorWhenBrighteningDisabled() {
+        let customHex = "#0E151B"
+        let brightened = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: false,
+            isMultiSelected: false,
+            customColorHex: customHex,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil
+        )
+        XCTAssertNotEqual(brightened.color?.hexString(), customHex)
+
+        let unchanged = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: false,
+            isMultiSelected: false,
+            customColorHex: customHex,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil,
+            brightenInDarkMode: false
+        )
+        XCTAssertEqual(unchanged.color?.hexString(), customHex)
+        XCTAssertEqual(unchanged.opacity, brightened.opacity, accuracy: 0.001)
+    }
+
+    /// The Left Rail always lightens (forceBright), whatever the setting says;
+    /// light mode never lightens.
+    func testBrightenInDarkModeOnlyAffectsTheDarkModeFill() {
+        let customHex = "#0E151B"
+        let rail = WorkspaceTabColorSettings.displayNSColor(
+            hex: customHex, colorScheme: .dark, forceBright: true, brightenInDarkMode: false
+        )
+        XCTAssertNotEqual(rail?.hexString(), customHex, "forceBright must still lighten the Left Rail")
+        XCTAssertEqual(
+            rail?.hexString(),
+            WorkspaceTabColorSettings.displayNSColor(hex: customHex, colorScheme: .dark, forceBright: true)?.hexString()
+        )
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.displayNSColor(hex: customHex, colorScheme: .light, brightenInDarkMode: true)?.hexString(),
+            customHex
+        )
+    }
+
     func testLightModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
         guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .light).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
@@ -2094,6 +2175,122 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let palette = WorkspaceTabColorSettings.palette(defaults: defaults)
         XCTAssertEqual(palette.map(\.name), ["Blue", "Neon Mint"])
         XCTAssertEqual(palette.map(\.hex), ["#2244FF", "#00F5D4"])
+    }
+
+    func testSettingsFileStoreResolvesWorkspaceColorsBrightenInDarkMode() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().workspaceColors.brightenInDarkMode.userDefaultsKey
+        let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+        let isolatedKeys = [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]
+        let previousValues = isolatedKeys.reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in isolatedKeys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        isolatedKeys.forEach { defaults.removeObject(forKey: $0) }
+        XCTAssertTrue(SidebarTabItemSettingsSnapshot(defaults: defaults).brightenInDarkMode)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "brightenInDarkMode": false
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).brightenInDarkMode)
+
+        // A non-boolean value is rejected, so the setting reverts to its default.
+        let invalidSettingsURL = directoryURL.appendingPathComponent("invalid.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "brightenInDarkMode": "no"
+              }
+            }
+            """,
+            to: invalidSettingsURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: invalidSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertTrue(SidebarTabItemSettingsSnapshot(defaults: defaults).brightenInDarkMode)
+    }
+
+    func testSettingsFileStoreResolvesWorkspaceColorsUnselectedFillOpacity() throws {
+        let defaults = UserDefaults.standard
+        let key = SettingCatalog().workspaceColors.unselectedFillOpacity
+        let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+        let isolatedKeys = [key.userDefaultsKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]
+        let previousValues = isolatedKeys.reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in isolatedKeys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        isolatedKeys.forEach { defaults.removeObject(forKey: $0) }
+        XCTAssertEqual(SidebarTabItemSettingsSnapshot(defaults: defaults).unselectedFillOpacity, key.defaultValue, accuracy: 0.001)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        func load(_ value: String, named name: String) throws -> Double {
+            let url = directoryURL.appendingPathComponent(name, isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "workspaceColors": {
+                    "unselectedFillOpacity": \(value)
+                  }
+                }
+                """,
+                to: url
+            )
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: url.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+            return SidebarTabItemSettingsSnapshot(defaults: defaults).unselectedFillOpacity
+        }
+
+        XCTAssertEqual(try load("1", named: "full.json"), 1, accuracy: 0.001)
+        XCTAssertEqual(try load("0.45", named: "partial.json"), 0.45, accuracy: 0.001)
+        // Out-of-range numbers are clamped to 0...1.
+        XCTAssertEqual(try load("2.5", named: "high.json"), 1, accuracy: 0.001)
+        // A boolean is not a number (JSON true must not read as 1).
+        XCTAssertEqual(try load("true", named: "bool.json"), key.defaultValue, accuracy: 0.001)
+        // A non-number is rejected, so the setting reverts to its default.
+        XCTAssertEqual(try load("\"full\"", named: "invalid.json"), key.defaultValue, accuracy: 0.001)
     }
 
     func testManagedWorkspaceColorsRestoreLegacyPaletteWhenFileSettingIsRemoved() throws {

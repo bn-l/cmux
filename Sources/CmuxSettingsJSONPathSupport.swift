@@ -185,6 +185,11 @@ enum WorkspaceColorsSettingsFileMapping {
             defaultsKey: workspaceColors.paneBorder.userDefaultsKey,
             invalidPath: "workspaceColors.paneBorder"
         ),
+        .init(
+            jsonKey: "brightenInDarkMode",
+            defaultsKey: workspaceColors.brightenInDarkMode.userDefaultsKey,
+            invalidPath: "workspaceColors.brightenInDarkMode"
+        ),
     ]
 }
 
@@ -450,6 +455,8 @@ extension CmuxSettingsFileStore {
         "workspaceColors.indicatorStyle",
         "workspaceColors.titlebarIndicator",
         "workspaceColors.paneBorder",
+        "workspaceColors.brightenInDarkMode",
+        "workspaceColors.unselectedFillOpacity",
         "workspaceColors.selectionColor",
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.colors",

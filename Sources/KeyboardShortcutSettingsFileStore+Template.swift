@@ -153,6 +153,8 @@ extension CmuxSettingsFileStore {
                     "indicatorStyle": SettingCatalog().workspaceColors.indicatorStyle.defaultValue.rawValue,
                     "titlebarIndicator": SettingCatalog().workspaceColors.titlebarIndicator.defaultValue,
                     "paneBorder": SettingCatalog().workspaceColors.paneBorder.defaultValue,
+                    "brightenInDarkMode": SettingCatalog().workspaceColors.brightenInDarkMode.defaultValue,
+                    "unselectedFillOpacity": SettingCatalog().workspaceColors.unselectedFillOpacity.defaultValue,
                     "selectionColor": NSNull(),
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(

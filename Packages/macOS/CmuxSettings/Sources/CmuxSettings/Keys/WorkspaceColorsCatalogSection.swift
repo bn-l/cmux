@@ -37,6 +37,23 @@ public struct WorkspaceColorsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspaceColorPaneBorder"
     )
 
+    /// Dark mode lightens workspace colors so the palette stays readable on a
+    /// dark sidebar. Off: solid-fill rows and color-menu swatches show the
+    /// chosen color as-is. The Left Rail indicator always lightens.
+    public let brightenInDarkMode = DefaultsKey<Bool>(
+        id: "workspaceColors.brightenInDarkMode",
+        defaultValue: true,
+        userDefaultsKey: "workspaceColorBrightenInDarkMode"
+    )
+
+    /// Opacity, 0 to 1, of a colored workspace row that isn't selected with
+    /// the Solid Fill indicator. Multi-selected rows use half of it.
+    public let unselectedFillOpacity = DefaultsKey<Double>(
+        id: "workspaceColors.unselectedFillOpacity",
+        defaultValue: 0.7,
+        userDefaultsKey: "workspaceColorUnselectedFillOpacity"
+    )
+
     public let palette = DefaultsKey<[String: String]>(
         id: "workspaceColors.colors",
         defaultValue: [:],

@@ -9523,6 +9523,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let loadingSpinnerPosition: SidebarIndicatorPosition
     let notificationBadgePosition: SidebarIndicatorPosition
     let selectionColorHex: String?
+    let brightenInDarkMode: Bool
+    let unselectedFillOpacity: Double
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
@@ -9581,6 +9583,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         loadingSpinnerPosition = settings.value(for: catalog.sidebar.loadingSpinnerPosition)
         notificationBadgePosition = settings.value(for: catalog.sidebar.notificationBadgePosition)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
+        brightenInDarkMode = settings.value(for: catalog.workspaceColors.brightenInDarkMode)
+        unselectedFillOpacity = settings.value(for: catalog.workspaceColors.unselectedFillOpacity)
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
     }
@@ -14558,7 +14562,9 @@ struct TabItemView: View, Equatable {
             isMultiSelected: isMultiSelected,
             customColorHex: workspaceSnapshot.customColorHex,
             colorScheme: colorScheme,
-            sidebarSelectionColorHex: sidebarSelectionColorHex
+            sidebarSelectionColorHex: sidebarSelectionColorHex,
+            brightenInDarkMode: settings.brightenInDarkMode,
+            unselectedFillOpacity: settings.unselectedFillOpacity
         )
         guard let color = style.color else { return .clear }
         return Color(nsColor: color).opacity(style.opacity)
@@ -14587,7 +14593,8 @@ struct TabItemView: View, Equatable {
         WorkspaceTabColorSettings.displayNSColor(
             hex: hex,
             colorScheme: colorScheme,
-            forceBright: activeTabIndicatorStyle == .leftRail
+            forceBright: activeTabIndicatorStyle == .leftRail,
+            brightenInDarkMode: settings.brightenInDarkMode
         ) ?? NSColor(hex: hex) ?? .gray
     }
 

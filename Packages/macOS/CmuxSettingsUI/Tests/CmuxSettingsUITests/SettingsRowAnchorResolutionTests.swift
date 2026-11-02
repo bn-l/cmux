@@ -130,11 +130,13 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.showTextBoxOnNewTerminals",
         "terminal.textBoxDefaultSubmitAction",
         "terminal.textBoxMaxLines",
+        "workspaceColors.brightenInDarkMode",
         "workspaceColors.indicatorStyle",
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.paneBorder",
         "workspaceColors.selectionColor",
         "workspaceColors.titlebarIndicator",
+        "workspaceColors.unselectedFillOpacity",
     ]
 
     /// Searchable rows anchored with an explicit `settingsSearchAnchors`

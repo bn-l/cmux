@@ -279,6 +279,8 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .workspaceColors, id: "indicator", title: "Workspace Color Indicator", synonyms: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
             .init(section: .workspaceColors, id: "titlebar-indicator", title: "Show Color in Title Bar", synonyms: "workspaceColors.titlebarIndicator title bar titlebar workspace project color dot"),
             .init(section: .workspaceColors, id: "pane-border", title: "Outline Focused Pane in Workspace Color", synonyms: "workspaceColors.paneBorder focused active pane border outline frame workspace project color"),
+            .init(section: .workspaceColors, id: "brighten-dark-mode", title: "Brighten Colors in Dark Mode", synonyms: "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color"),
+            .init(section: .workspaceColors, id: "unselected-fill-opacity", title: "Unselected Fill Opacity", synonyms: "workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength"),
             .init(section: .workspaceColors, id: "selection", title: "Selection Highlight", synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: "Notification Badge", synonyms: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
             .init(section: .workspaceColors, id: "palette", title: "Reset Palette", synonyms: "reset palette named colors restore built-in custom remove default"),
