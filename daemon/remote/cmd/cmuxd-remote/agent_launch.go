@@ -11,16 +11,6 @@ import (
 	"time"
 )
 
-const claudeNodeOptionsRestoreModuleScript = `const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
-if (hadOriginalNodeOptions) {
-  process.env.NODE_OPTIONS = process.env.CMUX_ORIGINAL_NODE_OPTIONS ?? "";
-} else {
-  delete process.env.NODE_OPTIONS;
-}
-delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
-delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
-`
-
 // runClaudeTeamsRelay implements `cmux claude-teams` on the remote side.
 // It creates tmux shim scripts, sets up environment variables, gets the
 // focused context via system.identify, and exec's into `claude`.
@@ -51,9 +41,6 @@ func runClaudeTeamsRelay(socketPath string, args []string, refreshAddr func() st
 			"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
 		},
 	})
-	if restoreModulePath, err := ensureClaudeNodeOptionsRestoreModule(); err == nil {
-		configureClaudeNodeOptions(restoreModulePath)
-	}
 
 	launchArgs := claudeTeamsLaunchArgs(args)
 
@@ -198,13 +185,6 @@ func runOMCRelay(socketPath string, args []string, refreshAddr func() string) in
 		extraEnv:       map[string]string{},
 	})
 
-	// omc wraps Claude Code, so configure NODE_OPTIONS restore module
-	if restoreModulePath, err := ensureClaudeNodeOptionsRestoreModule(); err == nil {
-		configureClaudeNodeOptions(restoreModulePath)
-	} else {
-		fmt.Fprintf(os.Stderr, "cmux omc: warning: failed to create NODE_OPTIONS restore module: %v\n", err)
-	}
-
 	launchPath, launchArgv := resolveNodeScriptExec(omcPath, args, originalPath, shimDir)
 	execErr := syscall.Exec(launchPath, launchArgv, os.Environ())
 	fmt.Fprintf(os.Stderr, "cmux omc: exec failed: %v\n", execErr)
@@ -311,18 +291,6 @@ func writeShimIfChanged(path string, content string) error {
 		return err
 	}
 	return nil
-}
-
-func ensureClaudeNodeOptionsRestoreModule() (string, error) {
-	dir := filepath.Join(os.TempDir(), "cmux-claude-node-options")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", err
-	}
-	restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
-	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript); err != nil {
-		return "", err
-	}
-	return restoreModulePath, nil
 }
 
 // --- Focused context ---
@@ -439,51 +407,6 @@ func canonicalizeFocusedContext(rc *rpcContext, focused map[string]any, ctx *foc
 	if canonicalPaneId != "" {
 		ctx.paneId = strings.TrimSpace(canonicalPaneId)
 	}
-}
-
-func configureClaudeNodeOptions(restoreModulePath string) {
-	existing, hadExisting := os.LookupEnv("NODE_OPTIONS")
-	if hadExisting {
-		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1")
-		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS", existing)
-	} else {
-		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0")
-		os.Unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
-	}
-	os.Setenv("NODE_OPTIONS", mergeNodeOptions(existing, restoreModulePath))
-}
-
-func mergeNodeOptions(existing string, restoreModulePath string) string {
-	requireFlag := "--require=" + restoreModulePath
-	const memoryFlag = "--max-old-space-size=4096"
-	cleaned := cleanedNodeOptions(existing)
-	if cleaned == "" {
-		return requireFlag + " " + memoryFlag
-	}
-	return requireFlag + " " + memoryFlag + " " + cleaned
-}
-
-func cleanedNodeOptions(existing string) string {
-	tokens := strings.Fields(existing)
-	if len(tokens) == 0 {
-		return ""
-	}
-
-	filtered := make([]string, 0, len(tokens))
-	for i := 0; i < len(tokens); i++ {
-		token := tokens[i]
-		if token == "--max-old-space-size" {
-			if i+1 < len(tokens) {
-				i++
-			}
-			continue
-		}
-		if strings.HasPrefix(token, "--max-old-space-size=") {
-			continue
-		}
-		filtered = append(filtered, token)
-	}
-	return strings.Join(filtered, " ")
 }
 
 func stringFromAny(values ...any) string {
