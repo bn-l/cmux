@@ -462,7 +462,7 @@ enum TerminalSSHSessionDetector {
             process.pgid == process.tpgid
     }
 
-    private static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {
+    static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: psPath)
