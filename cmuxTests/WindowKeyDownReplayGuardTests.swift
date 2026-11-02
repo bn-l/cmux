@@ -358,4 +358,45 @@ struct WindowKeyDownReplayGuardTests {
         #expect(terminal.keyDownEvents.map { $0.charactersIgnoringModifiers } == ["z"])
         #expect(textView.undoCallCount == 0)
     }
+
+    // MARK: - Menu Copy fallback (upstream ce3df591509 + #19604)
+
+    /// Copy stays enabled (#14557), so AppKit's Copy action consumes Cmd+C.
+    /// When nothing native was copied, an application that owns the view must
+    /// still receive the key.
+    @Test
+    func menuCopyFallsBackOnlyWhenATerminalApplicationOwnsTheSelection() {
+        #expect(
+            GhosttyNSView.shouldForwardMenuCopyToTerminalApplication(
+                copiedNativeSelection: false,
+                isAlternateScreenActive: true,
+                isMouseCaptured: false
+            ),
+            Comment(rawValue: "A fullscreen TUI owns the selection, so the Copy action must re-inject Cmd+C through Ghostty")
+        )
+        #expect(
+            GhosttyNSView.shouldForwardMenuCopyToTerminalApplication(
+                copiedNativeSelection: false,
+                isAlternateScreenActive: false,
+                isMouseCaptured: true
+            ),
+            Comment(rawValue: "An inline TUI with mouse reporting draws its own selection on the primary screen and must receive Cmd+C (#18812)")
+        )
+        #expect(
+            !GhosttyNSView.shouldForwardMenuCopyToTerminalApplication(
+                copiedNativeSelection: true,
+                isAlternateScreenActive: true,
+                isMouseCaptured: true
+            ),
+            Comment(rawValue: "A native terminal selection was already copied and must not receive a second Cmd+C")
+        )
+        #expect(
+            !GhosttyNSView.shouldForwardMenuCopyToTerminalApplication(
+                copiedNativeSelection: false,
+                isAlternateScreenActive: false,
+                isMouseCaptured: false
+            ),
+            Comment(rawValue: "Cmd+C without a selection at a normal shell prompt remains a no-op")
+        )
+    }
 }

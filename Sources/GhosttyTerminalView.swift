@@ -5227,12 +5227,40 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // MARK: - Input Handling
 
+    /// The AppKit Copy action runs before a terminal application can receive
+    /// Cmd+C. If cmux could not copy a native terminal selection, forward the
+    /// same semantic key while an application owns the view: a fullscreen TUI
+    /// on the alternate screen, or an inline one that reports mouse events and
+    /// draws its own selection (#18812). A plain shell with no selection
+    /// remains a harmless no-op.
+    static func shouldForwardMenuCopyToTerminalApplication(
+        copiedNativeSelection: Bool,
+        isAlternateScreenActive: Bool,
+        isMouseCaptured: Bool
+    ) -> Bool {
+        !copiedNativeSelection && (isAlternateScreenActive || isMouseCaptured)
+    }
+
     @IBAction func copy(_ sender: Any?) {
         guard let surface else {
             _ = performBindingAction("copy_to_clipboard")
             return
         }
-        _ = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
+        let copied = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
+
+        guard Self.shouldForwardMenuCopyToTerminalApplication(
+            copiedNativeSelection: copied,
+            isAlternateScreenActive: terminalSurface?.isAlternateScreenActive() == true,
+            isMouseCaptured: ghostty_surface_mouse_captured(surface)
+        ) else {
+            return
+        }
+
+        // AppKit has already consumed the menu key equivalent (Copy stays
+        // enabled, #14557). Re-inject the semantic Cmd+C through Ghostty so
+        // Kitty-aware TUIs such as Codex can copy their own selection without
+        // changing the shell's Ctrl+C path.
+        _ = terminalSurface?.sendNamedKey("super+c")
     }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
