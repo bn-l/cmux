@@ -48,6 +48,7 @@ def run_wrapper(
     node_options: str | None = None,
     tmpdir: str | None = None,
     hooks_disabled: bool = False,
+    setup_sandbox=None,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -166,6 +167,13 @@ exit 0
             test_socket.bind(socket_path)
 
         env = os.environ.copy()
+        # The wrapper writes its NODE_OPTIONS restore preload under
+        # $HOME/.cmuxterm, so every run gets a sandbox home unless the case
+        # supplies its own through setup_sandbox.
+        sandbox_home = tmp / "home"
+        if setup_sandbox is None:
+            sandbox_home.mkdir()
+            env["HOME"] = str(sandbox_home)
         env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
         env["CMUX_SURFACE_ID"] = "surface:test"
         env["CMUX_SOCKET_PATH"] = socket_path
@@ -190,6 +198,8 @@ exit 0
             env["TMPDIR"] = tmpdir
         if node_options is not None:
             env["NODE_OPTIONS"] = node_options
+        if setup_sandbox is not None:
+            setup_sandbox(tmp, env)
 
         try:
             proc = subprocess.run(
@@ -310,6 +320,10 @@ exit 0
             test_socket.bind(socket_path)
 
             env = os.environ.copy()
+            # The wrapper writes its restore preload under $HOME/.cmuxterm.
+            sandbox_home = tmp / "home"
+            sandbox_home.mkdir()
+            env["HOME"] = str(sandbox_home)
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
             env.update(fingerprint_env)
             env["FAKE_REAL_ENV_LOG"] = str(env_log)
@@ -427,6 +441,10 @@ exit 0
                 test_socket.bind(socket_path)
 
             env = os.environ.copy()
+            # The wrapper writes its restore preload under $HOME/.cmuxterm.
+            sandbox_home = tmp / "home"
+            sandbox_home.mkdir()
+            env["HOME"] = str(sandbox_home)
             for ambient_cmux_key in [k for k in env if k.startswith("CMUX_")]:
                 env.pop(ambient_cmux_key, None)
             for ambient_aws_key in [k for k in env if k.startswith("AWS_")]:
@@ -1756,7 +1774,9 @@ def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[s
     expect(child_node_options == restored, f"space-separated heap flag: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
-def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[str]) -> None:
+def test_live_socket_tmpdir_failure_keeps_node_options_injection(failures: list[str]) -> None:
+    # The restore preload lives in ~/.cmuxterm, not $TMPDIR (#12022), so an
+    # unusable TMPDIR no longer disables the NODE_OPTIONS injection.
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-bad-tmp-") as td:
         bad_tmpdir = Path(td) / "not-a-directory"
         bad_tmpdir.write_text("occupied", encoding="utf-8")
@@ -1770,9 +1790,20 @@ def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[
     expect("--session-id" in real_argv, f"tmpdir failure: missing --session-id in args: {real_argv}", failures)
     expect(any(" ping" in line for line in cmux_log), f"tmpdir failure: expected cmux ping, got {cmux_log}", failures)
     expect(claudecode == "__UNSET__", f"tmpdir failure: expected CLAUDECODE unset, got {claudecode!r}", failures)
-    expect(node_options == "__UNSET__", f"tmpdir failure: expected NODE_OPTIONS injection to be skipped, got {node_options!r}", failures)
-    expect(runtime_node_options == "__UNSET__", f"tmpdir failure: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)
-    expect(child_node_options == "__UNSET__", f"tmpdir failure: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
+    require_flag, _, remaining_flags = node_options.partition(" ")
+    expect(
+        require_flag.startswith("--require=")
+        and require_flag.endswith("/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs"),
+        f"tmpdir failure: expected restore preload under ~/.cmuxterm, got {node_options!r}",
+        failures,
+    )
+    expect(
+        remaining_flags == "--max-old-space-size=4096",
+        f"tmpdir failure: expected injected heap cap after preload, got {node_options!r}",
+        failures,
+    )
+    expect(runtime_node_options == "__UNSET__", f"tmpdir failure: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"tmpdir failure: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
@@ -1797,16 +1828,20 @@ def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[
 
 
 def test_live_socket_stale_mktemp_literal_does_not_warn(failures: list[str]) -> None:
-    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-tmp-") as td:
-        tmpdir = Path(td)
-        guard_dir = tmpdir / "cmux-claude-node-options"
-        guard_dir.mkdir(parents=True, exist_ok=True)
+    def setup(tmp: Path, env: dict[str, str]) -> None:
+        home = tmp / "home"
+        guard_dir = home / ".cmuxterm" / "cmux-claude-node-options"
+        guard_dir.mkdir(parents=True)
+        # Literal mktemp template names left behind by an older wrapper.
+        (guard_dir / ".restore-node-options.cjs.XXXXXX").write_text("stale", encoding="utf-8")
         (guard_dir / "restore-node-options.XXXXXX.cjs").write_text("stale", encoding="utf-8")
-        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
-            socket_state="live",
-            argv=["hello"],
-            tmpdir=str(tmpdir),
-        )
+        env["HOME"] = str(home)
+
+    code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=setup,
+    )
     expect(code == 0, f"stale mktemp literal: wrapper exited {code}: {stderr}", failures)
     expect("mktemp:" not in stderr, f"stale mktemp literal: unexpected mktemp warning: {stderr!r}", failures)
     require_flag, _, remaining_flags = node_options.partition(" ")
@@ -1918,7 +1953,7 @@ def main() -> int:
     test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures)
     test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
-    test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
+    test_live_socket_tmpdir_failure_keeps_node_options_injection(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)
