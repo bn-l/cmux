@@ -3472,10 +3472,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
-    private final class KeyStatusTestWindow: NSWindow {
-        override var isKeyWindow: Bool { true }
-    }
-
     private func makeScrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {
         GhosttyScrollbar(
             c: ghostty_action_scrollbar_s(

@@ -95,3 +95,15 @@ extension AppDelegate {
         }
     }
 }
+
+/// A window that reports key status the way the focused main window does in
+/// the running app. The app-host test process runs headless under
+/// `xcodebuild test` and is usually not the active app, so
+/// `makeKeyAndOrderFront` never makes a programmatic window key; whether it
+/// does then depends on whether an earlier test happened to activate the app.
+/// AppKit only runs a window's menu key equivalents while it is key, so tests
+/// whose contract is cmux routing pin key status instead of depending on
+/// test order or on which app the user last clicked.
+final class KeyStatusTestWindow: NSWindow {
+    override var isKeyWindow: Bool { true }
+}
