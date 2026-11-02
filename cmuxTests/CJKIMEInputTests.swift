@@ -1218,7 +1218,6 @@ final class VietnameseIMEBackspaceRegressionTests: XCTestCase {
             )
             defer {
                 GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-                surface.releaseHostedSurfaceForTesting()
                 window.orderOut(nil)
             }
 
@@ -1236,7 +1235,12 @@ final class VietnameseIMEBackspaceRegressionTests: XCTestCase {
             contentView.layoutSubtreeIfNeeded()
             hostedView.setVisibleInUI(true)
             hostedView.setActive(true)
-            _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) { surface.surface != nil }
+            // Pump the run loop until the native surface exists (upstream uses an
+            // AppKitTestEventPump helper this fork does not have).
+            let surfaceDeadline = Date().addingTimeInterval(5)
+            while surface.surface == nil, Date() < surfaceDeadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+            }
             XCTAssertNotNil(surface.surface, "Expected native surface before dispatching composed input")
 
             guard let view = findGhosttyNSView(in: hostedView) else {
