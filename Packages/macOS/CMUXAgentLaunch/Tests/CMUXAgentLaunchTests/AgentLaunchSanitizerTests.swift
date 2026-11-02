@@ -641,4 +641,41 @@ struct AgentLaunchSanitizerTests {
             ) == ["qoder", "--model", "best"]
         )
     }
+
+    /// A captured or process-detected `claude <subcommand>` is a utility run,
+    /// not a session, and must never be replayed on restore. Keep in step with
+    /// the Commands section of `claude --help` (checked against 2.1.316) and the
+    /// wrapper's `claude_builtin_command_name`.
+    @Test("Claude utility subcommands are not restorable", arguments: [
+        "agents", "attach", "auth", "auto-mode", "api-key", "config", "doctor", "gateway",
+        "import", "install", "kill", "logs", "mcp", "plugin", "plugins", "purge", "rc",
+        "remote-control", "respawn", "rm", "setup-token", "stop", "update", "upgrade",
+    ])
+    func claudeUtilitySubcommandsAreNotRestorable(subcommand: String) {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["claude", subcommand],
+                launcher: "claude",
+                fallbackKind: "claude"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["claude", "--model", "opus", subcommand],
+                launcher: "claude",
+                fallbackKind: "claude"
+            ) == nil
+        )
+    }
+
+    @Test("A plain Claude session launch stays restorable")
+    func plainClaudeSessionLaunchStaysRestorable() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["claude", "--model", "opus"],
+                launcher: "claude",
+                fallbackKind: "claude"
+            ) == ["claude", "--model", "opus"]
+        )
+    }
 }

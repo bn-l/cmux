@@ -58,20 +58,31 @@ extension AgentLaunchSanitizer {
             "--mcp-config",
             "--tools"
         ],
+        // Claude utility subcommands (`claude --help` Commands, checked against
+        // 2.1.316); keep in step with the wrapper's claude_builtin_command_name.
         nonRestorableCommands: [
             "agents",
+            "attach",
             "auth",
             "auto-mode",
             "api-key",
             "config",
             "doctor",
+            "gateway",
+            "import",
             "install",
+            "kill",
+            "logs",
             "mcp",
             "plugin",
             "plugins",
+            "purge",
             "rc",
             "remote-control",
+            "respawn",
+            "rm",
             "setup-token",
+            "stop",
             "update",
             "upgrade"
         ],

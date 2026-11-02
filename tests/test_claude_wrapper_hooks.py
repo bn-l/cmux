@@ -861,6 +861,20 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
         "install",
         "daemon",
         "experimental-next",
+        "auto-mode",
+        "plugin",
+        "plugins",
+        "ultrareview",
+        # Listed by `claude --help` in Claude Code 2.1.316.
+        "attach",
+        "gateway",
+        "import",
+        "kill",
+        "logs",
+        "purge",
+        "respawn",
+        "rm",
+        "stop",
     ]
     for subcommand in subcommands:
         code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
