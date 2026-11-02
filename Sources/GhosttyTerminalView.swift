@@ -6002,8 +6002,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // deleteBackward:. Ghostty drops UTF-8 attached to a Backspace key, so
         // send the commit as typed text and replay the Backspace on its own.
         if keyRequestedDeleteBackward, !accumulatedText.isEmpty {
+            // Send each committed chunk as a plain text press, the way upstream's
+            // sendCommittedTextChunk does (that helper is not in this fork).
             for text in accumulatedText where shouldSendText(text) {
-                sendCommittedTextChunk(text)
+                var textEvent = ghostty_input_key_s()
+                textEvent.action = GHOSTTY_ACTION_PRESS
+                textEvent.keycode = 0
+                textEvent.mods = GHOSTTY_MODS_NONE
+                textEvent.consumed_mods = GHOSTTY_MODS_NONE
+                textEvent.unshifted_codepoint = 0
+                textEvent.composing = false
+                text.withCString { pointer in
+                    textEvent.text = pointer
+                    _ = sendGhosttyKey(surface, textEvent)
+                }
             }
             keyEvent.composing = false
             keyEvent.consumed_mods = GHOSTTY_MODS_NONE
