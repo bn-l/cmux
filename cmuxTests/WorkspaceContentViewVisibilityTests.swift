@@ -2,8 +2,9 @@ import Testing
 import AppKit
 import CmuxUpdater
 import CoreGraphics
+import Observation
 import SwiftUI
-import Bonsplit
+@testable import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -305,6 +306,35 @@ final class WorkspaceContentViewVisibilityTests {
                 isFocused: true
             )
         )
+    }
+
+    /// Confirms duplicate interactivity callbacks stay silent while real changes publish once.
+    @Test
+    @MainActor
+    func bonsplitInteractivitySyncChangesOnlyWhenInputActivityChanges() {
+        let controller = BonsplitController()
+        #expect(controller.isInteractive)
+
+        WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: false)
+        #expect(!controller.isInteractive)
+
+        // SwiftUI can deliver duplicate lifecycle and change callbacks while a
+        // hosted pane is being mounted. Repeating the same value must not write
+        // Bonsplit's observable controller state again.
+        let internalController = controller.internalController
+        var publicationCount = 0
+        withObservationTracking {
+            _ = internalController.isInteractive
+        } onChange: {
+            publicationCount += 1
+        }
+        WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: false)
+        #expect(!controller.isInteractive)
+        #expect(publicationCount == 0, "Duplicate interactivity synchronization must not publish.")
+
+        WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: true)
+        #expect(controller.isInteractive)
+        #expect(publicationCount == 1, "A real interactivity change must publish once.")
     }
 
     @Test
