@@ -279,126 +279,41 @@ def main() -> int:
 
     base_env = os.environ.copy()
 
-    proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
-        cli_path,
-        base_env,
-        "--trace-warnings",
-    )
-    if proc.returncode != 0:
-        print("FAIL: `cmux claude-teams --version` exited non-zero")
-        print(f"exit={proc.returncode}")
-        print(f"stdout={proc.stdout.strip()}")
-        print(f"stderr={proc.stderr.strip()}")
-        return 1
-
-    require_flag, _, remaining_flags = node_options_value.partition(" ")
-    if not require_flag.startswith("--require="):
-        print(
-            "FAIL: expected NODE_OPTIONS to prepend the restore preload, "
-            f"got {node_options_value!r}"
-        )
-        return 1
-
-    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
-        print(
-            "FAIL: expected NODE_OPTIONS to prepend the V8 heap cap after the restore preload, "
-            f"got {node_options_value!r}"
-        )
-        return 1
-
-    if runtime_node_options_value != "--trace-warnings":
-        print(
-            "FAIL: expected Claude runtime NODE_OPTIONS to be restored to the original value, "
-            f"got {runtime_node_options_value!r}"
-        )
-        return 1
-
-    if child_node_options_value != "--trace-warnings":
-        print(
-            "FAIL: expected child NODE_OPTIONS to inherit the restored original value, "
-            f"got {child_node_options_value!r}"
-        )
-        return 1
-
-    proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
-        cli_path,
-        base_env,
-        "--max-old-space-size 2048 --trace-warnings",
-    )
-    if proc.returncode != 0:
-        print("FAIL: `cmux claude-teams --version` with existing heap flag exited non-zero")
-        print(f"exit={proc.returncode}")
-        print(f"stdout={proc.stdout.strip()}")
-        print(f"stderr={proc.stderr.strip()}")
-        return 1
-
-    require_flag, _, remaining_flags = node_options_value.partition(" ")
-    if not require_flag.startswith("--require="):
-        print(
-            "FAIL: expected NODE_OPTIONS to prepend the restore preload, "
-            f"got {node_options_value!r}"
-        )
-        return 1
-
-    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
-        print(
-            "FAIL: expected launcher to replace the existing space-separated NODE_OPTIONS heap cap after the restore preload, "
-            f"got {node_options_value!r}"
-        )
-        return 1
-
-    if runtime_node_options_value != "--max-old-space-size=2048 --trace-warnings":
-        print(
-            "FAIL: expected Claude runtime NODE_OPTIONS to preserve the original max-old-space-size value, "
-            f"got {runtime_node_options_value!r}"
-        )
-        return 1
-
-    if child_node_options_value != "--max-old-space-size=2048 --trace-warnings":
-        print(
-            "FAIL: expected child NODE_OPTIONS to preserve the original max-old-space-size value, "
-            f"got {child_node_options_value!r}"
-        )
-        return 1
-
+    # cmux claude-teams does not inject, rewrite or restore NODE_OPTIONS: a native
+    # claude never runs a --require preload, so anything injected would leak to
+    # every child it starts. The caller's value reaches claude and its children
+    # byte for byte, including heap flags, whatever TMPDIR is.
     with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-bad-tmp-") as td:
         bad_tmpdir = Path(td) / "not-a-directory"
         bad_tmpdir.write_text("occupied", encoding="utf-8")
-        proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
-            cli_path,
-            base_env,
-            "--trace-warnings",
-            tmpdir=str(bad_tmpdir),
-        )
-    if proc.returncode != 0:
-        print("FAIL: `cmux claude-teams --version` should still succeed when TMPDIR is unusable")
-        print(f"exit={proc.returncode}")
-        print(f"stdout={proc.stdout.strip()}")
-        print(f"stderr={proc.stderr.strip()}")
-        return 1
+        cases = [
+            ("plain flag", "--trace-warnings", None),
+            ("heap flag", "--max-old-space-size=2048 --trace-warnings", None),
+            ("unusable TMPDIR", "--trace-warnings", str(bad_tmpdir)),
+        ]
+        for label, given, tmpdir in cases:
+            proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
+                cli_path,
+                base_env,
+                given,
+                tmpdir=tmpdir,
+            )
+            if proc.returncode != 0:
+                print(f"FAIL ({label}): `cmux claude-teams --version` exited non-zero")
+                print(f"exit={proc.returncode}")
+                print(f"stdout={proc.stdout.strip()}")
+                print(f"stderr={proc.stderr.strip()}")
+                return 1
+            for where, value in (
+                ("claude", node_options_value),
+                ("Claude runtime", runtime_node_options_value),
+                ("child", child_node_options_value),
+            ):
+                if value != given:
+                    print(f"FAIL ({label}): expected {where} NODE_OPTIONS {given!r} unchanged, got {value!r}")
+                    return 1
 
-    if node_options_value != "--trace-warnings":
-        print(
-            "FAIL: expected claude-teams to skip restore preload injection when TMPDIR is unusable, "
-            f"got {node_options_value!r}"
-        )
-        return 1
-
-    if runtime_node_options_value != "--trace-warnings":
-        print(
-            "FAIL: expected Claude runtime NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
-            f"got {runtime_node_options_value!r}"
-        )
-        return 1
-
-    if child_node_options_value != "--trace-warnings":
-        print(
-            "FAIL: expected child NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
-            f"got {child_node_options_value!r}"
-        )
-        return 1
-
-    print("PASS: cmux claude-teams restores child NODE_OPTIONS while injecting the auto-mode tmux env")
+    print("PASS: cmux claude-teams passes NODE_OPTIONS through unchanged while injecting the auto-mode tmux env")
     return 0
 
 

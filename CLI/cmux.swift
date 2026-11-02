@@ -12956,7 +12956,6 @@ struct CMUXCLI {
             This command:
               - sets a tmux-like environment so OMC uses cmux splits
               - prepends a private tmux shim to PATH
-              - injects NODE_OPTIONS restore module for Claude compatibility
               - forwards all remaining arguments to omc
 
             Install: npm install -g oh-my-claude-sisyphus
@@ -17658,17 +17657,6 @@ struct CMUXCLI {
         print("CMUX_TAB_ID=\(dump("CMUX_TAB_ID"))")
     }
 
-    private static let claudeNodeOptionsRestoreModule = """
-    const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
-    if (hadOriginalNodeOptions) {
-        process.env.NODE_OPTIONS = process.env.CMUX_ORIGINAL_NODE_OPTIONS ?? "";
-    } else {
-        delete process.env.NODE_OPTIONS;
-    }
-    delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
-    delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
-    """
-
     private func configureClaudeTeamsEnvironment(
         processEnvironment: [String: String],
         shimDirectory: URL,
@@ -17690,26 +17678,6 @@ struct CMUXCLI {
             extraEnvVars: claudeTeamsExtraEnvVars(commandArgs: commandArgs)
         )
         clearInheritedClaudeSessionEnvironment(); if !claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) { unsetenv("CMUX_CLAUDE_TEAMS_SANDBOXED"); unsetenv("CLAUDE_CODE_SANDBOXED") }  // clear ambient markers inherited from a parent opted-in session so the trust bypass never leaks across invocations (#6447)
-        guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
-            return
-        }
-        if let existing = processEnvironment["NODE_OPTIONS"] {
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
-        } else {
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
-        }
-        setenv(
-            "NODE_OPTIONS",
-            mergedNodeOptions(
-                existing: processEnvironment["NODE_OPTIONS"],
-                restoreModulePath: restoreModuleURL.path
-            ),
-            1
-        )
     }
 
     private func createTmuxCompatShimDirectory(
@@ -17738,25 +17706,6 @@ struct CMUXCLI {
         )
     }
 
-    /// Every Node child of Claude loads this preload through NODE_OPTIONS for the
-    /// whole session, so it lives in ~/.cmuxterm with the other CLI shims rather
-    /// than in $TMPDIR, which macOS purges under long-lived sessions (#12022).
-    private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
-        let root = URL(fileURLWithPath: homePath, isDirectory: true)
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(
-            at: root,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
-        let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
-        try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
-        return restoreModuleURL
-    }
 
     private func runClaudeTeams(
         commandArgs: [String],
@@ -20072,27 +20021,6 @@ struct CMUXCLI {
             tmuxPathPrefix: "cmux-omc",
             cmuxBinEnvVar: "CMUX_OMC_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMC_TERM"
-        )
-        // omc wraps Claude Code, so it needs the same NODE_OPTIONS restore module
-        guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
-            return
-        }
-        if let existing = processEnvironment["NODE_OPTIONS"] {
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
-        } else {
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
-        }
-        setenv(
-            "NODE_OPTIONS",
-            mergedNodeOptions(
-                existing: processEnvironment["NODE_OPTIONS"],
-                restoreModulePath: restoreModuleURL.path
-            ),
-            1
         )
     }
 
@@ -24825,64 +24753,6 @@ struct CMUXCLI {
             return tasks.contains { ($0["status"] as? String) == "running" }
         }
         return false
-    }
-
-    private func mergedNodeOptions(existing: String?, restoreModulePath: String) -> String {
-        // NODE_OPTIONS splits on whitespace; quote the path when $HOME has spaces.
-        let requireOption = restoreModulePath.contains(where: \.isWhitespace)
-            ? "--require=\"\(restoreModulePath)\""
-            : "--require=\(restoreModulePath)"
-        let memoryOption = "--max-old-space-size=4096"
-        let cleanedExisting = cleanedNodeOptions(existing)
-        guard !cleanedExisting.isEmpty else {
-            return "\(requireOption) \(memoryOption)"
-        }
-        return "\(requireOption) \(memoryOption) \(cleanedExisting)"
-    }
-
-    private func cleanedNodeOptions(_ existing: String?) -> String {
-        let tokens = (existing ?? "")
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
-        guard !tokens.isEmpty else { return "" }
-
-        var filtered: [String] = []
-        var index = 0
-        while index < tokens.count {
-            let token = tokens[index]
-            if token == "--max-old-space-size" {
-                index += min(2, tokens.count - index)
-                continue
-            }
-            if token.hasPrefix("--max-old-space-size=") {
-                index += 1
-                continue
-            }
-            filtered.append(token)
-            index += 1
-        }
-        return filtered.joined(separator: " ")
-    }
-
-    private func normalizedNodeOptionsForRestore(_ existing: String) -> String {
-        let tokens = existing
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
-        guard !tokens.isEmpty else { return "" }
-
-        var normalized: [String] = []
-        var index = 0
-        while index < tokens.count {
-            let token = tokens[index]
-            if token == "--max-old-space-size", index + 1 < tokens.count {
-                normalized.append("--max-old-space-size=\(tokens[index + 1])")
-                index += 2
-                continue
-            }
-            normalized.append(token)
-            index += 1
-        }
-        return normalized.joined(separator: " ")
     }
 
     // MARK: - Codex hooks

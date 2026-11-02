@@ -167,9 +167,8 @@ exit 0
             test_socket.bind(socket_path)
 
         env = os.environ.copy()
-        # The wrapper writes its NODE_OPTIONS restore preload under
-        # $HOME/.cmuxterm, so every run gets a sandbox home unless the case
-        # supplies its own through setup_sandbox.
+        # Every run gets a sandbox home (unless the case supplies its own through
+        # setup_sandbox) so the wrapper never touches the real ~/.cmuxterm.
         sandbox_home = tmp / "home"
         if setup_sandbox is None:
             sandbox_home.mkdir()
@@ -320,7 +319,7 @@ exit 0
             test_socket.bind(socket_path)
 
             env = os.environ.copy()
-            # The wrapper writes its restore preload under $HOME/.cmuxterm.
+            # Keep the wrapper off the real home directory.
             sandbox_home = tmp / "home"
             sandbox_home.mkdir()
             env["HOME"] = str(sandbox_home)
@@ -441,7 +440,7 @@ exit 0
                 test_socket.bind(socket_path)
 
             env = os.environ.copy()
-            # The wrapper writes its restore preload under $HOME/.cmuxterm.
+            # Keep the wrapper off the real home directory.
             sandbox_home = tmp / "home"
             sandbox_home.mkdir()
             env["HOME"] = str(sandbox_home)
@@ -515,19 +514,9 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     expect(claudecode == "__UNSET__", f"live socket: expected CLAUDECODE unset, got {claudecode!r}", failures)
-    require_flag, _, remaining_flags = node_options.partition(" ")
-    expect(
-        require_flag.startswith("--require="),
-        f"live socket: expected NODE_OPTIONS restore preload, got {node_options!r}",
-        failures,
-    )
-    expect(
-        remaining_flags == "--max-old-space-size=4096",
-        f"live socket: expected injected heap cap after preload, got {node_options!r}",
-        failures,
-    )
-    expect(runtime_node_options == "__UNSET__", f"live socket: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
-    expect(child_node_options == "__UNSET__", f"live socket: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+    expect(node_options == "__UNSET__", f"live socket: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+    expect(runtime_node_options == "__UNSET__", f"live socket: expected runtime NODE_OPTIONS unset, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"live socket: expected child NODE_OPTIONS unset, got {child_node_options!r}", failures)
     expect(hook_cmux_bin.endswith("/bundled cli/cmux"), f"live socket: expected bundled cmux pin, got {hook_cmux_bin!r}", failures)
 
     settings = parse_settings_arg(real_argv)
@@ -1749,61 +1738,44 @@ def test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failu
     )
 
 
-def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[str]) -> None:
-    existing = "--max-old-space-size 2048 --trace-warnings"
-    restored = "--max-old-space-size=2048 --trace-warnings"
-    code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        node_options=existing,
-    )
-    expect(code == 0, f"space-separated heap flag: wrapper exited {code}: {stderr}", failures)
-    require_flag, _, remaining_flags = node_options.partition(" ")
-    expect(
-        require_flag.startswith("--require="),
-        f"space-separated heap flag: expected restore preload, got {node_options!r}",
-        failures,
-    )
-    expect(
-        remaining_flags == "--max-old-space-size=4096 --trace-warnings",
-        "space-separated heap flag: expected wrapper to replace the existing max-old-space-size option after the preload, "
-        f"got {node_options!r}",
-        failures,
-    )
-    expect(runtime_node_options == restored, f"space-separated heap flag: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
-    expect(child_node_options == restored, f"space-separated heap flag: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+def test_live_socket_leaves_node_options_untouched(failures: list[str]) -> None:
+    """The wrapper does not inject, rewrite or restore NODE_OPTIONS: a native
+    claude never runs a --require preload, so anything injected would leak to
+    every child it starts. The caller's value reaches claude and its children
+    byte for byte, including heap flags, and nothing is written under ~/.cmuxterm."""
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-preload-") as preload_root:
+        # A real preload in a directory with a space, so Node can load the
+        # quoted --require the caller passes.
+        user_preload = Path(preload_root) / "a b" / "hook.cjs"
+        user_preload.parent.mkdir()
+        user_preload.write_text("// caller's own preload\n", encoding="utf-8")
+        quoted = f'--require="{user_preload}" --trace-warnings'
+        cases = [
+            ("unset", None, "__UNSET__"),
+            ("heap flag", "--max-old-space-size=2048 --trace-warnings", "--max-old-space-size=2048 --trace-warnings"),
+            ("quoted path", quoted, quoted),
+        ]
+        for label, given, expected in cases:
+            _check_node_options_passthrough(label, given, expected, failures)
 
 
-def test_live_socket_tmpdir_failure_keeps_node_options_injection(failures: list[str]) -> None:
-    # The restore preload lives in ~/.cmuxterm, not $TMPDIR (#12022), so an
-    # unusable TMPDIR no longer disables the NODE_OPTIONS injection.
-    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-bad-tmp-") as td:
-        bad_tmpdir = Path(td) / "not-a-directory"
-        bad_tmpdir.write_text("occupied", encoding="utf-8")
-        code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+def _check_node_options_passthrough(label: str, given: str | None, expected: str, failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-home-") as home_dir:
+        def setup(_tmp: Path, env: dict[str, str]) -> None:
+            env["HOME"] = home_dir
+
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
             socket_state="live",
             argv=["hello"],
-            tmpdir=str(bad_tmpdir),
+            node_options=given,
+            setup_sandbox=setup,
         )
-    expect(code == 0, f"tmpdir failure: wrapper exited {code}: {stderr}", failures)
-    expect("--settings" in real_argv, f"tmpdir failure: missing --settings in args: {real_argv}", failures)
-    expect("--session-id" in real_argv, f"tmpdir failure: missing --session-id in args: {real_argv}", failures)
-    expect(any(" ping" in line for line in cmux_log), f"tmpdir failure: expected cmux ping, got {cmux_log}", failures)
-    expect(claudecode == "__UNSET__", f"tmpdir failure: expected CLAUDECODE unset, got {claudecode!r}", failures)
-    require_flag, _, remaining_flags = node_options.partition(" ")
-    expect(
-        require_flag.startswith("--require=")
-        and require_flag.endswith("/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs"),
-        f"tmpdir failure: expected restore preload under ~/.cmuxterm, got {node_options!r}",
-        failures,
-    )
-    expect(
-        remaining_flags == "--max-old-space-size=4096",
-        f"tmpdir failure: expected injected heap cap after preload, got {node_options!r}",
-        failures,
-    )
-    expect(runtime_node_options == "__UNSET__", f"tmpdir failure: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
-    expect(child_node_options == "__UNSET__", f"tmpdir failure: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+        expect(code == 0, f"NODE_OPTIONS passthrough ({label}): wrapper exited {code}: {stderr}", failures)
+        expect(node_options == expected, f"NODE_OPTIONS passthrough ({label}): expected {expected!r}, got {node_options!r}", failures)
+        expect(runtime_node_options == expected, f"NODE_OPTIONS passthrough ({label}): expected runtime {expected!r}, got {runtime_node_options!r}", failures)
+        expect(child_node_options == expected, f"NODE_OPTIONS passthrough ({label}): expected child {expected!r}, got {child_node_options!r}", failures)
+        preload_dir = Path(home_dir) / ".cmuxterm" / "cmux-claude-node-options"
+        expect(not preload_dir.exists(), f"NODE_OPTIONS passthrough ({label}): wrapper wrote {preload_dir}", failures)
 
 
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
@@ -1826,37 +1798,6 @@ def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[
         else:
             expect("--session-id" not in real_argv, f"explicit bypass flag ({label}): expected no injected session id, got {real_argv}", failures)
 
-
-def test_live_socket_stale_mktemp_literal_does_not_warn(failures: list[str]) -> None:
-    def setup(tmp: Path, env: dict[str, str]) -> None:
-        home = tmp / "home"
-        guard_dir = home / ".cmuxterm" / "cmux-claude-node-options"
-        guard_dir.mkdir(parents=True)
-        # Literal mktemp template names left behind by an older wrapper.
-        (guard_dir / ".restore-node-options.cjs.XXXXXX").write_text("stale", encoding="utf-8")
-        (guard_dir / "restore-node-options.XXXXXX.cjs").write_text("stale", encoding="utf-8")
-        env["HOME"] = str(home)
-
-    code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=setup,
-    )
-    expect(code == 0, f"stale mktemp literal: wrapper exited {code}: {stderr}", failures)
-    expect("mktemp:" not in stderr, f"stale mktemp literal: unexpected mktemp warning: {stderr!r}", failures)
-    require_flag, _, remaining_flags = node_options.partition(" ")
-    expect(
-        require_flag.startswith("--require="),
-        f"stale mktemp literal: expected NODE_OPTIONS restore preload, got {node_options!r}",
-        failures,
-    )
-    expect(
-        remaining_flags == "--max-old-space-size=4096",
-        f"stale mktemp literal: expected injected heap cap after preload, got {node_options!r}",
-        failures,
-    )
-    expect(runtime_node_options == "__UNSET__", f"stale mktemp literal: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
-    expect(child_node_options == "__UNSET__", f"stale mktemp literal: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
 def test_missing_socket_skips_hook_injection(failures: list[str]) -> None:
@@ -1952,10 +1893,8 @@ def main() -> int:
     test_live_socket_strips_backend_qualified_model_on_default_path(failures)
     test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures)
     test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures)
-    test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
-    test_live_socket_tmpdir_failure_keeps_node_options_injection(failures)
+    test_live_socket_leaves_node_options_untouched(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
-    test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)
     test_disabled_integration_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)
@@ -1966,7 +1905,7 @@ def main() -> int:
             print(f"- {failure}")
         return 1
 
-    print("PASS: claude wrapper restores child NODE_OPTIONS while injecting supported hooks")
+    print("PASS: claude wrapper leaves NODE_OPTIONS untouched while injecting supported hooks")
     return 0
 
 

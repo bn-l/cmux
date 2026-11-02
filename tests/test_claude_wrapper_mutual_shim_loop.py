@@ -847,9 +847,9 @@ done
         if values.get("real_pid") != values.get("cmux_pid"):
             failures.append(f"expected CMUX_CLAUDE_PID to match real process pid, got: {combined_output!r}")
             return
-        node_options = values.get("node_options", "")
-        if "--require=" not in node_options or "--max-old-space-size=4096" not in node_options:
-            failures.append(f"expected reentry to reinstall cmux NODE_OPTIONS, got: {combined_output!r}")
+        # The shim chain runs with no NODE_OPTIONS; re-entry must not inject any.
+        if values.get("node_options") != "__unset__":
+            failures.append(f"expected reentry to leave NODE_OPTIONS unset, got: {combined_output!r}")
             return
 
         settings_indexes = [index for index, arg in enumerate(args) if arg == "--settings"]
