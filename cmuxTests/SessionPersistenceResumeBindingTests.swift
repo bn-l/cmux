@@ -460,6 +460,7 @@ import Testing
             "CMUX_FAKE_CODEX_OUTPUT": outputURL.path,
         ]
         let stderr = Pipe()
+        process.standardInput = FileHandle.nullDevice
         process.standardError = stderr
 
         try runWithBoundedWait(process, shellDescription: "zsh -fc")
@@ -510,6 +511,10 @@ import Testing
         process.arguments = [scriptPath]
         process.environment = environment
         let stderr = Pipe()
+        // The launcher ends in `exec -l "$_cmux_resume_shell"`. With the test host's
+        // stdin a TTY that login shell is interactive and ignores SIGTERM, and an
+        // unbounded wait for it blocked the main actor and stalled the whole run.
+        process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = stderr
 
@@ -518,25 +523,34 @@ import Testing
         while Date() < deadline {
             if let output = try? String(contentsOf: outputURL, encoding: .utf8),
                !output.isEmpty {
-                if process.isRunning {
-                    process.terminate()
-                    process.waitUntilExit()
-                }
+                stopLauncher(process)
                 return
             }
             _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
         }
 
-        if process.isRunning {
-            process.terminate()
-            process.waitUntilExit()
-        }
+        stopLauncher(process)
         let errorText = String(
             data: stderr.fileHandleForReading.readDataToEndOfFile(),
             encoding: .utf8
         ) ?? ""
         Issue.record("Launcher did not produce Codex output within \(Int(timeout))s. stderr: \(errorText)")
         throw ResumeShellTimeout(shellDescription: "/bin/zsh \(scriptPath)", timeout: timeout)
+    }
+
+    /// Stops a launcher shell without an unbounded wait: SIGTERM first, then
+    /// SIGKILL, since an interactive zsh ignores SIGTERM.
+    private func stopLauncher(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        let deadline = Date().addingTimeInterval(2)
+        while process.isRunning, Date() < deadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+        if process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+            process.waitUntilExit()
+        }
     }
 
     private func launcherScriptPath(from command: String) throws -> String {
