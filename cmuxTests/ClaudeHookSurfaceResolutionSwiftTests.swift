@@ -60,7 +60,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         #expect(
             context.state.snapshot().contains {
-                $0.hasPrefix("set_status claude_code Running ")
+                $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--panel=\(ttySurfaceId)")
             },
             "Claude visible status should also target the TTY surface, saw \(context.state.snapshot())"
@@ -133,7 +133,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         #expect(
             context.state.snapshot().contains {
-                $0.hasPrefix("set_status claude_code Running ")
+                $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--tab=\(ttyWorkspaceId)")
                     && $0.contains("--panel=\(ttySurfaceId)")
             },
@@ -355,7 +355,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         #expect(
             context.state.snapshot().contains {
-                $0.hasPrefix("set_status claude_code Running ")
+                $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },

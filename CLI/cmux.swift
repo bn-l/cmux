@@ -21577,7 +21577,10 @@ struct CMUXCLI {
                     pid: claudePid,
                     launchCommand: launchCommand,
                     isRestorable: false,
-                    agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
+                    // A promoted session (/clear, or replacing a stopped owner) is
+                    // idle until its first UserPromptSubmit: SessionStart only
+                    // establishes identity, work starts at the prompt.
+                    agentLifecycle: shouldPromoteActiveSession ? .idle : .unknown,
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
                 )
@@ -21596,8 +21599,8 @@ struct CMUXCLI {
             }
             // Register PID for stale-session detection and OSC suppression.
             // Startup/resume SessionStart remains non-visible; /clear is a
-            // new active boundary and must keep the sidebar Running before
-            // any late pre-clear Stop can write Idle.
+            // new active boundary that shows Idle until UserPromptSubmit, and a
+            // late pre-clear Stop from the old session must not touch it.
             // Fork launches register their PID only with an authoritative
             // surface: the hook reports the PARENT session id (which is often
             // the workspace-active session), and the pre-prompt fork SessionEnd
@@ -21625,7 +21628,7 @@ struct CMUXCLI {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .running,
+                    lifecycle: .idle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
@@ -21633,9 +21636,9 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Running",
-                    icon: "bolt.fill",
-                    color: "#4C8DFF",
+                    value: "Idle",
+                    icon: "pause.circle.fill",
+                    color: "#8E8E93",
                     pid: claudePid
                 )
             }
