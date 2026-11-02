@@ -3384,6 +3384,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpStalledAttemptCount = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
+    var isPortalRenderingEnabled: Bool { portalRenderingEnabled }
     private var agentHibernationAutoResumePresentationVisible = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
@@ -3400,7 +3401,6 @@ final class Workspace: Identifiable, ObservableObject {
         get { surfaceRegistry.nonFocusSplitFocusReassertGeneration }
         set { surfaceRegistry.nonFocusSplitFocusReassertGeneration = newValue }
     }
-
     /// Captured detach transfer payloads; stored in the split-layout
     /// sub-model. Mutations go through the model's detach-choreography
     /// verbs; this read-only view feeds the empty/count checks.
@@ -9778,6 +9778,8 @@ final class Workspace: Identifiable, ObservableObject {
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
             hideAllBrowserPortalViews()
+            TerminalWindowPortalRegistry.hideHostedViews(forWorkspaceID: id)
+            BrowserWindowPortalRegistry.hideWebViews(forWorkspaceID: id)
         }
     }
 

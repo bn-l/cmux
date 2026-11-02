@@ -649,6 +649,7 @@ final class WindowTerminalPortal: NSObject {
     private struct Entry {
         weak var hostedView: GhosttySurfaceScrollView?
         weak var anchorView: NSView?
+        let workspaceID: UUID?
         var visibleInUI: Bool
         var zPriority: Int
         var transientRecoveryRetriesRemaining: Int
@@ -1094,15 +1095,21 @@ final class WindowTerminalPortal: NSObject {
 #endif
     }
 
-    /// Update the visibleInUI flag on an existing entry without rebinding.
-    /// Used when a deferred bind is pending — this ensures synchronizeHostedView
-    /// won't hide a view that updateNSView has already marked as visible.
+    func hideEntries(forWorkspaceID workspaceID: UUID) {
+        for hostedId in entriesByHostedId.compactMap({ hostedId, entry in
+            entry.workspaceID == workspaceID ? hostedId : nil
+        }) {
+            hideEntry(forHostedId: hostedId)
+        }
+    }
+
     @discardableResult
     func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) -> Bool {
         let needsReattach = visibleInUI && hostedViewNeedsPortalReattachForVisiblePresentation(withId: hostedId)
         guard var entry = entriesByHostedId[hostedId] else { return needsReattach }
-        entry.visibleInUI = visibleInUI
-        if !visibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
+        let effectiveVisibleInUI = visibleInUI && Workspace.portalRenderingEnabled(for: entry.workspaceID)
+        entry.visibleInUI = effectiveVisibleInUI
+        if !effectiveVisibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
         entriesByHostedId[hostedId] = entry
         return needsReattach
     }
@@ -1150,10 +1157,15 @@ final class WindowTerminalPortal: NSObject {
         }
 
         hostedByAnchorId[anchorId] = hostedId
+        // Dock-hosted surfaces are window-owned; every other entry is clamped by
+        // its workspace so a queued bind cannot show an inactive workspace.
+        let workspaceID = hostedView.isRightSidebarDockSurface ? nil : hostedView.surfaceView.terminalSurface?.tabId
+        let effectiveVisibleInUI = visibleInUI && Workspace.portalRenderingEnabled(for: workspaceID)
         entriesByHostedId[hostedId] = Entry(
             hostedView: hostedView,
             anchorView: anchorView,
-            visibleInUI: visibleInUI,
+            workspaceID: workspaceID,
+            visibleInUI: effectiveVisibleInUI,
             zPriority: zPriority,
             transientRecoveryRetriesRemaining: 0
         )
@@ -1162,14 +1174,14 @@ final class WindowTerminalPortal: NSObject {
             guard let previousAnchor = previousEntry?.anchorView else { return true }
             return previousAnchor !== anchorView
         }()
-        let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
+        let becameVisible = (previousEntry?.visibleInUI ?? false) == false && effectiveVisibleInUI
         let priorityIncreased = zPriority > (previousEntry?.zPriority ?? Int.min)
 #if DEBUG
         if previousEntry == nil || didChangeAnchor || becameVisible || priorityIncreased || hostedView.superview !== hostView {
             cmuxDebugLog(
                 "portal.bind hosted=\(portalDebugToken(hostedView)) " +
                 "anchor=\(portalDebugToken(anchorView)) prevAnchor=\(portalDebugToken(previousEntry?.anchorView)) " +
-                "visible=\(visibleInUI ? 1 : 0) prevVisible=\((previousEntry?.visibleInUI ?? false) ? 1 : 0) " +
+                "visible=\(effectiveVisibleInUI ? 1 : 0) prevVisible=\((previousEntry?.visibleInUI ?? false) ? 1 : 0) " +
                 "z=\(zPriority) prevZ=\(previousEntry?.zPriority ?? Int.min)"
             )
         }
@@ -2114,6 +2126,13 @@ enum TerminalWindowPortalRegistry {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return }
         portal.hideEntry(forHostedId: hostedId)
+    }
+
+    /// Hides every registered terminal portal owned by one inactive workspace.
+    static func hideHostedViews(forWorkspaceID workspaceID: UUID) {
+        for portal in portalsByWindowId.values {
+            portal.hideEntries(forWorkspaceID: workspaceID)
+        }
     }
 
     /// Permanently detach a hosted terminal view from the window-level portal.

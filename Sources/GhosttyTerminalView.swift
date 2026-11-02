@@ -10559,7 +10559,8 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
-    func setVisibleInUI(_ visible: Bool) {
+    func setVisibleInUI(_ requestedVisible: Bool) {
+        let visible = requestedVisible && (isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: surfaceView.terminalSurface?.tabId))
         let wasVisible = surfaceView.isVisibleInUI
         // Re-realize before marking visible so we never draw into a released swap chain.
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
@@ -10621,7 +10622,8 @@ final class GhosttySurfaceScrollView: NSView {
         return convert(bounds, to: nil)
     }
 
-    func setActive(_ active: Bool) {
+    func setActive(_ requestedActive: Bool) {
+        let active = requestedActive && (isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: surfaceView.terminalSurface?.tabId))
         let wasActive = isActive
         isActive = active
 #if DEBUG

@@ -309,6 +309,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CA52B0070000000000000000 /* CanvasPaneContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0070000000000000000 /* CanvasPaneContent.swift */; };
 		C4A570030000000000000001 /* CanvasShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570030000000000000002 /* CanvasShortcutContextTests.swift */; };
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
+		C1A0E5C00000000000000007 /* WorkspacePortalRenderingAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C00000000000000008 /* WorkspacePortalRenderingAuthorityTests.swift */; };
 		C1A0E5C00000000000000005 /* ClaudeInterruptCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C00000000000000006 /* ClaudeInterruptCheckTests.swift */; };
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
 		A5D41232A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */; };
@@ -1548,6 +1549,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F17F00000000000000000005 /* Workspace+FullWidthTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000006 /* Workspace+FullWidthTab.swift */; };
 		C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */; };
 		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
+		D12393010000000000000001 /* Workspace+PortalRenderingAuthority.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12393010000000000000002 /* Workspace+PortalRenderingAuthority.swift */; };
 		7738C0037738C0037738C003 /* Workspace+RemoteTmuxControlTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738D0037738D0037738D003 /* Workspace+RemoteTmuxControlTopology.swift */; };
 		D77340010000000000000002 /* Workspace+RemoteTmuxTabOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77340010000000000000001 /* Workspace+RemoteTmuxTabOrder.swift */; };
 		C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */; };
@@ -2001,6 +2003,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		CA52C0070000000000000000 /* CanvasPaneContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasPaneContent.swift"; sourceTree = "<group>"; };
 		C4A570030000000000000002 /* CanvasShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasShortcutContextTests.swift; sourceTree = "<group>"; };
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
+		C1A0E5C00000000000000008 /* WorkspacePortalRenderingAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePortalRenderingAuthorityTests.swift; sourceTree = "<group>"; };
 		C1A0E5C00000000000000006 /* ClaudeInterruptCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeInterruptCheckTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
 		A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeBackgroundWorkNotifyTests.swift; sourceTree = "<group>"; };
@@ -3174,6 +3177,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F17F00000000000000000006 /* Workspace+FullWidthTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+FullWidthTab.swift"; sourceTree = "<group>"; };
 		C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+LayoutCapture.swift"; sourceTree = "<group>"; };
 		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
+		D12393010000000000000002 /* Workspace+PortalRenderingAuthority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PortalRenderingAuthority.swift"; sourceTree = "<group>"; };
 		7738D0037738D0037738D003 /* Workspace+RemoteTmuxControlTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteTmuxControlTopology.swift"; sourceTree = "<group>"; };
 		D77340010000000000000001 /* Workspace+RemoteTmuxTabOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteTmuxTabOrder.swift"; sourceTree = "<group>"; };
 		C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionRestoreIdentity.swift"; sourceTree = "<group>"; };
@@ -3765,6 +3769,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */,
 				A5001511 /* UITestRecorder.swift */,
 				A5001416 /* Workspace.swift */,
+				D12393010000000000000002 /* Workspace+PortalRenderingAuthority.swift */,
 				C0DE43000000000000000008 /* Workspace+AgentChat.swift */,
 				C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */,
 				6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */,
@@ -4538,6 +4543,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			children = (
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
 				F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */,
+				C1A0E5C00000000000000008 /* WorkspacePortalRenderingAuthorityTests.swift */,
 				C1A0E5C00000000000000006 /* ClaudeInterruptCheckTests.swift */,
 				D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */,
 				D5935002A1B2C3D4E5F60718 /* GhosttyDECCKMArrowKeyTests.swift */,
@@ -6332,6 +6338,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F17F00000000000000000005 /* Workspace+FullWidthTab.swift in Sources */,
 				C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */,
 				C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
+				D12393010000000000000001 /* Workspace+PortalRenderingAuthority.swift in Sources */,
 				7738C0037738C0037738C003 /* Workspace+RemoteTmuxControlTopology.swift in Sources */,
 				D77340010000000000000002 /* Workspace+RemoteTmuxTabOrder.swift in Sources */,
 				C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */,
@@ -6604,6 +6611,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				0A0F00580000000000000003 /* CampfireSupportTestSupport.swift in Sources */,
 				C4A570030000000000000001 /* CanvasShortcutContextTests.swift in Sources */,
 				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
+				C1A0E5C00000000000000007 /* WorkspacePortalRenderingAuthorityTests.swift in Sources */,
 				C1A0E5C00000000000000005 /* ClaudeInterruptCheckTests.swift in Sources */,
 				D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */,
 				A5D41232A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift in Sources */,
