@@ -3,7 +3,8 @@ import os
 
 nonisolated private let cmuxEventLogLogger = Logger(subsystem: "com.cmuxterm.app", category: "event-log")
 
-// Sendable safety: pending state is protected by `lock`; file IO runs on `queue`.
+// Sendable safety: pending state is protected by `lock`; file IO and
+// `openLogHandle` are confined to `queue`.
 final class CmuxEventLogWriter: @unchecked Sendable {
     static let defaultMaxPendingLines = 1_024
 
@@ -16,6 +17,8 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private var pendingLines: [String] = []
     private var flushScheduled = false
     private var droppedLineCount = 0
+    /// The append-only log descriptor kept open across flushes.
+    private var openLogHandle: FileHandle?
 #if DEBUG
     private var flushSuspendedForTesting = false
 #endif
@@ -65,6 +68,11 @@ final class CmuxEventLogWriter: @unchecked Sendable {
         if !suspended {
             scheduleFlushIfNeeded()
         }
+    }
+
+    /// The descriptor kept open across flushes, read on the writer's queue.
+    func openLogFileDescriptorForTesting() -> Int32? {
+        Self.queue.sync { openLogHandle?.fileDescriptor }
     }
 
     func backlogSnapshotForTesting() -> (pending: Int, dropped: Int) {
@@ -127,43 +135,79 @@ final class CmuxEventLogWriter: @unchecked Sendable {
 
     private func append(_ lines: [String]) {
         guard !lines.isEmpty else { return }
+        let fileManager = FileManager.default
         do {
-            let fileManager = FileManager.default
-            // Every agent hook event flushes here, so the steady state is one
-            // open + seek + write. Directory and file creation run only when the
-            // open fails, and the end-of-file offset doubles as the current size
-            // instead of a separate attributesOfItem stat per flush.
-            var handle = try openForAppending(fileManager: fileManager)
-            defer { try? handle.close() }
-            var currentSize = try handle.seekToEnd()
+            var (handle, currentSize) = try logHandleForAppending(fileManager: fileManager)
             for line in lines {
                 let data = Data((line + "\n").utf8)
                 if currentSize + UInt64(data.count) > maxEventLogBytes {
-                    try handle.close()
+                    closeOpenLog()
                     try rotate(fileManager: fileManager)
-                    handle = try FileHandle(forWritingTo: eventLogURL)
-                    currentSize = 0
+                    (handle, currentSize) = try logHandleForAppending(fileManager: fileManager)
                 }
                 try handle.write(contentsOf: data)
                 currentSize += UInt64(data.count)
             }
         } catch {
+            closeOpenLog()
             cmuxEventLogLogger.error("Failed to append cmux event log: \(String(describing: error), privacy: .private)")
         }
     }
 
-    private func openForAppending(fileManager: FileManager) throws -> FileHandle {
-        if let handle = try? FileHandle(forWritingTo: eventLogURL) {
-            return handle
+    /// Returns an append-only handle for the log and the log's current size.
+    ///
+    /// Events are flushed one burst at a time, often a single line. Reopening,
+    /// creating the directory, and stat'ing the file on every flush dominated the
+    /// event-log queue, so the handle stays open. Other cmux processes share this
+    /// log and may rotate, delete, or append to it:
+    /// - The open handle is reused only while the path still names the same file
+    ///   (device and inode match).
+    /// - The descriptor is opened with `O_APPEND`, so every write lands at the
+    ///   current end of file even when another process appended since our last
+    ///   write. A seek-then-write handle could overwrite those lines.
+    /// - The size used for rotation comes from `fstat` on the open descriptor.
+    private func logHandleForAppending(fileManager: FileManager) throws -> (FileHandle, UInt64) {
+        let path = eventLogURL.path
+        var pathStatus = stat()
+        let pathExists = stat(path, &pathStatus) == 0
+        if let handle = openLogHandle {
+            var handleStatus = stat()
+            if pathExists,
+               fstat(handle.fileDescriptor, &handleStatus) == 0,
+               handleStatus.st_dev == pathStatus.st_dev,
+               handleStatus.st_ino == pathStatus.st_ino {
+                return (handle, UInt64(max(0, handleStatus.st_size)))
+            }
+            closeOpenLog()
         }
-        try fileManager.createDirectory(
-            at: eventLogURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        if !fileManager.fileExists(atPath: eventLogURL.path) {
-            _ = fileManager.createFile(atPath: eventLogURL.path, contents: nil)
+
+        // Directory creation runs only when the open reports a missing parent.
+        var descriptor = open(path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o644)
+        if descriptor < 0, errno == ENOENT {
+            try fileManager.createDirectory(
+                at: eventLogURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            descriptor = open(path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o644)
         }
-        return try FileHandle(forWritingTo: eventLogURL)
+        guard descriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        var handleStatus = stat()
+        guard fstat(descriptor, &handleStatus) == 0 else {
+            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+            try? handle.close()
+            throw POSIXError(code)
+        }
+        openLogHandle = handle
+        return (handle, UInt64(max(0, handleStatus.st_size)))
+    }
+
+    private func closeOpenLog() {
+        guard let handle = openLogHandle else { return }
+        try? handle.close()
+        openLogHandle = nil
     }
 
     private func rotate(fileManager: FileManager) throws {
