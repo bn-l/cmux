@@ -72,6 +72,150 @@ struct ClaudeBackgroundWorkNotifyTests {
         return sessions[sessionId] as? [String: Any]
     }
 
+    /// Runs a sequence of hook calls for one Claude session against one mock
+    /// socket server and one hook store, so later hooks see what earlier ones wrote.
+    private struct HookSession {
+        let session: String
+        let run: (_ subcommand: String, _ payload: String) -> Void
+        let snapshot: () -> [String]
+        let record: () -> [String: Any]?
+
+        var lifecycle: String? { record()?["agentLifecycle"] as? String }
+        var turnSettled: Bool? { record()?["turnSettled"] as? Bool }
+
+        var prompt: String { #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"UserPromptSubmit","prompt":"finish this"}"# }
+        var helperTool: String { #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}"# }
+        func stop(pendingWork: Bool) -> String {
+            let tasks = pendingWork ? #"[{"id":"t1","type":"shell","status":"running","description":"build","command":"sleep 1"}]"# : "[]"
+            return #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"done","background_tasks":\#(tasks),"session_crons":[]}"#
+        }
+        var permissionPrompt: String { #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission"}"# }
+    }
+
+    private func withHookSession(name: String, _ body: (HookSession) throws -> Void) throws {
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: name)
+        defer { context.cleanup() }
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-\(name)",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-\(name)",
+            storeURL: storeURL
+        )
+        let session = "\(name)-session"
+        try body(HookSession(
+            session: session,
+            run: { subcommand, payload in
+                let result = harness.runProcess(
+                    executablePath: context.cliPath,
+                    arguments: ["hooks", "claude", subcommand],
+                    environment: environment,
+                    standardInput: payload,
+                    timeout: 5
+                )
+                #expect(handled.wait(timeout: .now() + 5) == .success)
+                harness.assertSuccessfulHook(result)
+            },
+            snapshot: { context.state.snapshot() },
+            record: { self.storeRecord(storeURL, sessionId: session) }
+        ))
+    }
+
+    // MARK: - A helper's PreToolUse after Stop (upstream #20262)
+
+    @Test func preToolUseAfterStopDoesNotReopenRunningState() throws {
+        try withHookSession(name: "helper-after-stop") { hooks in
+            hooks.run("prompt-submit", hooks.prompt)
+            hooks.run("stop", hooks.stop(pendingWork: false))
+            #expect(hooks.lifecycle == "idle")
+            #expect(hooks.turnSettled == true)
+            let afterStop = hooks.snapshot().count
+
+            hooks.run("pre-tool-use", hooks.helperTool)
+            let afterTool = Array(hooks.snapshot().dropFirst(afterStop))
+            #expect(hooks.lifecycle == "idle", "A helper tool after Stop must not reopen the turn")
+            #expect(statusLine(afterTool, value: "Running") == nil, "saw \(afterTool)")
+            #expect(lifecycleLine(afterTool, value: "running") == nil, "saw \(afterTool)")
+
+            // The next real prompt lifts the fence and its own tools show Running.
+            hooks.run("prompt-submit", hooks.prompt)
+            #expect(hooks.turnSettled == false)
+            let afterPrompt = hooks.snapshot().count
+            hooks.run("pre-tool-use", hooks.helperTool)
+            #expect(hooks.lifecycle == "running")
+            #expect(statusLine(Array(hooks.snapshot().dropFirst(afterPrompt)), value: "Running") != nil)
+        }
+    }
+
+    @Test func pendingBackgroundWorkPreToolUseDoesNotRepublishRunning() throws {
+        try withHookSession(name: "helper-after-pending-stop") { hooks in
+            hooks.run("prompt-submit", hooks.prompt)
+            hooks.run("stop", hooks.stop(pendingWork: true))
+            // The fork keeps a pane with pending background work as Running.
+            #expect(hooks.lifecycle == "running")
+            #expect(hooks.turnSettled == true)
+            let afterStop = hooks.snapshot().count
+
+            hooks.run("pre-tool-use", hooks.helperTool)
+            let afterTool = Array(hooks.snapshot().dropFirst(afterStop))
+            #expect(hooks.lifecycle == "running")
+            #expect(statusLine(afterTool, value: "Running") == nil,
+                    "The helper tool must not touch the settled turn's status; saw \(afterTool)")
+            #expect(afterTool.contains { $0.hasPrefix("clear_notifications ") } == false,
+                    "The helper tool must not clear the turn's notifications; saw \(afterTool)")
+        }
+    }
+
+    @Test func notificationAfterStopKeepsHelperToolFromReopeningTurn() throws {
+        try withHookSession(name: "helper-after-stop-notification") { hooks in
+            hooks.run("prompt-submit", hooks.prompt)
+            hooks.run("stop", hooks.stop(pendingWork: false))
+            hooks.run("notification", hooks.permissionPrompt)
+            #expect(hooks.lifecycle == "needsInput")
+            #expect(hooks.turnSettled == true, "A notification must not lift the settled-turn fence")
+            let afterNotification = hooks.snapshot().count
+
+            hooks.run("pre-tool-use", hooks.helperTool)
+            let afterTool = Array(hooks.snapshot().dropFirst(afterNotification))
+            #expect(hooks.lifecycle == "needsInput")
+            #expect(statusLine(afterTool, value: "Running") == nil, "saw \(afterTool)")
+
+            hooks.run("prompt-submit", hooks.prompt)
+            let afterPrompt = hooks.snapshot().count
+            hooks.run("pre-tool-use", hooks.helperTool)
+            #expect(hooks.lifecycle == "running")
+            #expect(hooks.turnSettled == false)
+            #expect(statusLine(Array(hooks.snapshot().dropFirst(afterPrompt)), value: "Running") != nil)
+        }
+    }
+
+    @Test(arguments: ["SessionStart", "Notification"])
+    func toolUseWithoutCompletedTurnRemainsRunning(boundary: String) throws {
+        try withHookSession(name: "tool-mid-turn-\(boundary.lowercased())") { hooks in
+            hooks.run("prompt-submit", hooks.prompt)
+            switch boundary {
+            case "SessionStart":
+                hooks.run("session-start", #"{"session_id":"\#(hooks.session)","hook_event_name":"SessionStart","source":"resume"}"#)
+            default:
+                hooks.run("notification", hooks.permissionPrompt)
+            }
+            #expect(hooks.turnSettled == false, "Only Stop settles a turn")
+            let afterBoundary = hooks.snapshot().count
+
+            hooks.run("pre-tool-use", hooks.helperTool)
+            #expect(hooks.lifecycle == "running")
+            #expect(statusLine(Array(hooks.snapshot().dropFirst(afterBoundary)), value: "Running") != nil,
+                    "A tool inside an unfinished turn must still show Running")
+        }
+    }
+
     @Test func stopWithRunningBackgroundTaskTagsPendingAndCaches() throws {
         let session = "bg-running-session"
         let stdin = #"""

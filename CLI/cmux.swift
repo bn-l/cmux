@@ -169,6 +169,12 @@ struct ClaudeHookSessionRecord: Codable {
     /// does not carry `background_tasks`, so the idle-reminder gate reads this.
     /// Optional so stores written before this field decode unchanged.
     var hadPendingBackgroundWorkAtStop: Bool?
+    /// True once a top-level turn has ended (Stop), and kept through later
+    /// helper hooks until the next UserPromptSubmit. A helper can run
+    /// PreToolUse after the parent's Stop; that tool belongs to the finished
+    /// turn and must not reopen the session as Running.
+    /// Optional so stores written before this field decode unchanged.
+    var turnSettled: Bool?
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -668,6 +674,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        turnSettled: Bool? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false
@@ -717,6 +724,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
+                turnSettled: turnSettled,
                 now: now
             )
             state.sessions[normalized] = record
@@ -1088,6 +1096,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        turnSettled: Bool? = nil,
         now: TimeInterval
     ) {
         record.workspaceId = workspaceId
@@ -1138,6 +1147,9 @@ final class ClaudeHookSessionStore {
         }
         if let hadPendingBackgroundWorkAtStop {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
+        }
+        if let turnSettled {
+            record.turnSettled = turnSettled
         }
         record.updatedAt = now
     }
@@ -21723,6 +21735,7 @@ struct CMUXCLI {
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
+                        turnSettled: true,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
@@ -21872,6 +21885,10 @@ struct CMUXCLI {
                     launchCommand: firstSightingLaunchCommand,
                     isRestorable: true,
                     agentLifecycle: .running,
+                    // UserPromptSubmit starts a new parent turn and lifts the
+                    // settled-turn fence that keeps helper tools from reopening
+                    // the previous one.
+                    turnSettled: false,
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
@@ -22278,6 +22295,15 @@ struct CMUXCLI {
             )
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            // A helper can run PreToolUse after the parent turn's Stop. That tool
+            // belongs to the finished turn, so it must not reopen the session as
+            // Running. A new parent turn always passes UserPromptSubmit first,
+            // which lifts this fence.
+            guard mappedSession?.turnSettled != true else {
+                telemetry.breadcrumb("claude-hook.pre-tool-use.after-stop")
+                print("OK")
+                return
+            }
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
