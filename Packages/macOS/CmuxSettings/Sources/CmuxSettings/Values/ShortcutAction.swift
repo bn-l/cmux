@@ -32,7 +32,6 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case commandPalette
     case commandPaletteNext
     case commandPalettePrevious
-    case sendFeedback
     case showNotifications
     case jumpToUnread
     /// Focuses the surface where the user last submitted an agent prompt.
@@ -178,7 +177,7 @@ extension ShortcutAction {
              .newWindow, .closeWindow, .toggleFullScreen, .quit:
             return .app
         case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
-             .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
+             .commandPalette, .commandPaletteNext, .commandPalettePrevious,
              .showNotifications, .jumpToUnread, .jumpToLastPrompt, .toggleUnread, .markOldestUnreadAndJumpNext,
              .triggerFlash, .reopenClosedWorkspace:
             return .workspace
@@ -318,7 +317,6 @@ extension ShortcutAction {
         case .commandPalette: return "Command Palette…"
         case .commandPaletteNext: return "Command Palette: Next"
         case .commandPalettePrevious: return "Command Palette: Previous"
-        case .sendFeedback: return "Send Feedback"
         case .showNotifications: return "Show Notifications"
         case .jumpToUnread: return "Jump to Latest Unread"
         case .jumpToLastPrompt: return "Jump to Last Prompt"

@@ -104,11 +104,6 @@ final class HostSettingsActions: SettingsHostActions {
         PreferredEditorService(defaults: .standard).open(configFileURL)
     }
 
-    func sendFeedback() {
-        guard let url = URL(string: "https://github.com/manaflow-ai/cmux/issues/new") else { return }
-        NSWorkspace.shared.open(url)
-    }
-
     func sendTestNotification() {
         TerminalNotificationStore.shared.sendSettingsTestNotification()
     }

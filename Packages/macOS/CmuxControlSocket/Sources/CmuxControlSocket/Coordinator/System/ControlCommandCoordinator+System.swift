@@ -1,7 +1,7 @@
 internal import Foundation
 
 /// The system/misc domain (`system.identify`, `system.tree`, `auth.login`,
-/// `session.restore_previous`, `settings.open`, `feedback.open`,
+/// `session.restore_previous`, `settings.open`,
 /// `extension.sidebar.snapshot`, `workspace.action`, `surface.action` /
 /// `tab.action`, and `surface.drag_to_split` / `surface.split_off`), lifted
 /// byte-faithfully from the former `TerminalController` bodies.
@@ -31,8 +31,6 @@ extension ControlCommandCoordinator {
             return sessionRestorePrevious()
         case "settings.open":
             return settingsOpen(request.params)
-        case "feedback.open":
-            return feedbackOpen(request.params)
         case "extension.sidebar.snapshot":
             return extensionSidebarSnapshot(request.params)
         case "workspace.action":

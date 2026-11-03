@@ -3241,16 +3241,6 @@ struct CMUXCLI {
             return
         }
 
-        if command == "feedback" {
-            try runFeedback(
-                commandArgs: commandArgs,
-                socketPath: resolvedSocketPath,
-                explicitPassword: socketPasswordArg,
-                jsonOutput: jsonOutput
-            )
-            return
-        }
-
         if command == "themes" {
             try runThemes(
                 commandArgs: commandArgs,
@@ -5112,68 +5102,6 @@ struct CMUXCLI {
 
     private func appLaunchTarget() -> String {
         CLIExecutableLocator.enclosingAppBundle()?.bundleURL.path ?? "cmux"
-    }
-
-    private func runFeedback(
-        commandArgs: [String],
-        socketPath: String,
-        explicitPassword: String?,
-        jsonOutput: Bool
-    ) throws {
-        let (emailOpt, rem0) = parseOption(commandArgs, name: "--email")
-        let (bodyOpt, rem1) = parseOption(rem0, name: "--body")
-        let (imagePaths, rem2) = parseRepeatedOption(rem1, name: "--image")
-        let remaining = rem2.filter { $0 != "--" }
-
-        if let unknown = remaining.first {
-            throw CLIError(message: "feedback: unknown flag '\(unknown)'. Known flags: --email <email>, --body <text>, --image <path>")
-        }
-
-        let client = try connectClient(
-            socketPath: socketPath,
-            explicitPassword: explicitPassword,
-            launchIfNeeded: true
-        )
-        defer { client.close() }
-
-        if emailOpt == nil && bodyOpt == nil && imagePaths.isEmpty {
-            var params: [String: Any] = [:]
-            let env = ProcessInfo.processInfo.environment
-            if let workspaceId = env["CMUX_WORKSPACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !workspaceId.isEmpty {
-                params["workspace_id"] = workspaceId
-                params["activate"] = false
-            } else {
-                params["activate"] = true
-            }
-            let response = try client.sendV2(method: "feedback.open", params: params)
-            if jsonOutput {
-                print(jsonString(response))
-            } else {
-                print("OK")
-            }
-            return
-        }
-
-        guard let email = emailOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
-              email.isEmpty == false else {
-            throw CLIError(message: "feedback requires --email <email> when sending feedback")
-        }
-        guard let body = bodyOpt, body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
-            throw CLIError(message: "feedback requires --body <text> when sending feedback")
-        }
-
-        let resolvedImages = imagePaths.map(resolvePath)
-        let response = try client.sendV2(method: "feedback.submit", params: [
-            "email": email,
-            "body": body,
-            "image_paths": resolvedImages,
-        ])
-        if jsonOutput {
-            print(jsonString(response))
-        } else {
-            print("OK")
-        }
     }
 
     private func runRestoreSession(
@@ -12746,24 +12674,6 @@ struct CMUXCLI {
             If the app is not running, this launches cmux and lets startup restore reopen the saved session.
             """
         case "sessions", "session-debug": return sessionsUsage()
-        case "feedback":
-            return """
-            Usage: cmux feedback
-                   cmux feedback --email <email> --body <text> [--image <path> ...]
-
-            Without args, open the Send Feedback modal in the running app.
-
-            With args, submit feedback through the app using the same feedback pipeline as the modal.
-
-            Flags:
-              --email <email>   Contact email for follow-up
-              --body <text>     Feedback body
-              --image <path>    Attach an image file, repeat for multiple images
-
-            Coding agents:
-              Double check with the end user before sending anything. Review the message and attachments for secrets,
-              private code, credentials, tokens, and other sensitive information first.
-            """
         case "hooks":
             return """
             Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
@@ -29633,7 +29543,6 @@ export default CMUXSessionRestore;
         print()
         print("  \(subdued)Run \(reset)\(bold)cmux --help\(reset)\(subdued) for all commands.\(reset)")
         print("  \(subdued)Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to edit shortcuts.\(reset)")
-        print("  \(subdued)Run \(reset)\(bold)cmux feedback\(reset)\(subdued) to report a bug.\(reset)")
         print()
     }
 
@@ -29940,7 +29849,6 @@ export default CMUXSessionRestore;
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
-          feedback [--email <email> --body <text> [--image <path> ...]]
           themes [list|set|clear]
           claude-teams [claude-args...]
           codex-teams [codex-args...]

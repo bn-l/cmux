@@ -25,10 +25,6 @@ public protocol SettingsHostActions: AnyObject {
     /// editor.
     func openConfigInExternalEditor()
 
-    /// Launches the host's feedback flow (typically a "Send Feedback"
-    /// URL or in-app form).
-    func sendFeedback()
-
     /// Posts a synthetic test notification so the user can confirm
     /// the configured sound + behavior.
     func sendTestNotification()
@@ -263,7 +259,6 @@ public final class NoopSettingsHostActions: SettingsHostActions {
     public init() {}
     public func clearBrowserHistory() {}
     public func openConfigInExternalEditor() {}
-    public func sendFeedback() {}
     public func sendTestNotification() {}
     public func openSystemNotificationSettings() {}
     public func restartApp() {}

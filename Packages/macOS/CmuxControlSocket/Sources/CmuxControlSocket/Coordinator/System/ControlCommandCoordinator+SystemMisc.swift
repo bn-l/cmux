@@ -1,7 +1,7 @@
 internal import Foundation
 
 /// The small system-domain bodies: `auth.login`, `session.restore_previous`,
-/// `settings.open`, `feedback.open`, `extension.sidebar.snapshot`, and the
+/// `settings.open`, `extension.sidebar.snapshot`, and the
 /// `surface.split_off` / `surface.drag_to_split` bridge.
 extension ControlCommandCoordinator {
     /// `auth.login` — the main-actor login acknowledgement (always ok; the
@@ -58,16 +58,6 @@ extension ControlCommandCoordinator {
                 data: .object(["target": orNull(targetRaw)])
             )
         }
-    }
-
-    /// `feedback.open` — open the feedback composer (always ok).
-    func feedbackOpen(_ params: [String: JSONValue]) -> ControlCallResult {
-        systemContext?.controlFeedbackOpen(
-            workspaceID: uuid(params, "workspace_id"),
-            windowID: uuid(params, "window_id"),
-            requestedActivate: bool(params, "activate") ?? false
-        )
-        return .ok(.object(["opened": .bool(true)]))
     }
 
     /// `extension.sidebar.snapshot` — the sidebar extension's workspace feed.

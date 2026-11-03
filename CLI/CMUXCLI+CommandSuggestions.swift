@@ -95,7 +95,6 @@ extension CMUXCLI {
         "drag-surface-to-split",
         "enable-browser",
         "events",
-        "feedback",
         "feed-hook",
         "find-window",
         "focus-pane",

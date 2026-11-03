@@ -9,7 +9,6 @@ final class MainWindowVisibilityController {
         case applicationWillBecomeActive
         case applicationReopen
         case ensureInitialWindow
-        case feedback
         case findShortcut
         case focusMainWindow
         case globalHotkey

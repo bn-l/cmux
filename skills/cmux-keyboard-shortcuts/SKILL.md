@@ -77,7 +77,7 @@ fi
    ```bash
    "$CMUX_SETTINGS" set shortcuts.bindings.newSurface '["ctrl+b","c"]'
    "$CMUX_SETTINGS" set shortcuts.bindings.focusLeft cmd+opt+h
-   "$CMUX_SETTINGS" set shortcuts.bindings.sendFeedback null
+   "$CMUX_SETTINGS" set shortcuts.bindings.triggerFlash null
    "$CMUX_SETTINGS" validate
    ```
 
@@ -200,7 +200,6 @@ For users who want fewer app-level shortcuts. Prefer unbinding only the actions 
 "$CMUX_SETTINGS" set shortcuts.bindings.renameWorkspace null
 "$CMUX_SETTINGS" set shortcuts.bindings.editWorkspaceDescription null
 "$CMUX_SETTINGS" set shortcuts.bindings.triggerFlash null
-"$CMUX_SETTINGS" set shortcuts.bindings.sendFeedback null
 ```
 
 ## Rules

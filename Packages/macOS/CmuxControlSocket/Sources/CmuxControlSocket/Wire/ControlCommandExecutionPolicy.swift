@@ -76,7 +76,6 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "auth.sign_in_url",
         "auth.begin_sign_in",
         "auth.sign_out",
-        "feedback.submit",
         "feed.push",
         "browser.download.wait",
         "browser.profiles.list",

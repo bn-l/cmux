@@ -20,7 +20,6 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.toggleFullScreen`
 - `shortcuts.bindings.quit`
 - `shortcuts.bindings.openFolder`
-- `shortcuts.bindings.sendFeedback`
 
 ## Tabs
 

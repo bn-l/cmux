@@ -15,7 +15,6 @@ final class CountingMobilePairingHostActions: SettingsHostActions {
 
     func clearBrowserHistory() {}
     func openConfigInExternalEditor() {}
-    func sendFeedback() {}
     func sendTestNotification() {}
     func openSystemNotificationSettings() {}
     func restartApp() {}

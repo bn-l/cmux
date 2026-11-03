@@ -186794,35 +186794,6 @@
         }
       }
     },
-    "sidebar.help.sendFeedback": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send Feedback"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィードバックを送信"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "피드백 보내기"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Надіслати відгук"
-          }
-        }
-      }
-    },
     "sidebar.help.welcome": {
       "extractionState": "manual",
       "localizations": {
@@ -194637,57 +194608,6 @@
         }
       }
     },
-    "statusMenu.profiling.archiveReadyFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attachment: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添付ファイル: %@"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.attachmentReadyFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d profiling files will be zipped and attached."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d個のプロファイルファイルをzip化して添付します。"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.attachmentWaiting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attachment will be ready after capture."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャプチャ後に添付ファイルを準備します。"
-          }
-        }
-      }
-    },
     "statusMenu.profiling.bodyFormat": {
       "extractionState": "manual",
       "localizations": {
@@ -194786,74 +194706,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "メール下書きを開きました。"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.emailFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The email could not be sent."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メールを送信できませんでした。"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.emailLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your email"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メールアドレス"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.emailPlaceholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "you@example.com"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "you@example.com"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.emailSent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Email sent."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メールを送信しました。"
           }
         }
       }
@@ -194977,23 +194829,6 @@
         }
       }
     },
-    "statusMenu.profiling.invalidEmail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enter a valid email address so we can follow up."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "返信できるように有効なメールアドレスを入力してください。"
-          }
-        }
-      }
-    },
     "statusMenu.profiling.launchFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -195007,23 +194842,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "プロファイリングを開始できません。"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.noteLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anything else we should know?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "補足情報"
           }
         }
       }
@@ -195096,74 +194914,6 @@
         }
       }
     },
-    "statusMenu.profiling.packageFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not package the attachment."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添付ファイルをパッケージ化できませんでした。"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.packageReady": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attachment is ready to preview."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添付ファイルをプレビューできます。"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.packagingAttachment": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Packaging..."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パッケージ化中..."
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.packagingAttachmentStatus": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Creating the zip attachment for preview."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プレビュー用のzip添付ファイルを作成しています。"
-          }
-        }
-      }
-    },
     "statusMenu.profiling.permissionExplanation": {
       "extractionState": "manual",
       "localizations": {
@@ -195198,108 +194948,6 @@
         }
       }
     },
-    "statusMenu.profiling.previewArchiveNote": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The email includes a zip with traces, logs, summary.md, and system-info.txt."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メールにはトレース、ログ、summary.md、system-info.txtを含むzipが添付されます。"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.previewAttachment": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preview Attachment"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添付ファイルをプレビュー"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.previewAttachmentFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attachment: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添付ファイル: %@"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.previewEmailFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your email: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メールアドレス: %@"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.previewLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attachment preview"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添付ファイルのプレビュー"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.previewRecipient": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recipient: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "宛先: %@"
-          }
-        }
-      }
-    },
     "statusMenu.profiling.previewSummaryHeader": {
       "extractionState": "manual",
       "localizations": {
@@ -195320,33 +194968,124 @@
     "statusMenu.profiling.previewWaiting": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيظهر مجلد الالتقاط هنا بعد أن يكتبه أداة التحليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder snimka pojavit će se ovdje nakon što ga profiler zapiše."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optagelsesmappen vises her, når profileren har skrevet den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Aufnahmeordner erscheint hier, sobald der Profiler ihn geschrieben hat."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The attachment preview will appear after the profiler writes the capture folder."
+            "value": "The capture folder will appear here after the profiler writes it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carpeta de la captura aparecerá aquí cuando el perfilador la escriba."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le dossier de capture apparaîtra ici une fois écrit par le profileur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cartella di acquisizione apparirà qui dopo che il profiler l’avrà scritta."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロファイラがキャプチャフォルダを書き出すと、添付ファイルのプレビューが表示されます。"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.readyToReview": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Review the attachment, add context, then send the email."
+            "value": "プロファイラがキャプチャフォルダを書き込むと、ここに表示されます。"
           }
         },
-        "ja": {
+        "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "添付ファイルを確認し、補足情報を追加してからメールを送信してください。"
+            "value": "ថតនៃការថតនឹងបង្ហាញនៅទីនេះ បន្ទាប់ពីកម្មវិធីវិភាគសរសេរវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일러가 캡처 폴더를 기록하면 여기에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opptaksmappen vises her når profileringsverktøyet har skrevet den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder przechwytywania pojawi się tutaj, gdy profiler go zapisze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pasta da captura aparecerá aqui depois que o profiler a gravar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папка записи появится здесь, когда профилировщик её создаст."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟลเดอร์การบันทึกจะปรากฏที่นี่หลังจากตัวโปรไฟล์เขียนเสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kayıt klasörü, profil oluşturucu onu yazdıktan sonra burada görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тека запису з’явиться тут, коли профайлер її запише."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分析器写入捕获文件夹后，它会显示在这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分析器寫入擷取資料夾後，會顯示在這裡。"
           }
         }
       }
@@ -195364,23 +195103,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "残り約%d秒"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.reviewTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send a cmux profile"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmuxプロファイルを送信"
           }
         }
       }
@@ -195419,57 +195141,6 @@
         }
       }
     },
-    "statusMenu.profiling.sendEmail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send Email"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メールを送信"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.sendingEmail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sending..."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "送信中..."
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.sendingEmailStatus": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Packaging the profile and sending the email through Mail."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プロファイルをパッケージ化し、Mailからメールを送信しています。"
-          }
-        }
-      }
-    },
     "statusMenu.profiling.starting": {
       "extractionState": "manual",
       "localizations": {
@@ -195483,74 +195154,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Instrumentsを起動中..."
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.submitLaunchFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unable to send the email."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メールを送信できません。"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.submitTimedOut": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mail did not finish in time. Stopping the send helper so you can retry."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mailが時間内に完了しませんでした。再試行できるよう送信ヘルパーを停止しています。"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.submitTimedOutRetry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The Mail helper timed out and was stopped. You can try again."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mailヘルパーがタイムアウトしたため停止しました。もう一度試せます。"
-          }
-        }
-      }
-    },
-    "statusMenu.profiling.submitterMissing": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The bundled profile submission helper is missing."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "同梱のプロファイル送信ヘルパーが見つかりません。"
           }
         }
       }
@@ -226318,6 +225921,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ghostty 設定錯誤"
+          }
+        }
+      }
+    },
+    "statusMenu.profiling.captureContentsLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجلد الالتقاط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder snimka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optagelsesmappe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufnahmeordner"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture folder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carpeta de la captura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dossier de capture"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartella di acquisizione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャプチャフォルダ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតនៃការថត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캡처 폴더"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opptaksmappe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder przechwytywania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasta da captura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папка записи"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟลเดอร์การบันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kayıt klasörü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тека запису"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擷取資料夾"
+          }
+        }
+      }
+    },
+    "statusMenu.profiling.savedLocally": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم حفظ الالتقاط على جهاز Mac هذا. لم يُرسل أي شيء إلى أي مكان."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimak je sačuvan na ovom Macu. Ništa nije nigdje poslano."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optagelsen er gemt på denne Mac. Intet blev sendt nogen steder hen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aufnahme ist auf diesem Mac gespeichert. Es wurde nichts gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The capture is saved on this Mac. Nothing was sent anywhere."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La captura se guardó en este Mac. No se envió nada a ningún sitio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La capture est enregistrée sur ce Mac. Rien n’a été envoyé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’acquisizione è salvata su questo Mac. Non è stato inviato nulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャプチャはこのMacに保存されました。どこにも送信されていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការថតត្រូវបានរក្សាទុកនៅលើ Mac នេះ។ គ្មានអ្វីត្រូវបានផ្ញើទៅកន្លែងណាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캡처가 이 Mac에 저장되었습니다. 아무 데도 전송되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opptaket er lagret på denne Macen. Ingenting ble sendt noe sted."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przechwycenie zapisano na tym Macu. Nic nie zostało nigdzie wysłane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A captura foi salva neste Mac. Nada foi enviado para lugar nenhum."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запись сохранена на этом Mac. Ничего никуда не отправлено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกการบันทึกไว้ใน Mac เครื่องนี้แล้ว ไม่มีการส่งข้อมูลไปที่ใด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kayıt bu Mac’e kaydedildi. Hiçbir yere bir şey gönderilmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запис збережено на цьому Mac. Нічого нікуди не надіслано."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获已保存在这台 Mac 上，没有发送到任何地方。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擷取已儲存在這部 Mac 上，沒有傳送到任何地方。"
           }
         }
       }

@@ -1222,8 +1222,6 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
-        case "feedback.submit":
-            return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
             return v2Result(id: request.id, v2FeedPush(params: request.params))
         case "browser.download.wait":
@@ -2151,8 +2149,8 @@ class TerminalController {
         case "workspace.set_auto_title":
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
 
-        // Settings/session/feedback: session.restore_previous, settings.open, and
-        // feedback.open handled by ControlCommandCoordinator.
+        // Settings/session: session.restore_previous and settings.open are
+        // handled by ControlCommandCoordinator.
 
         case "sidebar.custom.open":
             return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
@@ -2331,8 +2329,6 @@ class TerminalController {
             "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.pane_grids",
             "session.restore_previous",
             "settings.open",
-            "feedback.open",
-            "feedback.submit",
             "feed.push",
             "surface.list",
             "surface.current",
@@ -5445,17 +5441,6 @@ class TerminalController {
             terminalPanel: terminalPanel,
             includeScrollback: includeScrollback,
             lineLimit: lineLimit
-        )
-    }
-
-    private nonisolated func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
-        // The feedback composer and its submission endpoint were removed from
-        // this fork. The `feedback.submit` verb stays registered for socket
-        // protocol stability but no longer forwards anything off-device.
-        .err(
-            code: "unsupported",
-            message: "Feedback submission was removed from this build",
-            data: nil
         )
     }
 
