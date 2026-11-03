@@ -70,6 +70,13 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "paneFirstClickFocus.enabled"
     )
 
+    /// Number of points moved by each keyboard pane-resize step.
+    public let paneResizeStepPixels = DefaultsKey<Int>(
+        id: "app.paneResizeStepPixels",
+        defaultValue: PaneResizeStepSettings.defaultPixels,
+        userDefaultsKey: PaneResizeStepSettings.key
+    )
+
     /// Whether creating a split rebalances the panes along the new split's
     /// axis so they share the space evenly. Defaults to off, which keeps the
     /// halve-the-source-pane behavior.

@@ -387,6 +387,7 @@ extension CmuxSettingsFileStore {
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",
+        "app.paneResizeStepPixels",
         "app.equalizeSplitsOnCreate",
         "app.equalizeSplitsOnDividerDoubleClick",
         "app.preferredEditor",

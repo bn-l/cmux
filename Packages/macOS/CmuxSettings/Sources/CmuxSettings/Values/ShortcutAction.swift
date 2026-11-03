@@ -90,6 +90,14 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case splitDown
     case toggleSplitZoom
     case equalizeSplits
+    /// Moves the focused pane's controlling divider left by one resize step.
+    case resizePaneLeft = "resize-pane-left"
+    /// Moves the focused pane's controlling divider right by one resize step.
+    case resizePaneRight = "resize-pane-right"
+    /// Moves the focused pane's controlling divider up by one resize step.
+    case resizePaneUp = "resize-pane-up"
+    /// Moves the focused pane's controlling divider down by one resize step.
+    case resizePaneDown = "resize-pane-down"
     case splitBrowserRight
     case splitBrowserDown
     case toggleRightSidebar = "toggleFileExplorer"
@@ -196,7 +204,8 @@ extension ShortcutAction {
              .clearScreenKeepScrollback:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
-             .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
+             .toggleSplitZoom, .equalizeSplits, .resizePaneLeft, .resizePaneRight,
+             .resizePaneUp, .resizePaneDown, .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
@@ -404,6 +413,10 @@ extension ShortcutAction {
         case .splitDown: return "Split Down"
         case .toggleSplitZoom: return "Toggle Pane Zoom"
         case .equalizeSplits: return "Equalize Splits"
+        case .resizePaneLeft: return "Resize Pane Left"
+        case .resizePaneRight: return "Resize Pane Right"
+        case .resizePaneUp: return "Resize Pane Up"
+        case .resizePaneDown: return "Resize Pane Down"
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
         case .toggleRightSidebar: return "Toggle Right Sidebar"

@@ -7396,6 +7396,17 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
             )
         )
+        for (commandId, action, directionKeyword, _) in Self.paneResizePaletteCommands {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: commandId,
+                    title: constant(action.label),
+                    subtitle: workspaceSubtitle,
+                    keywords: ["split", "pane", "resize", "divider", directionKeyword],
+                    when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
+                )
+            )
+        }
 
         let cmuxConfigDefaultSubtitle = String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
         for issue in cmuxConfigStore.configurationIssues {
@@ -8077,6 +8088,13 @@ struct ContentView: View {
 #if DEBUG
                 cmuxDebugLog("palette.equalizeSplits result=noSplitOrFailed workspaceId=\(workspace.id)")
 #endif
+            }
+        }
+        for (commandId, _, _, direction) in Self.paneResizePaletteCommands {
+            registry.register(commandId: commandId) {
+                if !tabManager.resizeFocusedPane(direction: direction) {
+                    NSSound.beep()
+                }
             }
         }
 

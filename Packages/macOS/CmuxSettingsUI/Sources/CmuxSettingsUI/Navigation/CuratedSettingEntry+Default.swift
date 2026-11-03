@@ -39,6 +39,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "focus-pane-first-click", title: "Focus Pane on First Click", synonyms: "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),
             .init(section: .app, id: "equalize-splits-on-create", title: "Equalize Splits on Create", synonyms: "app.equalizeSplitsOnCreate equalize balance distribute even equal split pane size new split"),
             .init(section: .app, id: "equalize-splits-on-divider-double-click", title: "Equalize Splits on Divider Double-Click", synonyms: "app.equalizeSplitsOnDividerDoubleClick equalize balance distribute even equal split pane size divider double click row column"),
+            .init(section: .app, id: "pane-resize-step", title: "Pane Resize Step", synonyms: "app.paneResizeStepPixels resize pane split divider step pixels keyboard ctrl shift h j k l"),
             .init(section: .app, id: "file-drops", title: "File Drops", synonyms: "drag drop files finder path text terminal editor split preview shift"),
             .init(section: .app, id: "preferred-editor", title: "Open Files With", synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
             .init(section: .app, id: "supported-file-previews", title: "Open Supported Files in cmux", synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),

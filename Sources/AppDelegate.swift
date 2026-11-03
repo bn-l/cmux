@@ -13540,6 +13540,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
+        for (action, direction) in [
+            (KeyboardShortcutSettings.Action.resizePaneLeft, ResizeDirection.left),
+            (.resizePaneRight, .right),
+            (.resizePaneUp, .up),
+            (.resizePaneDown, .down),
+        ] where matchConfiguredShortcut(event: event, action: action) {
+            // Key repeat resizes continuously while the shortcut is held.
+            if !performResizePaneShortcut(direction: direction, preferredWindow: mainWindowForShortcutEvent(event)) {
+                NSSound.beep()
+            }
+            return true
+        }
         // Canvas layout actions share one executor with the palette, View
         // menu, and the canvas.* socket verbs.
         for action in KeyboardShortcutSettings.Action.canvasActions {

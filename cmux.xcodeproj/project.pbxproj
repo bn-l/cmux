@@ -55,6 +55,7 @@
 		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
 		D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */; };
 		C1A0E5C00000000000000011 /* ClaudeConfigDirectorySaveCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C00000000000000012 /* ClaudeConfigDirectorySaveCaptureTests.swift */; };
+		C1A0E5C0000000000000001D /* PaneResizeShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C0000000000000001E /* PaneResizeShortcutTests.swift */; };
 		C1A0E5C0000000000000001B /* DividerDoubleClickEqualizeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C0000000000000001C /* DividerDoubleClickEqualizeTests.swift */; };
 		C1A0E5C00000000000000019 /* JumpToLastPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C0000000000000001A /* JumpToLastPromptTests.swift */; };
 		C1A0E5C00000000000000015 /* FocusLastToggleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0E5C00000000000000016 /* FocusLastToggleTests.swift */; };
@@ -1763,6 +1764,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
 		D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSwiftTests.swift; sourceTree = "<group>"; };
 		C1A0E5C00000000000000012 /* ClaudeConfigDirectorySaveCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeConfigDirectorySaveCaptureTests.swift; sourceTree = "<group>"; };
+		C1A0E5C0000000000000001E /* PaneResizeShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneResizeShortcutTests.swift; sourceTree = "<group>"; };
 		C1A0E5C0000000000000001C /* DividerDoubleClickEqualizeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DividerDoubleClickEqualizeTests.swift; sourceTree = "<group>"; };
 		C1A0E5C0000000000000001A /* JumpToLastPromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToLastPromptTests.swift; sourceTree = "<group>"; };
 		C1A0E5C00000000000000016 /* FocusLastToggleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusLastToggleTests.swift; sourceTree = "<group>"; };
@@ -4619,6 +4621,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */,
 				D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */,
 				C1A0E5C00000000000000012 /* ClaudeConfigDirectorySaveCaptureTests.swift */,
+				C1A0E5C0000000000000001E /* PaneResizeShortcutTests.swift */,
 				C1A0E5C0000000000000001C /* DividerDoubleClickEqualizeTests.swift */,
 				C1A0E5C0000000000000001A /* JumpToLastPromptTests.swift */,
 				C1A0E5C00000000000000016 /* FocusLastToggleTests.swift */,
@@ -6588,6 +6591,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */,
 				D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */,
 				C1A0E5C00000000000000011 /* ClaudeConfigDirectorySaveCaptureTests.swift in Sources */,
+				C1A0E5C0000000000000001D /* PaneResizeShortcutTests.swift in Sources */,
 				C1A0E5C0000000000000001B /* DividerDoubleClickEqualizeTests.swift in Sources */,
 				C1A0E5C00000000000000019 /* JumpToLastPromptTests.swift in Sources */,
 				C1A0E5C00000000000000015 /* FocusLastToggleTests.swift in Sources */,

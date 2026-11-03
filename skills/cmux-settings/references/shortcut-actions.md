@@ -60,6 +60,10 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.splitDown`
 - `shortcuts.bindings.toggleSplitZoom`
 - `shortcuts.bindings.equalizeSplits`
+- `shortcuts.bindings.resize-pane-left` (default Ctrl+Shift+H)
+- `shortcuts.bindings.resize-pane-right` (default Ctrl+Shift+L)
+- `shortcuts.bindings.resize-pane-up` (default Ctrl+Shift+K)
+- `shortcuts.bindings.resize-pane-down` (default Ctrl+Shift+J)
 
 ## Canvas
 

@@ -17,6 +17,7 @@ General app preferences from Settings > App.
 | `app.minimalMode` | boolean | `false` | Hide the workspace title bar and move controls into the sidebar. |
 | `app.keepWorkspaceOpenWhenClosingLastSurface` | boolean | `false` | When true, closing the last surface keeps the workspace open. |
 | `app.focusPaneOnFirstClick` | boolean | `true` | When cmux is inactive, the first click can activate and focus the clicked pane. |
+| `app.paneResizeStepPixels` | integer | `20` | Points moved per keypress (including key repeat) by the Resize Pane Left/Right/Up/Down shortcuts, 1 to 200. Out-of-range values are rejected. |
 | `app.equalizeSplitsOnCreate` | boolean | `false` | When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from. An explicit divider position (e.g. `--ratio`) still wins. |
 | `app.equalizeSplitsOnDividerDoubleClick` | boolean | `true` | When true, double-clicking a split divider makes the panes in its row or column equal in size. Other rows and columns keep their sizes, and focus does not move. A double-click that turns into a drag resizes normally. |
 | `app.preferredEditor` | string | `""` | Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default. |

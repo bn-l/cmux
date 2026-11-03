@@ -1,3 +1,4 @@
+import CmuxPanes
 import AppKit
 import CmuxCommandPalette
 import CmuxSidebar
@@ -90,6 +91,14 @@ extension ContentView {
             return .toggleSplitZoom
         case "palette.equalizeSplits":
             return .equalizeSplits
+        case "palette.resizePaneLeft":
+            return .resizePaneLeft
+        case "palette.resizePaneRight":
+            return .resizePaneRight
+        case "palette.resizePaneUp":
+            return .resizePaneUp
+        case "palette.resizePaneDown":
+            return .resizePaneDown
         case "palette.triggerFlash":
             return .triggerFlash
         default:
@@ -246,4 +255,19 @@ extension ContentView {
         return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
     }
 
+}
+
+extension ContentView {
+    /// Command palette entries for the pane-resize steps (upstream manaflow-ai/cmux#4025).
+    static let paneResizePaletteCommands: [(
+        commandId: String,
+        action: KeyboardShortcutSettings.Action,
+        keyword: String,
+        direction: ResizeDirection
+    )] = [
+        ("palette.resizePaneLeft", .resizePaneLeft, "left", .left),
+        ("palette.resizePaneRight", .resizePaneRight, "right", .right),
+        ("palette.resizePaneUp", .resizePaneUp, "up", .up),
+        ("palette.resizePaneDown", .resizePaneDown, "down", .down),
+    ]
 }

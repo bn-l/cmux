@@ -41,6 +41,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.equalizeSplitsOnCreate",
         "app.equalizeSplitsOnDividerDoubleClick",
         "app.focusPaneOnFirstClick",
+        "app.paneResizeStepPixels",
         "app.globalFontMagnification",
         "app.hideTabCloseButton",
         "app.iMessageMode",

@@ -3875,13 +3875,34 @@ class TabManager: ObservableObject {
             return false
         }
 
-        return paneLayout.resizeSplit(
+        let didResize = paneLayout.resizeSplit(
             in: tab.bonsplitController.treeSnapshot(),
             targetPaneId: paneUUID.uuidString,
             direction: direction,
             amountPixels: amount,
             controller: tab.bonsplitController
         )
+        if didResize {
+            // Keep the cached layout snapshot and terminal geometry in sync for
+            // every divider mutation entry point (shortcut, palette, socket).
+            tab.didProgrammaticallyChangeSplitGeometry()
+        }
+        return didResize
+    }
+
+    /// Resizes the divider controlling the selected workspace's focused pane by
+    /// `app.paneResizeStepPixels`, read on every call so a changed step applies
+    /// to the next key repeat. Shared by the shortcut, View menu and palette.
+    @discardableResult
+    func resizeFocusedPane(direction: ResizeDirection) -> Bool {
+        guard let tab = selectedWorkspace,
+              let focusedPanelId = tab.focusedPanelId else { return false }
+        let amount = PaneResizeStepSettings(defaults: .standard).currentPixels()
+        let didResize = resizeSplit(tabId: tab.id, surfaceId: focusedPanelId, direction: direction, amount: amount)
+#if DEBUG
+        cmuxDebugLog("pane.resize direction=\(direction) amount=\(amount) result=\(didResize ? 1 : 0)")
+#endif
+        return didResize
     }
 
     /// Toggle zoom on a panel.

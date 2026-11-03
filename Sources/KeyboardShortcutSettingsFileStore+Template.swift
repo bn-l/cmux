@@ -68,6 +68,7 @@ extension CmuxSettingsFileStore {
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
+                    "paneResizeStepPixels": SettingCatalog().app.paneResizeStepPixels.defaultValue,
                     "equalizeSplitsOnCreate": SettingCatalog().app.equalizeSplitsOnCreate.defaultValue,
                     "equalizeSplitsOnDividerDoubleClick": SettingCatalog().app.equalizeSplitsOnDividerDoubleClick.defaultValue,
                     "preferredEditor": "",

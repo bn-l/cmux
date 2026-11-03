@@ -1,3 +1,5 @@
+import AppKit
+import CmuxPanes
 extension AppDelegate {
     func performEqualizeSplitsShortcut() {
         guard let tabManager, let workspace = tabManager.selectedWorkspace else {
@@ -29,5 +31,13 @@ extension AppDelegate {
             cmuxDebugLog("shortcut.action name=equalizeSplits result=noSplitOrFailed workspaceId=\(workspace.id)")
         }
 #endif
+    }
+
+    /// Runs one pane-resize step (upstream manaflow-ai/cmux#4025) in the
+    /// window the key event or menu targets. The palette calls
+    /// `TabManager.resizeFocusedPane(direction:)` on its own window directly.
+    @discardableResult
+    func performResizePaneShortcut(direction: ResizeDirection, preferredWindow: NSWindow? = nil) -> Bool {
+        activeTabManagerForCommands(preferredWindow: preferredWindow)?.resizeFocusedPane(direction: direction) ?? false
     }
 }

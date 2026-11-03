@@ -455,6 +455,14 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[SettingCatalog().app.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
         }
+        if section.keys.contains("paneResizeStepPixels") {
+            if let value = jsonInt(section["paneResizeStepPixels"]),
+               PaneResizeStepSettings.normalizedPixels(value) == value {
+                snapshot.managedUserDefaults[PaneResizeStepSettings.key] = .int(value)
+            } else {
+                logInvalid("app.paneResizeStepPixels", sourcePath: sourcePath)
+            }
+        }
         if let value = jsonInt(section["globalFontMagnification"]) {
             let clamped = GlobalFontMagnification.clamp(value)
             guard clamped == value else {
