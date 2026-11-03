@@ -627,8 +627,11 @@ final class CmuxSettingsFileStore {
         }
 
         if section.keys.contains("textBoxSubmitActions") {
-            if let data = try? JSONSerialization.data(
-                withJSONObject: section["textBoxSubmitActions"] as Any,
+            // JSONSerialization raises an uncatchable NSException for a scalar or
+            // null top-level value, so only an array reaches it.
+            if let rawActions = section["textBoxSubmitActions"] as? [Any],
+               let data = try? JSONSerialization.data(
+                withJSONObject: rawActions,
                 options: [.withoutEscapingSlashes]
             ),
                let actions = try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data), actions.allSatisfy(\.isValid),

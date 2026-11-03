@@ -112,6 +112,47 @@ struct TerminalScrollSpeedSettingsFileStoreTests {
         }
     }
 
+    @Test(
+        "a non-array terminal.textBoxSubmitActions is logged as invalid instead of crashing the load",
+        arguments: [#""claude""#, "42", "true", "null"]
+    )
+    func settingsFileStoreRejectsNonArrayTextBoxSubmitActions(rawValue: String) throws {
+        let defaults = UserDefaults.standard
+        let submitActionsKey = TerminalTextBoxInputSettings.submitActionsKey
+        let copyOnSelectKey = TerminalCopyOnSelectSettings.copyOnSelectKey
+        try preservingDefaults(keys: [
+            submitActionsKey,
+            copyOnSelectKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            // Arrange
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "terminal": {
+                "copyOnSelect": true,
+                "textBoxSubmitActions": \(rawValue)
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            // Act
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            // Assert: the bad value is dropped and the rest of the file still applies.
+            #expect(defaults.object(forKey: submitActionsKey) == nil)
+            #expect(defaults.object(forKey: copyOnSelectKey) as? Bool == true)
+        }
+    }
+
     private func preservingDefaults(keys: [String], _ body: () throws -> Void) throws {
         let defaults = UserDefaults.standard
         let saved = keys.map { ($0, defaults.object(forKey: $0)) }
