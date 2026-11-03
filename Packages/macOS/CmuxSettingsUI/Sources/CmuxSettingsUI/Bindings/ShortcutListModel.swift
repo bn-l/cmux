@@ -49,8 +49,10 @@ final class ShortcutListModel {
     func startObserving() {
         let bindingsKey = catalog.shortcuts.bindings
         let whenKey = catalog.shortcuts.when
+        // cmux.json may also hold hand-written string/array/null bindings that
+        // only the app target parses; read the object-form entries around them.
         bindingsDriver.activate(
-            { [jsonStore, bindingsKey] in jsonStore.values(for: bindingsKey) },
+            { [jsonStore, bindingsKey] in jsonStore.values(forDecodableEntriesOf: bindingsKey) },
             sink: { [weak self] dictionary in self?.ingestBindings(dictionary) }
         )
         whenDriver.activate(
@@ -288,14 +290,12 @@ final class ShortcutListModel {
             numberedDigitRejections.remove(action.rawValue)
             return
         }
-        var updated = latestBindings
-        updated[action.rawValue] = proposed
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
-        await write(updated)
+        await write(proposed, for: action)
     }
 
     /// Records a two-stroke chord for `action`, rejecting (without writing) an
@@ -327,15 +327,13 @@ final class ShortcutListModel {
             numberedDigitRejections.remove(action.rawValue)
             return
         }
-        var updated = latestBindings
-        updated[action.rawValue] = proposed
         chordModeActions.remove(action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
-        await write(updated)
+        await write(proposed, for: action)
     }
 
     /// For a numbered action, normalizes the digit stroke to the "1" placeholder;
@@ -379,49 +377,58 @@ final class ShortcutListModel {
 
     /// Persists an unbound binding for `action`.
     func clearBinding(for action: ShortcutAction) async {
-        var updated = latestBindings
-        updated[action.rawValue] = StoredShortcut.unbound
-        await write(updated)
+        await write(.unbound, for: action)
     }
 
     /// Persists `shortcut` for `action` and clears its rejection/restore state.
     func restoreBinding(_ shortcut: StoredShortcut, for action: ShortcutAction) async {
-        var updated = latestBindings
-        updated[action.rawValue] = shortcut
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
-        await write(updated)
+        await write(shortcut, for: action)
     }
 
     /// Clears every override and all in-memory rejection/restore state — the
-    /// "Reset Defaults" action.
+    /// "Reset Defaults" action. This is the one write that replaces the whole
+    /// `shortcuts.bindings` object, hand-written entries included.
     func resetAll() async {
         restoreShortcuts.removeAll()
         bareKeyRejections.removeAll()
         numberedDigitRejections.removeAll()
         conflictRejections.removeAll()
         rejectedConflictShortcuts.removeAll()
-        await write([:])
+        await write([:]) { try await jsonStore.set([:], for: catalog.shortcuts.bindings) }
     }
 
-    /// Persists `updated` to the bindings store, recording any failure to the
-    /// error log.
-    private func write(_ updated: [String: StoredShortcut]) async {
+    /// Persists `shortcut` as `action`'s own `shortcuts.bindings.<actionId>`
+    /// entry. Other entries stay on disk as they are, including hand-written
+    /// string/array/null bindings this package cannot decode; writing the
+    /// whole decoded dictionary would delete them.
+    private func write(_ shortcut: StoredShortcut, for action: ShortcutAction) async {
+        var updated = latestBindings
+        updated[action.rawValue] = shortcut
+        await write(updated) {
+            try await jsonStore.merge([action.rawValue: shortcut], into: catalog.shortcuts.bindings)
+        }
+    }
+
+    /// Shows `updated` optimistically while `persist` writes it, then rolls
+    /// back to the committed bindings and records the error if the write fails.
+    private func write(_ updated: [String: StoredShortcut], persist: () async throws -> Void) async {
         pendingWriteGeneration += 1
         let generation = pendingWriteGeneration
         pendingBindings = updated
         bindings = updated
         do {
-            try await jsonStore.set(updated, for: catalog.shortcuts.bindings)
+            try await persist()
             if pendingWriteGeneration == generation {
                 pendingBindings = nil
             }
         } catch {
             if pendingWriteGeneration == generation {
-                let committed = await jsonStore.value(for: catalog.shortcuts.bindings)
+                let committed = await jsonStore.value(forDecodableEntriesOf: catalog.shortcuts.bindings)
                 if pendingWriteGeneration == generation {
                     let changedActionIds = Set(bindings.keys).union(committed.keys)
                         .filter { bindings[$0] != committed[$0] }

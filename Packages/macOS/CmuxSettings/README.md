@@ -119,11 +119,22 @@ try Data(#"{"automation":{"socketPassword":"rotated"}}"#.utf8)
 ## Handling errors
 
 `UserDefaultsSettingsStore` reads and writes never throw (UserDefaults is
-fire-and-forget). `JSONConfigStore.set(_:for:)` and `reset(_:)` are
-`throws`: they propagate filesystem errors (permission denied, disk full).
-The store's in-memory cache is **only** updated after the disk write
-succeeds, so a failed write leaves subsequent reads consistent with what
-is actually on disk.
+fire-and-forget). `JSONConfigStore.set(_:for:)`, `merge(_:into:)` and
+`reset(_:)` are `throws`: they propagate filesystem errors (permission
+denied, disk full). The store's in-memory cache is **only** updated after
+the disk write succeeds, so a failed write leaves subsequent reads
+consistent with what is actually on disk.
+
+## Objects users also edit by hand
+
+A dictionary-valued `JSONKey` decodes all-or-nothing: one entry the value
+type cannot decode makes `value(for:)` return the key's default, and a
+read-modify-write through `set(_:for:)` then deletes every entry the read
+skipped. `shortcuts.bindings` is the real case: users write `"cmd+t"`,
+`["ctrl+b", "%"]` and `null` bindings that only the app target parses.
+For such objects, read with `value(forDecodableEntriesOf:)` /
+`values(forDecodableEntriesOf:)` and write with `merge(_:into:)`, which
+writes only the named entries and leaves the rest of the object untouched.
 
 ## Adding a new setting
 

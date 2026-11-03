@@ -21,7 +21,7 @@ func retouchingWriter(payload: String, fileURL: URL) -> Task<Void, Never> {
 }
 
 /// Awaits an observation task with timeout-backed cancellation.
-func observedValues(_ observed: Task<[String], Never>) async -> [String] {
+func observedValues<Value: Sendable>(_ observed: Task<Value, Never>) async -> Value {
     await withTimeout(seconds: 8) {
         await withTaskCancellationHandler {
             await observed.value

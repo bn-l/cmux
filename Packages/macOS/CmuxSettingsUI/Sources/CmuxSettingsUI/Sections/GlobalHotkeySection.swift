@@ -123,10 +123,14 @@ public struct GlobalHotkeySection: View {
         .padding(.vertical, 9)
     }
 
+    /// Writes only the hotkey's own `shortcuts.bindings` entry, so hand-written
+    /// bindings this package cannot decode stay in cmux.json.
     private func write(updating shortcut: StoredShortcut) async {
-        var updated = bindings
-        updated[hotkeyAction.rawValue] = shortcut
-        await write(updated)
+        do {
+            try await jsonStore.merge([hotkeyAction.rawValue: shortcut], into: catalog.shortcuts.bindings)
+        } catch {
+            errorLog.record(error, keyID: catalog.shortcuts.bindings.id)
+        }
     }
 
     private var currentShortcut: StoredShortcut? {
@@ -147,7 +151,7 @@ public struct GlobalHotkeySection: View {
     private func streamBindings() async {
         bindingsTask?.cancel()
         let task = Task {
-            for await dictionary in jsonStore.values(for: catalog.shortcuts.bindings) {
+            for await dictionary in jsonStore.values(forDecodableEntriesOf: catalog.shortcuts.bindings) {
                 if Task.isCancelled { break }
                 bindings = dictionary
             }
@@ -157,16 +161,6 @@ public struct GlobalHotkeySection: View {
     }
 
     private func assign(stroke: ShortcutStroke) async {
-        var updated = bindings
-        updated[hotkeyAction.rawValue] = StoredShortcut(first: stroke)
-        await write(updated)
-    }
-
-    private func write(_ updated: [String: StoredShortcut]) async {
-        do {
-            try await jsonStore.set(updated, for: catalog.shortcuts.bindings)
-        } catch {
-            errorLog.record(error, keyID: catalog.shortcuts.bindings.id)
-        }
+        await write(updating: StoredShortcut(first: stroke))
     }
 }

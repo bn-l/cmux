@@ -34,6 +34,19 @@ public struct JSONPath: Sendable, Hashable {
         self.components = segments
     }
 
+    private init(components: [String]) {
+        self.components = components
+    }
+
+    /// Returns this path extended by one literal component.
+    ///
+    /// `component` is not split on `"."`, so a dictionary entry key that
+    /// contains a dot still addresses exactly one entry of the object at this
+    /// path.
+    public func appending(_ component: String) -> JSONPath {
+        JSONPath(components: components + [component])
+    }
+
     /// Returns the value at this path inside ``root``, or `nil` when any
     /// segment is missing or has the wrong type.
     public func lookup(in root: [String: Any]) -> Any? {

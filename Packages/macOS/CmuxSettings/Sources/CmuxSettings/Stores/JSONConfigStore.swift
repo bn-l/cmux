@@ -93,6 +93,23 @@ public actor JSONConfigStore {
         return Value.decodeFromJSON(raw) ?? key.defaultValue
     }
 
+    /// Returns the entries of the dictionary-valued `key` that `Element` can
+    /// decode, skipping the rest.
+    ///
+    /// ``value(for:)`` decodes a dictionary all-or-nothing, so one entry in a
+    /// form `Element` does not understand (for example a hand-written
+    /// `"cmd+t"` shortcut binding, which only the app target parses) makes the
+    /// whole object read as the key's default. Use this read for objects whose
+    /// entries users may write in other valid forms, together with
+    /// ``merge(_:into:)`` for writes. Returns the key's default when the path
+    /// is absent or does not hold an object.
+    public func value<Element>(forDecodableEntriesOf key: JSONKey<[String: Element]>) -> [String: Element] {
+        guard let object = key.path.lookup(in: loadedRoot()) as? [String: Any] else {
+            return key.defaultValue
+        }
+        return object.compactMapValues { Element.decodeFromJSON($0) }
+    }
+
     /// Synchronously returns the current value for `key`, read directly from the
     /// config file without hopping onto the actor.
     ///
@@ -120,6 +137,24 @@ public actor JSONConfigStore {
         }
     }
 
+    /// Writes each of `entries` as its own entry of the dictionary-valued
+    /// `key`, in one file write.
+    ///
+    /// Entries not named in `entries` stay on disk exactly as they are,
+    /// including ones `Element` cannot decode. ``set(_:for:)`` instead
+    /// replaces the whole object with the dictionary it is given, so a
+    /// read-modify-write through ``value(for:)`` deletes every entry the read
+    /// could not decode. Creates the object (and the file) when missing.
+    ///
+    /// - Throws: Errors from `FileManager` or `JSONSerialization` writing the file.
+    public func merge<Element>(_ entries: [String: Element], into key: JSONKey<[String: Element]>) throws {
+        try mutateRoot { root in
+            for (entryKey, element) in entries {
+                key.path.appending(entryKey).assign(element.encodeForJSON(), in: &root)
+            }
+        }
+    }
+
     /// Removes the key's entry from the file. Parent objects that become
     /// empty are pruned. The file itself is not deleted even when no entries
     /// remain.
@@ -144,6 +179,23 @@ public actor JSONConfigStore {
     ///   of file events coalesce, since we only care that *something*
     ///   changed and re-read the typed value on each consumed signal.
     public nonisolated func values<Value>(for key: JSONKey<Value>) -> AsyncStream<Value> {
+        values { await $0.value(for: key) }
+    }
+
+    /// Returns an `AsyncStream` of ``value(forDecodableEntriesOf:)`` for
+    /// `key`, with the same delivery rules as ``values(for:)``.
+    public nonisolated func values<Element>(
+        forDecodableEntriesOf key: JSONKey<[String: Element]>
+    ) -> AsyncStream<[String: Element]> {
+        values { await $0.value(forDecodableEntriesOf: key) }
+    }
+
+    // MARK: - Private
+
+    /// Streams `read`'s result now and after every file change that alters it.
+    private nonisolated func values<Value: Sendable & Equatable>(
+        _ read: @escaping @Sendable (JSONConfigStore) async -> Value
+    ) -> AsyncStream<Value> {
         AsyncStream<Value> { continuation in
             let task = Task { [weak self] in
                 guard let self else {
@@ -151,7 +203,7 @@ public actor JSONConfigStore {
                     return
                 }
 
-                let initial = await self.value(for: key)
+                let initial = await read(self)
                 continuation.yield(initial)
 
                 let id = UUID()
@@ -168,7 +220,7 @@ public actor JSONConfigStore {
                 var last = initial
                 for await _ in signal {
                     if Task.isCancelled { break }
-                    let current = await self.value(for: key)
+                    let current = await read(self)
                     if current != last {
                         last = current
                         continuation.yield(current)
@@ -180,8 +232,6 @@ public actor JSONConfigStore {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
-
-    // MARK: - Private
 
     private func addSubscriber(id: UUID, continuation: AsyncStream<Void>.Continuation) {
         subscribers[id] = continuation
