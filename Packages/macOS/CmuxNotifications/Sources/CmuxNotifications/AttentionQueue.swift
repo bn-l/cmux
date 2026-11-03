@@ -121,18 +121,24 @@ public enum AttentionQueue {
     /// The entries to try, in order, for the next jump. When the focused panel is
     /// itself an entry the visit starts after it and wraps around, so repeated
     /// jumps cycle through agents that stay blocked; the focused entry is left
-    /// out. Otherwise the visit starts at the first entry.
+    /// out (the jump acknowledges its unread notification in place instead, see
+    /// ``focusedEntry(_:in:)``). Otherwise the visit starts at the first entry.
     public static func visitOrder(
         after focused: FocusedNotificationTarget?,
         in entries: [Entry]
     ) -> [Entry] {
-        guard let focused,
-              let index = entries.firstIndex(where: {
-                  $0.tabId == focused.tabId && $0.surfaceId == focused.surfaceId
-              }) else {
-            return entries
-        }
+        guard let index = focusedIndex(focused, in: entries) else { return entries }
         return Array(entries[(index + 1)...] + entries[..<index])
+    }
+
+    /// The entry for the panel the user is on, if that panel is in the queue.
+    public static func focusedEntry(_ focused: FocusedNotificationTarget?, in entries: [Entry]) -> Entry? {
+        focusedIndex(focused, in: entries).map { entries[$0] }
+    }
+
+    private static func focusedIndex(_ focused: FocusedNotificationTarget?, in entries: [Entry]) -> Int? {
+        guard let focused else { return nil }
+        return entries.firstIndex { $0.tabId == focused.tabId && $0.surfaceId == focused.surfaceId }
     }
 
     /// A deferral counts for a blocked agent only if it was made during the

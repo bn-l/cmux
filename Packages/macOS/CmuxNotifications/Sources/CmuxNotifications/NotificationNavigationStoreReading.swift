@@ -29,4 +29,9 @@ public protocol NotificationNavigationStoreReading: AnyObject {
 
     /// Marks the single notification read after a successful open.
     func markRead(id: UUID)
+
+    /// Marks every notification of one panel read and clears the panel's
+    /// focused-read ring, without touching manual unread marks: what clicking
+    /// the panel does to its notifications.
+    func markRead(forTabId tabId: UUID, surfaceId: UUID?)
 }

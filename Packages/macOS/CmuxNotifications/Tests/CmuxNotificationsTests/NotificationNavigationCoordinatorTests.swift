@@ -13,10 +13,14 @@ private final class FakeStore: NotificationNavigationStoreReading {
     var manualUnreadTabs: Set<UUID> = []
     var restoredUnreadTabs: Set<UUID> = []
     private(set) var markedReadIds: [UUID] = []
+    private(set) var markedReadPanels: [FocusedNotificationTarget] = []
 
     func hasManualUnread(forTabId tabId: UUID) -> Bool { manualUnreadTabs.contains(tabId) }
     func hasRestoredUnreadIndicator(forTabId tabId: UUID) -> Bool { restoredUnreadTabs.contains(tabId) }
     func markRead(id: UUID) { markedReadIds.append(id) }
+    func markRead(forTabId tabId: UUID, surfaceId: UUID?) {
+        markedReadPanels.append(FocusedNotificationTarget(tabId: tabId, surfaceId: surfaceId))
+    }
 }
 
 /// Scriptable agent lifecycle: the panels whose agent needs input.
@@ -325,6 +329,98 @@ struct NotificationNavigationCoordinatorTests {
         _ = coordinator.jumpToLatestUnread()
 
         #expect(openRouting.log == ["window(\(short(windowId)),tab=\(short(unreadTab)),surf=\(short(unreadPanel)),notif=nil,row=nil,total=nil)"])
+    }
+
+    @Test("the focused panel's unread notification is marked read in place and the jump opens the next entry")
+    func focusedUnreadIsAcknowledgedThenJumpMovesOn() {
+        let store = FakeStore()
+        let focused = FakeFocusedResolving()
+        let openRouting = FakeOpenRouting()
+        let hereTab = UUID(), herePanel = UUID(), elsewhereTab = UUID()
+        // The focused one is the oldest, so without the focus rule it would be opened first.
+        let here = snapshot(tabId: hereTab, surfaceId: herePanel, createdAt: Date(timeIntervalSince1970: 1))
+        let elsewhere = snapshot(tabId: elsewhereTab, surfaceId: UUID(), createdAt: Date(timeIntervalSince1970: 2))
+        store.orderedNotifications = [elsewhere, here]
+        focused.focusedTargetValue = FocusedNotificationTarget(tabId: hereTab, surfaceId: herePanel)
+        let coordinator = makeCoordinator(store: store, openRouting: openRouting, focusedResolving: focused)
+
+        let openedId = coordinator.jumpToLatestUnread()
+
+        #expect(store.markedReadPanels == [FocusedNotificationTarget(tabId: hereTab, surfaceId: herePanel)])
+        #expect(openedId == elsewhere.id)
+        #expect(openRouting.log == ["routed(tab=\(short(elsewhereTab)),surf=\(short(elsewhere.surfaceId)),notif=\(short(elsewhere.id)),row=nil,total=nil)"])
+    }
+
+    @Test("when only the focused panel is unread, the jump marks it read and goes nowhere")
+    func onlyFocusedUnreadIsAcknowledgedWithoutMoving() {
+        let store = FakeStore()
+        let focused = FakeFocusedResolving()
+        let openRouting = FakeOpenRouting()
+        let tab = UUID(), panel = UUID()
+        store.orderedNotifications = [snapshot(tabId: tab, surfaceId: panel)]
+        focused.focusedTargetValue = FocusedNotificationTarget(tabId: tab, surfaceId: panel)
+        let coordinator = makeCoordinator(store: store, openRouting: openRouting, focusedResolving: focused)
+
+        let openedId = coordinator.jumpToLatestUnread()
+
+        #expect(store.markedReadPanels == [FocusedNotificationTarget(tabId: tab, surfaceId: panel)])
+        #expect(openedId == nil)
+        #expect(openRouting.log.isEmpty, "The focused panel is not refocused or scrolled")
+    }
+
+    @Test("a focused blocked agent's unread notification is marked read and the jump moves on to the next agent")
+    func focusedBlockedAgentNotificationIsAcknowledged() {
+        let store = FakeStore()
+        let agents = FakeAgentAttention()
+        let focused = FakeFocusedResolving()
+        let openRouting = FakeOpenRouting()
+        let tab = UUID(), herePanel = UUID(), otherPanel = UUID()
+        store.orderedNotifications = [snapshot(tabId: tab, surfaceId: herePanel)]
+        agents.agentsNeedingInput = [
+            AgentNeedsInputSnapshot(tabId: tab, panelId: herePanel, since: Date(timeIntervalSince1970: 1)),
+            AgentNeedsInputSnapshot(tabId: tab, panelId: otherPanel, since: Date(timeIntervalSince1970: 2)),
+        ]
+        focused.focusedTargetValue = FocusedNotificationTarget(tabId: tab, surfaceId: herePanel)
+        let coordinator = makeCoordinator(store: store, agentAttention: agents, openRouting: openRouting, focusedResolving: focused)
+
+        _ = coordinator.jumpToLatestUnread()
+
+        #expect(store.markedReadPanels == [FocusedNotificationTarget(tabId: tab, surfaceId: herePanel)])
+        #expect(openRouting.log == ["routed(tab=\(short(tab)),surf=\(short(otherPanel)),notif=nil,row=nil,total=nil)"])
+    }
+
+    @Test("a focused blocked agent with no notification has nothing marked read")
+    func focusedBlockedAgentWithoutNotificationMarksNothing() {
+        let store = FakeStore()
+        let agents = FakeAgentAttention()
+        let focused = FakeFocusedResolving()
+        let tab = UUID(), panel = UUID()
+        agents.agentsNeedingInput = [AgentNeedsInputSnapshot(tabId: tab, panelId: panel, since: Date())]
+        focused.focusedTargetValue = FocusedNotificationTarget(tabId: tab, surfaceId: panel)
+        let coordinator = makeCoordinator(store: store, agentAttention: agents, focusedResolving: focused)
+
+        _ = coordinator.jumpToLatestUnread()
+
+        #expect(store.markedReadPanels.isEmpty)
+        #expect(store.markedReadIds.isEmpty)
+    }
+
+    @Test("sending the focused notification to the back keeps it unread: the excluded notification is never acknowledged")
+    func excludedFocusedNotificationStaysUnread() {
+        let store = FakeStore()
+        let focused = FakeFocusedResolving()
+        let openRouting = FakeOpenRouting()
+        let tab = UUID(), panel = UUID(), otherTab = UUID()
+        let deferred = snapshot(tabId: tab, surfaceId: panel, createdAt: Date(timeIntervalSince1970: 1))
+        let other = snapshot(tabId: otherTab, surfaceId: UUID(), createdAt: Date(timeIntervalSince1970: 2))
+        store.orderedNotifications = [other, deferred]
+        focused.focusedTargetValue = FocusedNotificationTarget(tabId: tab, surfaceId: panel)
+        let coordinator = makeCoordinator(store: store, openRouting: openRouting, focusedResolving: focused)
+
+        let openedId = coordinator.jumpToLatestUnread(excludingNotificationId: deferred.id)
+
+        #expect(store.markedReadPanels.isEmpty)
+        #expect(openedId == other.id)
     }
 
     @Test("an entry that fails to open is skipped and the next one is tried")

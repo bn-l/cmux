@@ -109,8 +109,10 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
 
     /// Opens the next thing that needs the user, in ``AttentionQueue`` order:
     /// agents that need input first, then unread notifications, oldest first,
-    /// moving past the focused panel when it is itself in the queue. Falls back
-    /// to workspaces carrying a manual/restored unread indicator.
+    /// moving past the focused panel when it is itself in the queue. The user is
+    /// already looking at the focused panel, so its unread notification is marked
+    /// read first, even when nothing else needs attention. Falls back to
+    /// workspaces carrying a manual/restored unread indicator.
     ///
     /// Returns the opened notification's id. For an agent that needs input but
     /// has no unread notification it returns that panel's latest notification,
@@ -129,6 +131,9 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             excludingWorkspaceId: excludedWorkspaceId
         )
         let focused = focusedResolving.focusedTarget(preferredWindowToken: nil)
+        if let acknowledged = AttentionQueue.focusedEntry(focused, in: queue)?.notification {
+            store.markRead(forTabId: acknowledged.tabId, surfaceId: acknowledged.surfaceId)
+        }
         for entry in AttentionQueue.visitOrder(after: focused, in: queue) {
             if let notification = entry.notification {
                 if openNotification(notification) {

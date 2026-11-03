@@ -189,6 +189,51 @@ struct AttentionJumpTests {
         #expect(visits == [done.workspace.id, laterBlocked.workspace.id, deferred.workspace.id])
     }
 
+    @Test("the jump marks the alert on the pane you are on read, ring included, then goes to the next one")
+    func jumpAcknowledgesFocusedPaneThenMovesOn() throws {
+        let fixture = AttentionJumpFixture()
+        defer { fixture.tearDown() }
+        let home = try fixture.workspace("Home", select: true)
+        let done = try fixture.workspace("Finished agent")
+        // The pane you are on finished first, so attention order alone would pick it.
+        let here = fixture.notification(for: home, createdAt: Date().addingTimeInterval(-600), isRead: false)
+        let elsewhere = fixture.notification(for: done, createdAt: Date().addingTimeInterval(-60), isRead: false)
+        fixture.store.replaceNotificationsForTesting([elsewhere, here])
+        // It arrived while you were on the pane, which also rings the pane.
+        fixture.store.setFocusedReadIndicator(forTabId: home.workspace.id, surfaceId: home.panelId)
+        try #require(fixture.focused.panelId == home.panelId, "The test needs the user on the alerting pane")
+
+        let opened = fixture.appDelegate.jumpToLatestUnread()
+
+        #expect(fixture.store.notifications.first { $0.id == here.id }?.isRead == true)
+        #expect(!fixture.store.hasVisibleNotificationIndicator(forTabId: home.workspace.id, surfaceId: home.panelId))
+        #expect(opened?.id == elsewhere.id)
+        #expect(fixture.focused.workspaceId == done.workspace.id)
+    }
+
+    @Test("with only the pane you are on unread, the jump marks it read and stays there")
+    func jumpAcknowledgesFocusedPaneWhenNothingElseNeedsAttention() throws {
+        let fixture = AttentionJumpFixture()
+        defer { fixture.tearDown() }
+        let home = try fixture.workspace("Home", select: true)
+        _ = try fixture.workspace("Idle agent")
+        let here = fixture.notification(for: home, createdAt: Date(), isRead: false)
+        fixture.store.replaceNotificationsForTesting([here])
+        fixture.store.setFocusedReadIndicator(forTabId: home.workspace.id, surfaceId: home.panelId)
+        try #require(fixture.focused.panelId == home.panelId, "The test needs the user on the alerting pane")
+
+        let opened = fixture.appDelegate.jumpToLatestUnread()
+
+        #expect(fixture.store.notifications.first { $0.id == here.id }?.isRead == true)
+        #expect(
+            !fixture.store.hasVisibleNotificationIndicator(forTabId: home.workspace.id, surfaceId: home.panelId),
+            "Only the jump can clear the ring here: focus never moved"
+        )
+        #expect(opened == nil)
+        #expect(fixture.focused.workspaceId == home.workspace.id)
+        #expect(fixture.flash == nil)
+    }
+
     @Test("marking as oldest unread stamps only the moved notification as deferred")
     func markOldestUnreadStampsDeferral() {
         let fixture = AttentionJumpFixture()

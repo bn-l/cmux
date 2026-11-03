@@ -7792,6 +7792,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     override func mouseMoved(with event: NSEvent) {
         maybeRequestFirstResponderForMouseFocus()
+        acknowledgeNotificationOnPointerMove()
         guard let surface = surface else { return }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
         let eventPoint = convert(event.locationInWindow, from: nil)
@@ -7833,6 +7834,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
+    }
+
+    /// Moving the pointer over the pane the user is on acknowledges its alert, like
+    /// clicking or typing in it. Only the focused pane counts, so crossing other
+    /// panes on the way somewhere does not clear alerts nobody read. Uses the
+    /// direct-interaction dismissal, which leaves a manual "mark unread" in place.
+    /// Ordered cheapest-first: this runs on every pointer move. Returns whether an
+    /// alert was acknowledged.
+    @discardableResult
+    func acknowledgeNotificationOnPointerMove() -> Bool {
+        guard let terminalSurface,
+              let window,
+              window.firstResponder === self,
+              let appDelegate = AppDelegate.shared,
+              appDelegate.notificationStore?.hasVisibleNotificationIndicator(
+                  forTabId: terminalSurface.tabId,
+                  surfaceId: terminalSurface.id
+              ) == true,
+              AppFocusState.isAppFocused() else { return false }
+        let tabManager = appDelegate.tabManagerFor(tabId: terminalSurface.tabId) ?? appDelegate.tabManager
+        let acknowledged = tabManager?.dismissNotificationOnDirectInteraction(
+            tabId: terminalSurface.tabId,
+            surfaceId: terminalSurface.id
+        ) ?? false
+#if DEBUG
+        cmuxDebugLog(
+            "notification.pointerAck workspace=\(terminalSurface.tabId.uuidString.prefix(8)) " +
+            "surface=\(terminalSurface.id.uuidString.prefix(8)) acknowledged=\(acknowledged ? 1 : 0)"
+        )
+#endif
+        return acknowledged
     }
 
     private func maybeRequestFirstResponderForMouseFocus() {

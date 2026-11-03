@@ -66,6 +66,14 @@ final class NotificationNavSeamAdapter:
         owner?.navMarkRead(id: id)
     }
 
+    func markRead(forTabId tabId: UUID, surfaceId: UUID?) {
+        guard let store = owner?.notificationStore else { return }
+        store.markRead(forTabId: tabId, surfaceId: surfaceId)
+        // Cleared explicitly, like a click: upstream's surface-scoped markRead
+        // keeps the focused-read ring until an explicit clear.
+        store.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
+    }
+
     // MARK: AgentAttentionReading
 
     var agentsNeedingInput: [AgentNeedsInputSnapshot] {
