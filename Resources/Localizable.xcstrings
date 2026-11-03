@@ -98550,13 +98550,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inspect PostHog flag state and local overrides for this Mac."
+            "value": "Inspect feature-flag state and local overrides for this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacのPostHogフラグ状態とローカル上書きを確認します。"
+            "value": "このMacの機能フラグの状態とローカル上書きを確認します。"
           }
         }
       }
