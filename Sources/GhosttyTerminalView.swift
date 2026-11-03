@@ -429,6 +429,13 @@ class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+    /// Diagnostics from the most recent full load of the user's Ghostty
+    /// config (launch or reload), read by the config-error notice.
+    private(set) var lastLoadedConfigDiagnosticMessages: [String] = []
+    /// Runs on the main actor immediately before a full configuration reload
+    /// reads the user's config files, so the config file watcher records
+    /// exactly what that load sees.
+    @MainActor var configurationFilesWillLoad: (@MainActor () -> Void)?
     /// Coalesce wakeup → tick dispatches.  The I/O thread may fire wakeup_cb
     /// thousands of times per second during bulk output.  We only need one
     /// pending tick on the main queue at any time.
@@ -818,6 +825,7 @@ class GhosttyApp {
             primaryConfig,
             preferredColorScheme: initialColorScheme
         )
+        lastLoadedConfigDiagnosticMessages = Self.configDiagnosticMessages(primaryConfig)
         updateDefaultBackground(
             from: primaryConfig,
             source: "initialize.primaryConfig",
@@ -1837,10 +1845,18 @@ class GhosttyApp {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=config_alloc_failed")
             return
         }
+        // The fork's reload is not main-actor isolated; every caller runs on
+        // main today, but an off-main reload must not trap in assumeIsolated.
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { configurationFilesWillLoad?() }
+        } else {
+            logThemeAction("reload source=\(source) skipped configurationFilesWillLoad: off main thread")
+        }
         let renderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(
             newConfig,
             preferredColorScheme: reloadColorScheme
         )
+        lastLoadedConfigDiagnosticMessages = Self.configDiagnosticMessages(newConfig)
         updateDefaultBackground(
             from: newConfig,
             source: "reloadConfiguration(source=\(source))",
