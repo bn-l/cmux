@@ -3077,6 +3077,12 @@ struct CMUXCLI {
         }
 
         let command = args[index]
+        // The shell completion scripts pass the user's raw words; presentation
+        // option parsing would strip a typed `--json` from them.
+        if command == "__complete" {
+            runCompleteCommand(words: Array(args[(index + 1)...]), processEnv: processEnv)
+            return
+        }
         let presentationOptions = try parsePresentationOptions(Array(args[(index + 1)...]))
         if presentationOptions.jsonOutput {
             jsonOutput = true
@@ -3104,6 +3110,7 @@ struct CMUXCLI {
 
         if command == "help" { print(usage()); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "completion" { try runCompletionCommand(commandArgs: commandArgs); return }
         if command == "welcome" { printWelcome(); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
@@ -12569,8 +12576,21 @@ struct CMUXCLI {
     }
 
     /// Return the help/usage text for a subcommand, or nil if the command is unknown.
-    private func subcommandUsage(_ command: String) -> String? {
+    func subcommandUsage(_ command: String) -> String? {
         switch command {
+        case "completion":
+            return """
+            Usage: cmux completion <zsh|bash|fish>
+
+            Print a shell completion script for cmux. It completes commands,
+            subcommands and flags from each command's help, and live workspace,
+            surface and window handles for --workspace, --surface and --window.
+
+            Add the matching line to your shell startup file:
+              zsh:  eval "$(cmux completion zsh)"   (after compinit)
+              bash: eval "$(cmux completion bash)"
+              fish: cmux completion fish | source
+            """
         case "ping":
             return """
             Usage: cmux ping

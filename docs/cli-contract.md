@@ -61,7 +61,8 @@ Environment:
 | `welcome` | Print the welcome screen. |
 | `docs` | Print canonical docs URLs, raw GitHub resources, and useful commands for a topic. |
 | `settings` | Open Settings, print cmux.json paths, or print settings docs. |
-| `config` | Validate cmux.json syntax, print config references, or reload config. |
+| `config` | Validate cmux.json syntax and semantics, print config references, or reload config. |
+| `completion <zsh\|bash\|fish>` | Print a shell completion script. Works without a socket. Install with `eval "$(cmux completion zsh)"` (after `compinit`), `eval "$(cmux completion bash)"`, or `cmux completion fish \| source`. The script calls the hidden `cmux __complete <words...>`, which prints one candidate per line for the last word: top-level commands (`topLevelCommandNames`, minus `__` internals) and global options before the command; subcommands and `--flags` parsed from the command's own `--help` usage text after it; live `workspace:N`, `surface:N` and `window:N` handles after `--workspace`, `--surface`/`--panel` and `--window`, read from the app with a 0.5 s socket timeout. It prints nothing (and the shell falls back to file names) for an unknown command, a flag that takes a value, or an unreachable app. |
 | `shortcuts` | Open Settings to Keyboard Shortcuts. |
 | `disable-browser` | Disable cmux browser creation and link interception until re-enabled. |
 | `enable-browser` | Re-enable cmux browser creation and link interception. |
