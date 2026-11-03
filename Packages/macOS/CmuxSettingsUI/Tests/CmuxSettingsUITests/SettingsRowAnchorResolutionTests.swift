@@ -39,6 +39,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.commandPaletteSearchesAllSurfaces",
         "app.confirmQuit",
         "app.equalizeSplitsOnCreate",
+        "app.equalizeSplitsOnDividerDoubleClick",
         "app.focusPaneOnFirstClick",
         "app.globalFontMagnification",
         "app.hideTabCloseButton",

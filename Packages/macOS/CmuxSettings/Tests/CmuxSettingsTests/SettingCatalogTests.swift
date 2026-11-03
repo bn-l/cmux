@@ -4,6 +4,10 @@ import Testing
 
 @Suite("SettingCatalog")
 struct SettingCatalogTests {
+    @Test func equalizeSplitsOnDividerDoubleClickDefaultsOn() {
+        #expect(SettingCatalog().app.equalizeSplitsOnDividerDoubleClick.defaultValue)
+    }
+
     @Test func equalizeSplitsOnCreateDefaultsOff() {
         #expect(!SettingCatalog().app.equalizeSplitsOnCreate.defaultValue)
     }

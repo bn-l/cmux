@@ -8,6 +8,28 @@ extension Workspace {
         splitTabBar(bonsplitController, didChangeGeometry: bonsplitController.layoutSnapshot())
     }
 
+    /// A divider double-click (bonsplit `didDoubleClickDivider`) equalizes the
+    /// clicked divider's same-direction run, like Equalize Splits does for the
+    /// whole workspace, when `app.equalizeSplitsOnDividerDoubleClick` is on
+    /// (upstream manaflow-ai/cmux#21941). Focus does not move. Returning
+    /// `false` leaves the click to AppKit's native divider handling.
+    func splitTabBar(_ controller: BonsplitController, didDoubleClickDivider splitId: UUID) -> Bool {
+        guard controller === bonsplitController,
+              layoutMode != .canvas,
+              !isRemoteTmuxMirror,
+              UserDefaultsSettingsClient(defaults: .standard).value(
+                for: SettingCatalog().app.equalizeSplitsOnDividerDoubleClick
+              ) else { return false }
+        let result = PaneLayoutService().equalizeSplitRun(
+            containingSplitId: splitId,
+            in: controller.treeSnapshot(),
+            controller: controller
+        )
+        guard result.foundSplit else { return false }
+        didProgrammaticallyChangeSplitGeometry()
+        return true
+    }
+
     /// Rebalances the panes of a newly created split's row or column when
     /// `app.equalizeSplitsOnCreate` is on (upstream manaflow-ai/cmux#14703).
     ///
