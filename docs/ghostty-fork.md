@@ -28,15 +28,21 @@ When we change the fork, update this document and the parent submodule SHA.
   output-driven bottom following all clear fractional state.
 - Applies the inverse fractional transform in Ghostty's shared surface-to-grid
   mouse conversion and keeps the IME anchor aligned with shifted cell content.
+- Snaps the renderer offset to whole device pixels (`smoothScrollPixelOffset`
+  in `Surface.zig`). Text quads sample the gutterless glyph atlas with a
+  nearest, pixel-addressed sampler, so a half-pixel offset let some glyphs pick
+  up the edge row of the glyph packed above them in the atlas (one-pixel dashes
+  above letters after a smooth scroll stopped).
 - Conflict note: changes near `RenderState.beginUpdate`, renderer uniform
   layouts, `CompressionIterator`, and embedded surface wheel APIs must be
   reconciled with upstream renderer/compression changes as one unit.
 
-Current cmux pinned fork head: `bdd0e08c7`. It layers the os/open stderr drain
-spin fix on the previous cmux pin `2c54fb03c` and is published from the fork
+Current cmux pinned fork head: `75e516284`. It layers the whole-device-pixel
+smooth-scroll offset snap on the previous cmux pin `bdd0e08c7` (the os/open
+stderr drain spin fix, itself on `2c54fb03c`) and is published from the fork
 branch `cmux-smooth-scroll`.
 Prebuilt archive:
-https://github.com/bn-l/ghostty/releases/tag/xcframework-bdd0e08c7ffd8e6b7bd55d0aa68ae86bf8df5ea1-crashsubdir-cmux-crash-v1
+https://github.com/bn-l/ghostty/releases/tag/xcframework-75e51628411c825ad194e887c930fa6f717ad571-crashsubdir-cmux-crash-v1
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
