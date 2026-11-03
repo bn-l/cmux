@@ -50,7 +50,6 @@ omx-node-helper "$@"
         env = os.environ.copy()
         env["HOME"] = str(root)
         env["PATH"] = "/usr/bin:/bin"
-        env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         env["CMUX_SOCKET_PATH"] = str(root / "missing.sock")
 
         proc = subprocess.run(

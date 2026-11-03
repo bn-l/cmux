@@ -153,8 +153,6 @@ def run_cli(cli_path: str, socket_path: str, timeout: float = 3.0, args: tuple[s
     env["CMUX_SOCKET_PATH"] = socket_path
     env["CMUX_SOCKET"] = socket_path
     env["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.2"
-    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
-    env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
     started = time.monotonic()
     try:
         proc = subprocess.run(

@@ -196,8 +196,6 @@ def run_ping(
     env.pop("CMUX_SOCKET", None)
     env.pop("CMUX_BUNDLE_ID", None)
     env.pop("CMUX_TAG", None)
-    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
-    env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
     if extra_env:
         env.update(extra_env)
     return subprocess.run(
@@ -586,8 +584,6 @@ def test_base_debug_cli_discovers_cmux_tag(cli_path: str) -> bool:
     env = os.environ.copy()
     env["CMUX_SOCKET_PATH"] = "/tmp/cmux.sock"
     env["CMUX_TAG"] = tag
-    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
-    env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
     try:
         with tempfile.TemporaryDirectory(prefix="cmux-cli-base-debug-app-") as apps:

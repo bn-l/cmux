@@ -164,8 +164,6 @@ def main() -> int:
         env["CMUX_WORKSPACE_ID"] = workspace_id
         env["CMUX_SURFACE_ID"] = surface_id
         env["CMUX_CLAUDE_HOOK_STATE_PATH"] = os.path.join(server.root.name, "state.json")
-        env["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         cron_payload = {
             "session_id": f"sess-{uuid.uuid4().hex}",

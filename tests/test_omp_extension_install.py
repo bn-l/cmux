@@ -178,7 +178,6 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
                 b"".join(value.encode("utf-8") + b"\0" for value in launch_argv)
             ).decode("ascii"),
             "CMUX_AGENT_LAUNCH_CWD": str(workspace),
-            "CMUX_CLI_SENTRY_DISABLED": "1",
             "PI_CONFIG_DIR": ".custom-omp",
             "OPENAI_API_KEY": "secret-should-not-persist",
         }

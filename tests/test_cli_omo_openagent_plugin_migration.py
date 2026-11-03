@@ -83,7 +83,6 @@ mkdir -p "node_modules/$package"
         env = os.environ.copy()
         env["HOME"] = str(root)
         env["PATH"] = f"{fake_bin}:{env.get('PATH', '')}"
-        env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         env["CMUX_SOCKET_PATH"] = str(root / "missing.sock")
 
         run = subprocess.run(

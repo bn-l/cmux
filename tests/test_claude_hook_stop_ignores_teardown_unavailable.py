@@ -142,8 +142,6 @@ def main() -> int:
         env["CMUX_WORKSPACE_ID"] = str(uuid.uuid4())
         env["CMUX_SURFACE_ID"] = str(uuid.uuid4())
         env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(state_path)
-        env["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         proc = subprocess.run(
             [cli_path, "--socket", socket_path, "claude-hook", "stop"],

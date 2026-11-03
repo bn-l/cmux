@@ -243,8 +243,6 @@ def hook_env(server: RoutingSocketServer, state_path: Path, **overrides: str) ->
     env["CMUX_SOCKET_PATH"] = server.socket_path
     env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(state_path)
     env["CMUX_CLI_TTY_NAME"] = server.tty_name
-    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
-    env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
     env.update(overrides)
     return env
 

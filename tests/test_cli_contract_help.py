@@ -122,8 +122,6 @@ def run_cli_args(cli_path: str, args: list[str]) -> ProbeResult:
         "CMUX_TAB_ID",
     ]:
         env.pop(key, None)
-    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
-    env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
     with tempfile.TemporaryDirectory(prefix="cmux-no-socket-") as tmpdir:
         no_socket = os.path.join(tmpdir, f"socket-{uuid.uuid4().hex}.sock")

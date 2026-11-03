@@ -202,8 +202,6 @@ def main() -> int:
         env["CMUX_WORKSPACE_ID"] = workspace_id
         env["CMUX_SURFACE_ID"] = surface_id
         env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(state_path)
-        env["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
         old_pid_env = env.copy()
         old_pid_env["CMUX_CLAUDE_PID"] = "11111"
         clear_pid_env = env.copy()
