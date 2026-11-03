@@ -7,7 +7,11 @@ Values for `shortcuts.bindings.<action>`:
 - A string like `"cmd+b"` for a single shortcut.
 - A two-element array like `["ctrl+b","c"]` for a chord.
 - `null`, `[]`, or an empty string (`""`, `"none"`, `"clear"`, `"unbound"`, `"disabled"`) to unbind.
-- An object `{ "first": {...}, "second": {...} }`, the form the Settings window writes.
+- An object `{ "first": {...}, "second": {...} }`, the form the Settings window writes. Each stroke is `{ "key": "t", "command": true, "shift": false, "option": false, "control": false, "keyCode": 17 }`; only `key` is required, missing flags are `false`, and `"key": ""` in `first` unbinds.
+
+The first stroke needs a modifier unless its key is Space; the diff viewer actions also accept a bare first stroke. `selectWorkspaceByNumber` and `selectSurfaceByNumber` take a digit 1-9 and bind the whole 1-9 range. `cycleTextBoxSubmitAction` takes no chord. `globalSearch` must be one stroke with cmd, opt or ctrl. Invalid bindings are ignored and the action keeps its default.
+
+A binding can also be written directly as `shortcuts.<action>`. That entry wins over `shortcuts.bindings.<action>`, and the Settings window edits it in place.
 
 ## App
 

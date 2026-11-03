@@ -119,30 +119,39 @@ try Data(#"{"automation":{"socketPassword":"rotated"}}"#.utf8)
 ## Handling errors
 
 `UserDefaultsSettingsStore` reads and writes never throw (UserDefaults is
-fire-and-forget). `JSONConfigStore.set(_:for:)`, `merge(_:into:)` and
-`reset(_:)` are `throws`: they propagate filesystem errors (permission
+fire-and-forget). `JSONConfigStore.set(_:for:)`, `reset(_:)`,
+`setShortcutBinding(_:for:)` and `resetShortcutBindings()` are `throws`: they propagate filesystem errors (permission
 denied, disk full). The store's in-memory cache is **only** updated after
 the disk write succeeds, so a failed write leaves subsequent reads
 consistent with what is actually on disk.
 
-## Objects users also edit by hand
+## Keyboard shortcut bindings
 
 A dictionary-valued `JSONKey` decodes all-or-nothing: one entry the value
 type cannot decode makes `value(for:)` return the key's default, and a
 read-modify-write through `set(_:for:)` then deletes every entry the read
-skipped. `shortcuts.bindings` is the real case: users write `"cmd+t"`,
-`["ctrl+b", "%"]` and `null` bindings, and can write ones the app rejects.
-For such objects, read with `value(forDecodableEntriesOf:)` /
-`values(forDecodableEntriesOf:)` and write with `merge(_:into:)`, which
-writes only the named entries and leaves the rest of the object untouched,
-so a hand-written entry keeps its form until the user edits it in Settings.
+skipped. Shortcut bindings are the real case, and they also live in two
+places: `shortcuts.bindings.<actionId>` and directly in
+`shortcuts.<actionId>`, where they override `bindings`. Users write `"cmd+t"`,
+`["ctrl+b", "%"]`, `null` and the `{first, second}` object form by hand, and
+can write bindings the app rejects.
 
-Dictionary entries decode through `SettingCodable.decodeFromJSON(_:entryKey:)`.
-`StoredShortcut` uses the entry key (the action id) to apply the
-bare-first-stroke rule, and parses the string and array forms with
-`StoredShortcut.parseConfig` / `ShortcutStroke.parseConfig`. The app target's
-settings-file store calls the same functions, so Settings shows the bindings
-the app applies.
+So bindings never go through `catalog.shortcuts.bindings` directly. Read them
+with `JSONConfigStore.shortcutBindings()` / `shortcutBindingValues()`, which
+return the binding the app applies for each action and leave invalid ones on
+their defaults. Write with `setShortcutBinding(_:for:)`, which writes only that
+action's entry, at the place the app reads it from, so other hand-written
+entries keep their form. `resetShortcutBindings()` clears both places.
+
+One implementation backs all of this, and the app target's settings-file store
+and the CLI's diff viewer call it too, so all three agree:
+- `ShortcutConfigBindings`: which `shortcuts` keys are bindings and which wins.
+- `StoredShortcut.decodeFromJSON(_:entryKey:)`: every binding form
+  (`StoredShortcut.parseConfig` / `ShortcutStroke.parseConfig` for strings and
+  arrays), the action's bare-first-stroke rule, and
+  `ShortcutAction.normalizedConfigBinding(_:)` for chords, numbered actions and
+  system-wide hotkeys. The app adds one check of its own: a system-wide
+  hotkey's key must exist on the current keyboard layout.
 
 ## Adding a new setting
 

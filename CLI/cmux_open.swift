@@ -1,3 +1,4 @@
+import CmuxSettings
 import CryptoKit
 import Darwin
 import Foundation
@@ -589,77 +590,26 @@ extension CMUXCLI {
         }
     }
 
-    private enum DiffViewerShortcutAction: String, CaseIterable {
-        case scrollDown = "diffViewerScrollDown"
-        case scrollUp = "diffViewerScrollUp"
-        case scrollToBottom = "diffViewerScrollToBottom"
-        case scrollToTop = "diffViewerScrollToTop"
-        case openFileSearch = "diffViewerOpenFileSearch"
+    /// The diff viewer's shortcut actions. The page looks bindings up by action id.
+    private static let diffViewerShortcutActions: [ShortcutAction] = [
+        .diffViewerScrollDown,
+        .diffViewerScrollUp,
+        .diffViewerScrollToBottom,
+        .diffViewerScrollToTop,
+        .diffViewerOpenFileSearch,
+    ]
 
-        var defaultShortcut: DiffViewerShortcut {
-            switch self {
-            case .scrollDown:
-                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "j"))
-            case .scrollUp:
-                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "k"))
-            case .scrollToBottom:
-                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "g", shift: true))
-            case .scrollToTop:
-                return DiffViewerShortcut(
-                    first: DiffViewerShortcutStroke(key: "g"),
-                    second: DiffViewerShortcutStroke(key: "g")
-                )
-            case .openFileSearch:
-                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "/"))
-            }
-        }
-    }
-
-    private struct DiffViewerShortcutStroke: Equatable {
-        var key: String
-        var command: Bool
-        var shift: Bool
-        var option: Bool
-        var control: Bool
-
-        init(key: String, command: Bool = false, shift: Bool = false, option: Bool = false, control: Bool = false) {
-            self.key = key
-            self.command = command
-            self.shift = shift
-            self.option = option
-            self.control = control
-        }
-
-        var jsonObject: [String: Any] {
-            [
-                "key": key,
-                "command": command,
-                "shift": shift,
-                "option": option,
-                "control": control,
-            ]
-        }
-    }
-
-    private struct DiffViewerShortcut: Equatable {
-        var first: DiffViewerShortcutStroke?
-        var second: DiffViewerShortcutStroke?
-
-        static let unbound = DiffViewerShortcut(first: nil, second: nil)
-
-        var isUnbound: Bool { first == nil }
-
-        var jsonObject: [String: Any] {
-            if isUnbound {
-                return ["unbound": true]
-            }
-            var object: [String: Any] = ["first": first?.jsonObject ?? [:]]
-            if let second {
-                object["second"] = second.jsonObject
-            }
-            return object
-        }
-    }
+    /// The page matches a stroke against `KeyboardEvent.key` lower-cased (Space
+    /// as "space"), so stored key tokens that differ from those names are mapped.
+    /// Media keys have no mapping; macOS does not deliver them to web content.
+    private static let diffViewerDOMKeyNames: [String: String] = [
+        "←": "arrowleft",
+        "→": "arrowright",
+        "↑": "arrowup",
+        "↓": "arrowdown",
+        "\t": "tab",
+        "\r": "enter",
+    ]
 
     private enum DiffSource: CaseIterable, Equatable {
         case unstaged
@@ -7145,18 +7095,20 @@ extension CMUXCLI {
     private func diffViewerShortcutPayload() -> [String: Any] {
         Dictionary(
             uniqueKeysWithValues: diffViewerShortcuts().map { action, shortcut in
-                (action.rawValue, shortcut.jsonObject)
+                (action.rawValue, Self.diffViewerPayload(shortcut))
             }
         )
     }
 
-    private func diffViewerShortcuts() -> [DiffViewerShortcutAction: DiffViewerShortcut] {
-        var shortcuts = Dictionary(
-            uniqueKeysWithValues: DiffViewerShortcutAction.allCases.map { action in
-                (action, action.defaultShortcut)
+    /// Each diff viewer action's binding: cmux.json first, then the legacy
+    /// settings files, then the action's default.
+    private func diffViewerShortcuts() -> [ShortcutAction: StoredShortcut] {
+        var shortcuts: [ShortcutAction: StoredShortcut] = Dictionary(
+            uniqueKeysWithValues: Self.diffViewerShortcutActions.compactMap { action in
+                action.defaultShortcut.map { (action, $0) }
             }
         )
-        var managedActions = Set<DiffViewerShortcutAction>()
+        var managedActions = Set<ShortcutAction>()
 
         for path in diffViewerShortcutSettingsPaths() {
             guard let settings = diffViewerShortcutSettings(at: path) else { continue }
@@ -7168,10 +7120,7 @@ extension CMUXCLI {
 
         let primaryPath = Self.absoluteDiffViewerSettingsPath(Self.primarySettingsDisplayPath)
         if let settings = diffViewerShortcutSettings(at: primaryPath) {
-            for (action, shortcut) in settings {
-                shortcuts[action] = shortcut
-                managedActions.insert(action)
-            }
+            shortcuts.merge(settings) { _, primary in primary }
         }
 
         return shortcuts
@@ -7184,7 +7133,9 @@ extension CMUXCLI {
         ].map(Self.absoluteDiffViewerSettingsPath)
     }
 
-    private func diffViewerShortcutSettings(at path: String) -> [DiffViewerShortcutAction: DiffViewerShortcut]? {
+    /// The diff viewer bindings in the settings file at `path`, resolved the
+    /// way the app and the Settings window resolve them (``ShortcutConfigBindings``).
+    private func diffViewerShortcutSettings(at path: String) -> [ShortcutAction: StoredShortcut]? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               !data.isEmpty,
               let sanitized = try? JSONCParser.preprocess(data: data),
@@ -7192,105 +7143,29 @@ extension CMUXCLI {
               let shortcutsSection = root["shortcuts"] as? [String: Any] else {
             return nil
         }
-
-        var rawBindings = shortcutsSection["bindings"] as? [String: Any] ?? [:]
-        for (key, rawValue) in shortcutsSection where key != "bindings" && key != "showModifierHoldHints" {
-            rawBindings[key] = rawValue
-        }
-
-        var bindings: [DiffViewerShortcutAction: DiffViewerShortcut] = [:]
-        for action in DiffViewerShortcutAction.allCases {
-            guard let rawBinding = rawBindings[action.rawValue],
-                  let shortcut = Self.parseDiffViewerShortcut(rawBinding) else {
-                continue
-            }
-            bindings[action] = shortcut
-        }
-        return bindings
-    }
-
-    private static func parseDiffViewerShortcut(_ rawValue: Any) -> DiffViewerShortcut? {
-        if rawValue is NSNull {
-            return .unbound
-        }
-        if let rawString = rawValue as? String {
-            return parseDiffViewerShortcut(strokes: [rawString])
-        }
-        if let rawStrings = rawValue as? [String] {
-            return rawStrings.isEmpty ? .unbound : parseDiffViewerShortcut(strokes: rawStrings)
-        }
-        return nil
-    }
-
-    private static func parseDiffViewerShortcut(strokes: [String]) -> DiffViewerShortcut? {
-        guard !strokes.isEmpty, strokes.count <= 2 else { return nil }
-        if strokes.count == 1, isUnboundDiffViewerShortcutToken(strokes[0]) {
-            return .unbound
-        }
-        let parsed = strokes.compactMap(parseDiffViewerShortcutStroke)
-        guard parsed.count == strokes.count, let first = parsed.first else { return nil }
-        return DiffViewerShortcut(
-            first: first,
-            second: parsed.count == 2 ? parsed[1] : nil
-        )
-    }
-
-    private static func parseDiffViewerShortcutStroke(_ rawValue: String) -> DiffViewerShortcutStroke? {
-        let rawParts = rawValue.split(separator: "+", omittingEmptySubsequences: false).map(String.init)
-        let parts = rawParts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard let lastRawPart = rawParts.last, !lastRawPart.isEmpty else { return nil }
-
-        var command = false
-        var shift = false
-        var option = false
-        var control = false
-        for modifier in parts.dropLast() {
-            switch modifier.lowercased() {
-            case "cmd", "command", "⌘":
-                command = true
-            case "shift", "⇧":
-                shift = true
-            case "opt", "option", "alt", "⌥":
-                option = true
-            case "ctrl", "control", "ctl", "⌃":
-                control = true
-            default:
-                return nil
-            }
-        }
-
-        guard let key = parseDiffViewerShortcutKeyToken(lastRawPart) else { return nil }
-        return DiffViewerShortcutStroke(key: key, command: command, shift: shift, option: option, control: control)
-    }
-
-    private static func parseDiffViewerShortcutKeyToken(_ rawValue: String) -> String? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return rawValue == " " ? "space" : nil
-        }
-
-        switch trimmed.lowercased() {
-        case "space", "spacebar", "<space>":
-            return "space"
-        case "slash":
-            return "/"
-        case "period", "dot":
-            return "."
-        case "comma":
-            return ","
-        default:
-            guard trimmed.count == 1 else { return nil }
-            return trimmed.lowercased()
+        let bindings = ShortcutConfigBindings.bindings(inShortcutsSection: shortcutsSection)
+        return Self.diffViewerShortcutActions.reduce(into: [:]) { result, action in
+            result[action] = bindings[action.rawValue]
         }
     }
 
-    private static func isUnboundDiffViewerShortcutToken(_ rawValue: String) -> Bool {
-        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "", "none", "clear", "unbound", "disabled":
-            return true
-        default:
-            return false
+    private static func diffViewerPayload(_ shortcut: StoredShortcut) -> [String: Any] {
+        guard !shortcut.isUnbound else { return ["unbound": true] }
+        var object: [String: Any] = ["first": diffViewerPayload(shortcut.first)]
+        if let second = shortcut.second {
+            object["second"] = diffViewerPayload(second)
         }
+        return object
+    }
+
+    private static func diffViewerPayload(_ stroke: ShortcutStroke) -> [String: Any] {
+        [
+            "key": diffViewerDOMKeyNames[stroke.key] ?? stroke.key,
+            "command": stroke.command,
+            "shift": stroke.shift,
+            "option": stroke.option,
+            "control": stroke.control,
+        ]
     }
 
     private static func absoluteDiffViewerSettingsPath(_ rawPath: String) -> String {

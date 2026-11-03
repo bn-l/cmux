@@ -237,9 +237,14 @@ final class KeyboardShortcutContextTests: XCTestCase {
         }
     }
 
-    // Settings reads shortcuts.bindings through CmuxSettings; the app applies it
-    // through KeyboardShortcutSettingsFileStore. For every hand-written form the
-    // two must agree, or the Settings row shows a binding the app does not run.
+    // Settings reads cmux.json shortcuts through CmuxSettings; the app applies
+    // them through KeyboardShortcutSettingsFileStore. For every form and place a
+    // binding can be written, the two must agree, or the Settings row shows a
+    // binding the app does not run.
+    // @MainActor: the app creates and reloads its settings-file store on the
+    // main thread (cmuxApp init, @MainActor watch tasks). The globalSearch
+    // layout check calls Text Input Source APIs that trap off the main thread.
+    @MainActor
     func testSettingsPackageReadsHandWrittenBindingsAsTheAppApplies() async throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -248,6 +253,11 @@ final class KeyboardShortcutContextTests: XCTestCase {
             #"""
             {
               "shortcuts": {
+                "showModifierHoldHints": true,
+                "toggleFullScreen": "cmd+ctrl+y",
+                "closeTab": {"first": {"key": "w", "command": true, "option": true}},
+                "closeOtherTabsInPane": null,
+                "renameTab": "cmd+bogus",
                 "bindings": {
                   "newTab": "cmd+t",
                   "splitRight": ["ctrl+b", "%"],
@@ -260,10 +270,22 @@ final class KeyboardShortcutContextTests: XCTestCase {
                   "triggerFlash": "cmd+playPause",
                   "diffViewerScrollDown": "n",
                   "diffViewerScrollToTop": ["g", "g"],
+                  "toggleFullScreen": "cmd+ctrl+u",
+                  "renameTab": "cmd+r",
+                  "nextSurface": {"first": {"key": "]", "command": true, "shift": true}},
+                  "prevSurface": {"first": {"key": "[", "control": true}, "second": {"key": "p", "keyCode": 35}},
+                  "renameWorkspace": {"first": {"key": ""}},
+                  "selectWorkspaceByNumber": "ctrl+5",
+                  "selectSurfaceByNumber": ["ctrl+b", "7"],
+                  "showHideAllWindows": "shift+a",
+                  "globalSearch": "cmd+opt+g",
                   "newWindow": "n",
                   "quit": ["cmd+k", "cmd+q", "cmd+x"],
                   "openSettings": "cmd+bogus",
-                  "commandPalette": 42
+                  "commandPalette": 42,
+                  "newSurface": {"first": {"key": "n"}},
+                  "closeWorkspace": {"first": {"key": "w", "command": "yes"}},
+                  "cycleTextBoxSubmitAction": ["ctrl+b", "tab"]
                 }
               }
             }
@@ -275,25 +297,38 @@ final class KeyboardShortcutContextTests: XCTestCase {
             fallbackPath: nil,
             startWatching: false
         )
-        let settingsEntries = await JSONConfigStore(fileURL: settingsFileURL)
-            .value(forDecodableEntriesOf: SettingCatalog().shortcuts.bindings)
+        let settingsBindings = await JSONConfigStore(fileURL: settingsFileURL).shortcutBindings()
 
-        let ids = [
-            "newTab", "splitRight", "closeWindow", "jumpToUnread", "toggleSidebar", "find", "openFolder",
-            "reopenPreviousSession", "triggerFlash", "diffViewerScrollDown", "diffViewerScrollToTop",
-            "newWindow", "quit", "openSettings", "commandPalette",
-        ]
-        for id in ids {
-            let action = try XCTUnwrap(KeyboardShortcutSettings.Action(rawValue: id), id)
+        XCTAssertEqual(
+            Set(ShortcutAction.allCases.map(\.rawValue)),
+            Set(KeyboardShortcutSettings.Action.allCases.map(\.rawValue)),
+            "Settings and the app list different shortcut actions"
+        )
+        for action in KeyboardShortcutSettings.Action.allCases {
             XCTAssertEqual(
-                settingsEntries[id].map(appShortcut(_:)),
+                settingsBindings[action.rawValue].map(appShortcut(_:)),
                 appStore.override(for: action),
-                "Settings and the app read shortcuts.bindings.\(id) differently"
+                "Settings and the app read the \(action.rawValue) binding differently"
             )
         }
-        // The app rejects the last four entries; the other eleven must be bound,
-        // so the comparison above is not two empty reads agreeing.
-        XCTAssertEqual(Set(settingsEntries.keys), Set(ids.dropLast(4)))
+        // The app rejects the last seven entries of bindings, and renameTab's
+        // direct entry overrides its valid bindings entry. The rest must be
+        // bound, so the comparison above is not two empty reads agreeing.
+        XCTAssertEqual(Set(settingsBindings.keys), [
+            "toggleFullScreen", "closeTab", "closeOtherTabsInPane",
+            "newTab", "splitRight", "closeWindow", "jumpToUnread", "toggleSidebar", "find", "openFolder",
+            "reopenPreviousSession", "triggerFlash", "diffViewerScrollDown", "diffViewerScrollToTop",
+            "nextSurface", "prevSurface", "renameWorkspace", "selectWorkspaceByNumber",
+            "selectSurfaceByNumber", "showHideAllWindows", "globalSearch",
+        ])
+        // Spot checks of what the shared rules produce.
+        XCTAssertEqual(
+            appStore.override(for: .toggleFullScreen),
+            StoredShortcut(key: "y", command: true, shift: false, option: false, control: true),
+            "the direct shortcuts.toggleFullScreen entry must win over shortcuts.bindings"
+        )
+        XCTAssertEqual(appStore.override(for: .selectWorkspaceByNumber), StoredShortcut(key: "1", command: false, shift: false, option: false, control: true))
+        XCTAssertEqual(appStore.override(for: .renameWorkspace), .unbound)
     }
 
     /// Converts a CmuxSettings binding to the app type field by field.

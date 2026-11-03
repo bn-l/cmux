@@ -47,13 +47,12 @@ final class ShortcutListModel {
     /// Starts observing the store's shortcut streams. Idempotent: ``SettingReadDriver``
     /// ignores subsequent calls after the first activation.
     func startObserving() {
-        let bindingsKey = catalog.shortcuts.bindings
         let whenKey = catalog.shortcuts.when
-        // cmux.json mixes hand-written string/array/null bindings with the
-        // object form Settings writes. Read per entry, so an entry the app also
-        // rejects falls back to its default without hiding the rest.
+        // The bindings the app applies: hand-written forms included, direct
+        // `shortcuts.<id>` entries over `shortcuts.bindings`, and invalid
+        // entries left on their defaults without hiding the rest.
         bindingsDriver.activate(
-            { [jsonStore, bindingsKey] in jsonStore.values(forDecodableEntriesOf: bindingsKey) },
+            { [jsonStore] in jsonStore.shortcutBindingValues() },
             sink: { [weak self] dictionary in self?.ingestBindings(dictionary) }
         )
         whenDriver.activate(
@@ -257,29 +256,17 @@ final class ShortcutListModel {
     /// another binding; a valid stroke is normalized, persisted, and clears the
     /// action's rejection/restore state.
     func assign(stroke: ShortcutStroke, to action: ShortcutAction) async {
-        var stroke = stroke
         guard action.allowsBareFirstStroke || stroke.hasAnyModifier else {
             markBareKeyRejected(action)
             return
         }
-        if action.usesNumberedDigitMatching {
-            guard isNumberedDigitKey(stroke.key) else {
-                numberedDigitRejections.insert(action.rawValue)
-                bareKeyRejections.remove(action.rawValue)
-                conflictRejections.removeValue(forKey: action.rawValue)
-                rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
-                return
-            }
-            stroke = ShortcutStroke(
-                key: "1",
-                command: stroke.command,
-                shift: stroke.shift,
-                option: stroke.option,
-                control: stroke.control,
-                keyCode: stroke.keyCode
-            )
+        guard let proposed = action.normalizingNumberedDigit(StoredShortcut(first: stroke)) else {
+            numberedDigitRejections.insert(action.rawValue)
+            bareKeyRejections.remove(action.rawValue)
+            conflictRejections.removeValue(forKey: action.rawValue)
+            rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
+            return
         }
-        let proposed = StoredShortcut(first: stroke)
         if let conflict = detectConflict(for: action, stroke: proposed) {
             // Mirror legacy `KeyboardShortcutSettings.Action.normalizedRecordedShortcutResult`:
             // never write a conflicting binding. Surface the rejection
@@ -312,7 +299,7 @@ final class ShortcutListModel {
             chordModeActions.remove(action.rawValue)
             return
         }
-        guard let proposed = normalizedNumberedShortcutIfNeeded(chord, for: action) else {
+        guard let proposed = action.normalizingNumberedDigit(chord) else {
             numberedDigitRejections.insert(action.rawValue)
             chordModeActions.remove(action.rawValue)
             bareKeyRejections.remove(action.rawValue)
@@ -337,45 +324,6 @@ final class ShortcutListModel {
         await write(proposed, for: action)
     }
 
-    /// For a numbered action, normalizes the digit stroke to the "1" placeholder;
-    /// returns `nil` if it is not a 1…9 digit. Non-numbered actions pass through
-    /// unchanged.
-    private func normalizedNumberedShortcutIfNeeded(
-        _ shortcut: StoredShortcut,
-        for action: ShortcutAction
-    ) -> StoredShortcut? {
-        guard action.usesNumberedDigitMatching else {
-            return shortcut
-        }
-        let digitStroke = shortcut.second ?? shortcut.first
-        guard isNumberedDigitKey(digitStroke.key) else {
-            return nil
-        }
-        if let second = shortcut.second {
-            return StoredShortcut(
-                first: shortcut.first,
-                second: ShortcutStroke(
-                    key: "1",
-                    command: second.command,
-                    shift: second.shift,
-                    option: second.option,
-                    control: second.control,
-                    keyCode: second.keyCode
-                )
-            )
-        }
-        return StoredShortcut(
-            first: ShortcutStroke(
-                key: "1",
-                command: shortcut.first.command,
-                shift: shortcut.first.shift,
-                option: shortcut.first.option,
-                control: shortcut.first.control,
-                keyCode: shortcut.first.keyCode
-            )
-        )
-    }
-
     /// Persists an unbound binding for `action`.
     func clearBinding(for action: ShortcutAction) async {
         await write(.unbound, for: action)
@@ -392,26 +340,26 @@ final class ShortcutListModel {
     }
 
     /// Clears every override and all in-memory rejection/restore state — the
-    /// "Reset Defaults" action. This is the one write that replaces the whole
-    /// `shortcuts.bindings` object, hand-written entries included.
+    /// "Reset Defaults" action. This is the one write that removes hand-written
+    /// bindings: all of `shortcuts.bindings` and the direct `shortcuts.<id>` entries.
     func resetAll() async {
         restoreShortcuts.removeAll()
         bareKeyRejections.removeAll()
         numberedDigitRejections.removeAll()
         conflictRejections.removeAll()
         rejectedConflictShortcuts.removeAll()
-        await write([:]) { try await jsonStore.set([:], for: catalog.shortcuts.bindings) }
+        await write([:]) { try await jsonStore.resetShortcutBindings() }
     }
 
-    /// Persists `shortcut` as `action`'s own `shortcuts.bindings.<actionId>`
-    /// entry. Other entries stay on disk as they are: hand-written
-    /// string/array/null bindings keep their form, and entries the package
-    /// rejects are not deleted, as writing the whole decoded dictionary would.
+    /// Persists `shortcut` as `action`'s own entry, where the app applies it
+    /// (``JSONConfigStore/setShortcutBinding(_:for:)``). Other entries stay on
+    /// disk as they are: hand-written bindings keep their form, and entries
+    /// the app rejects are not deleted, as writing a decoded dictionary would.
     private func write(_ shortcut: StoredShortcut, for action: ShortcutAction) async {
         var updated = latestBindings
         updated[action.rawValue] = shortcut
         await write(updated) {
-            try await jsonStore.merge([action.rawValue: shortcut], into: catalog.shortcuts.bindings)
+            try await jsonStore.setShortcutBinding(shortcut, for: action)
         }
     }
 
@@ -429,7 +377,7 @@ final class ShortcutListModel {
             }
         } catch {
             if pendingWriteGeneration == generation {
-                let committed = await jsonStore.value(forDecodableEntriesOf: catalog.shortcuts.bindings)
+                let committed = await jsonStore.shortcutBindings()
                 if pendingWriteGeneration == generation {
                     let changedActionIds = Set(bindings.keys).union(committed.keys)
                         .filter { bindings[$0] != committed[$0] }

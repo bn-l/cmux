@@ -5,10 +5,9 @@ import SwiftUI
 /// one card with an Enable toggle and the system-wide chord recorder,
 /// followed by a card note explaining macOS permissions.
 ///
-/// The recorder reads and writes the same JSON-backed shortcut binding
-/// the legacy app uses — `shortcuts.bindings["showHideAllWindows"]` —
-/// so keystrokes persist immediately and round-trip with the rest of
-/// the Keyboard Shortcuts section.
+/// The recorder reads and writes the `showHideAllWindows` binding the app
+/// applies (``JSONConfigStore/shortcutBindings()``), so keystrokes persist
+/// immediately and round-trip with the rest of the Keyboard Shortcuts section.
 @MainActor
 public struct GlobalHotkeySection: View {
     private let jsonStore: JSONConfigStore
@@ -123,11 +122,11 @@ public struct GlobalHotkeySection: View {
         .padding(.vertical, 9)
     }
 
-    /// Writes only the hotkey's own `shortcuts.bindings` entry, so the other
-    /// hand-written bindings stay in cmux.json as written.
+    /// Writes only the hotkey's own binding entry, so the other hand-written
+    /// bindings stay in cmux.json as written.
     private func write(updating shortcut: StoredShortcut) async {
         do {
-            try await jsonStore.merge([hotkeyAction.rawValue: shortcut], into: catalog.shortcuts.bindings)
+            try await jsonStore.setShortcutBinding(shortcut, for: hotkeyAction)
         } catch {
             errorLog.record(error, keyID: catalog.shortcuts.bindings.id)
         }
@@ -151,7 +150,7 @@ public struct GlobalHotkeySection: View {
     private func streamBindings() async {
         bindingsTask?.cancel()
         let task = Task {
-            for await dictionary in jsonStore.values(forDecodableEntriesOf: catalog.shortcuts.bindings) {
+            for await dictionary in jsonStore.shortcutBindingValues() {
                 if Task.isCancelled { break }
                 bindings = dictionary
             }

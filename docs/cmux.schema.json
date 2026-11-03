@@ -1836,7 +1836,7 @@
         "global"
       ],
       "title": "shortcuts",
-      "description": "Keyboard shortcut settings from Settings > Keyboard Shortcuts.",
+      "description": "Keyboard shortcut settings from Settings > Keyboard Shortcuts. Bindings go in bindings, or directly here keyed by action id; a direct entry wins over the bindings entry for the same action.",
       "type": "object",
       "additionalProperties": {
         "$ref": "#/$defs/shortcutBindingNullable"

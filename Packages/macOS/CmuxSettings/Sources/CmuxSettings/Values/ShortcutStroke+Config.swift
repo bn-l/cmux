@@ -33,6 +33,53 @@ extension ShortcutStroke {
         )
     }
 
+    /// Decodes one stroke of the object form Settings writes:
+    /// `{"key": "t", "command": true, "keyCode": 17}`.
+    ///
+    /// `key` is required and used as written. A modifier flag that is absent or
+    /// `null` is `false`. `keyCode` is optional.
+    ///
+    /// - Returns: The stroke, or `nil` when `raw` is not an object, `key` is not
+    ///   a string, a flag is not a JSON boolean, or `keyCode` is not an integer
+    ///   in `0...65535`.
+    static func decodeConfigObject(_ raw: Any) -> ShortcutStroke? {
+        guard let object = raw as? [String: Any],
+              let key = object["key"] as? String,
+              let command = configFlag(object["command"]),
+              let shift = configFlag(object["shift"]),
+              let option = configFlag(object["option"]),
+              let control = configFlag(object["control"]) else {
+            return nil
+        }
+        let keyCode: UInt16?
+        switch object["keyCode"] {
+        case nil, is NSNull:
+            keyCode = nil
+        case let number as NSNumber where !isJSONBoolean(number):
+            // An out-of-range or fractional code is corrupt, not a key to wrap
+            // into UInt16 range, which would bind a different physical key.
+            guard let exact = UInt16(exactly: number.doubleValue) else { return nil }
+            keyCode = exact
+        default:
+            return nil
+        }
+        return ShortcutStroke(key: key, command: command, shift: shift, option: option, control: control, keyCode: keyCode)
+    }
+
+    /// A modifier flag: `false` when absent or `null`, `nil` when not a JSON boolean.
+    private static func configFlag(_ raw: Any?) -> Bool? {
+        switch raw {
+        case nil, is NSNull: false
+        case let number as NSNumber where isJSONBoolean(number): number.boolValue
+        default: nil
+        }
+    }
+
+    /// `JSONSerialization` returns both booleans and numbers as `NSNumber`.
+    private static func isJSONBoolean(_ number: NSNumber) -> Bool {
+        CFGetTypeID(number) == CFBooleanGetTypeID()
+    }
+
     private enum ConfigModifier {
         case command, shift, option, control
     }

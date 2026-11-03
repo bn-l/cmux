@@ -459,6 +459,95 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(darkOnlyTheme.html.contains("\"ghosttyName\":\"Unit Dark\""), darkOnlyTheme.html)
     }
 
+    // The diff viewer must apply the bindings the app and Settings show: the
+    // object form Settings records (it used to be ignored, so rebinding a diff
+    // viewer shortcut in Settings did nothing here), direct shortcuts.<id>
+    // entries over shortcuts.bindings, " " as Space rather than "unbound", and
+    // named keys in the names the page compares against KeyboardEvent.key.
+    func testDiffViewerAppliesShortcutBindingsAsTheAppReadsThem() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("diff-keys")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let patchURL = rootURL.appendingPathComponent("change.patch", isDirectory: false)
+        let homeURL = rootURL.appendingPathComponent("home", isDirectory: true)
+        let cmuxConfigURL = homeURL.appendingPathComponent(".config/cmux/cmux.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: cmuxConfigURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"""
+        {
+          "shortcuts": {
+            "diffViewerScrollDown": {"first": {"key": "←", "option": true}},
+            "bindings": {
+              "diffViewerScrollDown": "ctrl+j",
+              "diffViewerScrollUp": " ",
+              "diffViewerScrollToBottom": {"first": {"key": "\r", "shift": true}, "second": null},
+              "diffViewerScrollToTop": ["g", "tab"],
+              "diffViewerOpenFileSearch": "f5"
+            }
+          }
+        }
+        """#.write(to: cmuxConfigURL, atomically: true, encoding: .utf8)
+        try """
+        diff --git a/file.txt b/file.txt
+        index 1111111..2222222 100644
+        --- a/file.txt
+        +++ b/file.txt
+        @@ -1 +1 @@
+        -old
+        +new
+        """.write(to: patchURL, atomically: true, encoding: .utf8)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  payload["method"] as? String == "browser.open_split",
+                  let rawURL = (payload["params"] as? [String: Any])?["url"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(id: id, ok: true, result: ["surface_id": "surface-id", "pane_id": "pane-id", "url": rawURL])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["diff", patchURL.path, "--focus", "false"],
+            environmentOverrides: ["HOME": homeURL.path, "CFFIXED_USER_HOME": homeURL.path]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let commandPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
+        let params = try XCTUnwrap(commandPayload["params"] as? [String: Any])
+        let viewerFileURL = try diffViewerHTMLFileURL(from: params)
+        defer {
+            try? FileManager.default.removeItem(at: viewerFileURL)
+            try? FileManager.default.removeItem(at: viewerFileURL.deletingPathExtension().appendingPathExtension("patch"))
+        }
+        let viewerPayload = try diffViewerPayload(from: try diffViewerConfig(from: String(contentsOf: viewerFileURL, encoding: .utf8)))
+        let shortcuts = try XCTUnwrap(viewerPayload["shortcuts"] as? [String: Any])
+        func stroke(_ key: String, shift: Bool = false, option: Bool = false, control: Bool = false) -> NSDictionary {
+            ["key": key, "command": false, "shift": shift, "option": option, "control": control]
+        }
+        let expected: [String: NSDictionary] = [
+            "diffViewerScrollDown": ["first": stroke("arrowleft", option: true)],
+            "diffViewerScrollUp": ["first": stroke("space")],
+            "diffViewerScrollToBottom": ["first": stroke("enter", shift: true)],
+            "diffViewerScrollToTop": ["first": stroke("g"), "second": stroke("tab")],
+            "diffViewerOpenFileSearch": ["first": stroke("f5")],
+        ]
+        XCTAssertEqual(Set(shortcuts.keys), Set(expected.keys))
+        for (id, binding) in expected {
+            XCTAssertEqual(shortcuts[id] as? NSDictionary, binding, id)
+        }
+    }
+
     func testDiffCommandUsesTaggedSocketAppAssetsAndServer() throws {
         let cliPath = try bundledCLIPath()
         let tag = "asset\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(6).lowercased())"

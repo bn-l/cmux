@@ -182,6 +182,95 @@ struct StoredShortcutConfigDecodingTests {
         #expect(try decode(#"{"first": {"key": "", "command": false, "shift": false, "option": false, "control": false}}"#) == .unbound)
     }
 
+    // MARK: - Object form written by hand
+
+    @Test(arguments: [
+        // Absent and null flags are false, as in the schema and the app.
+        (#"{"first": {"key": "t", "command": true}}"#, StoredShortcut(first: stroke("t", command: true))),
+        (#"{"first": {"key": "t", "shift": true, "option": null}}"#, StoredShortcut(first: stroke("t", shift: true))),
+        (#"{"first": {"key": "space"}}"#, StoredShortcut(first: stroke("space"))),
+        (#"{"first": {"key": "b", "control": true}, "second": {"key": "%"}}"#,
+         StoredShortcut(first: stroke("b", control: true), second: stroke("%"))),
+        (#"{"first": {"key": "b", "control": true}, "second": null}"#, StoredShortcut(first: stroke("b", control: true))),
+        (#"{"first": {"key": "k", "command": true, "keyCode": 40}}"#,
+         StoredShortcut(first: ShortcutStroke(key: "k", command: true, keyCode: 40))),
+        (#"{"first": {"key": "k", "command": true, "keyCode": 65535}}"#,
+         StoredShortcut(first: ShortcutStroke(key: "k", command: true, keyCode: 65535))),
+        // An empty first key unbinds, whatever follows.
+        (#"{"first": {"key": ""}}"#, .unbound),
+        (#"{"first": {"key": ""}, "second": {"key": "x"}}"#, .unbound),
+    ])
+    func decodesAHandWrittenObject(json: String, expected: StoredShortcut) throws {
+        #expect(try decode(json) == expected, "\(json) decoded wrong")
+    }
+
+    @Test(arguments: [
+        // Bare first stroke for an action that needs a modifier.
+        #"{"first": {"key": "t"}}"#,
+        #"{"first": {"key": "t", "command": false}}"#,
+        // Flags and key codes of the wrong type or range.
+        #"{"first": {"key": "t", "command": "true"}}"#,
+        #"{"first": {"key": "t", "command": 1}}"#,
+        #"{"first": {"key": "t", "command": true, "keyCode": 65536}}"#,
+        #"{"first": {"key": "t", "command": true, "keyCode": -1}}"#,
+        #"{"first": {"key": "t", "command": true, "keyCode": 1.5}}"#,
+        #"{"first": {"key": "t", "command": true, "keyCode": true}}"#,
+        #"{"first": {"key": "t", "command": true, "keyCode": "17"}}"#,
+        #"{"first": {"key": 5, "command": true}}"#,
+        #"{"first": {"command": true}}"#,
+        #"{"first": null}"#,
+        // A bad second stroke rejects the chord instead of dropping half of it.
+        #"{"first": {"key": "b", "control": true}, "second": {"key": ""}}"#,
+        #"{"first": {"key": "b", "control": true}, "second": {"key": "x", "shift": "yes"}}"#,
+        #"{"first": {"key": "b", "control": true}, "second": "x"}"#,
+    ])
+    func rejectsAnInvalidObject(json: String) throws {
+        #expect(try decode(json) == nil, "\(json) must not decode")
+    }
+
+    @Test func objectBareFirstStrokeFollowsTheAction() throws {
+        let raw = try JSONSerialization.jsonObject(with: Data(#"{"first": {"key": "n"}}"#.utf8))
+        #expect(StoredShortcut.decodeFromJSON(raw, entryKey: "diffViewerScrollDown") == StoredShortcut(first: stroke("n")))
+        #expect(StoredShortcut.decodeFromJSON(raw, entryKey: "newTab") == nil)
+        #expect(StoredShortcut.decodeFromJSON(raw, entryKey: "notAnAction") == nil)
+    }
+
+    // MARK: - Per-action rules
+
+    @Test(arguments: [
+        // Numbered actions store the digit as the "1" placeholder.
+        ("selectWorkspaceByNumber", #""ctrl+5""#, StoredShortcut(first: stroke("1", control: true))),
+        ("selectSurfaceByNumber", #"["ctrl+b", "7"]"#, StoredShortcut(first: stroke("b", control: true), second: stroke("1"))),
+        ("selectWorkspaceByNumber", #"{"first": {"key": "9", "command": true, "keyCode": 25}}"#,
+         StoredShortcut(first: ShortcutStroke(key: "1", command: true, keyCode: 25))),
+        ("selectWorkspaceByNumber", "null", .unbound),
+        // System-wide hotkeys: one stroke with cmd, opt or ctrl.
+        ("globalSearch", #""cmd+opt+f""#, StoredShortcut(first: stroke("f", command: true, option: true))),
+        ("globalSearch", #""ctrl+space""#, StoredShortcut(first: stroke("space", control: true))),
+        // Show/hide keeps a binding it cannot register, so Settings shows it.
+        ("showHideAllWindows", #""shift+a""#, StoredShortcut(first: stroke("a", shift: true))),
+        ("showHideAllWindows", #"["cmd+k", "cmd+h"]"#, StoredShortcut(first: stroke("k", command: true), second: stroke("h", command: true))),
+        ("cycleTextBoxSubmitAction", #""shift+tab""#, StoredShortcut(first: stroke("\t", shift: true))),
+        ("cycleTextBoxSubmitAction", "[]", .unbound),
+    ])
+    func appliesTheActionRules(id: String, json: String, expected: StoredShortcut) throws {
+        let raw = try JSONSerialization.jsonObject(with: Data(json.utf8), options: .fragmentsAllowed)
+        #expect(StoredShortcut.decodeFromJSON(raw, entryKey: id) == expected, "\(id): \(json)")
+    }
+
+    @Test(arguments: [
+        ("selectWorkspaceByNumber", #""ctrl+0""#),
+        ("selectWorkspaceByNumber", #""cmd+a""#),
+        ("selectSurfaceByNumber", #"["ctrl+b", "x"]"#),
+        ("globalSearch", #""shift+f""#),
+        ("globalSearch", #"["cmd+k", "cmd+f"]"#),
+        ("cycleTextBoxSubmitAction", #"["ctrl+b", "tab"]"#),
+    ])
+    func rejectsWhatTheActionRejects(id: String, json: String) throws {
+        let raw = try JSONSerialization.jsonObject(with: Data(json.utf8), options: .fragmentsAllowed)
+        #expect(StoredShortcut.decodeFromJSON(raw, entryKey: id) == nil, "\(id) must reject \(json)")
+    }
+
     // MARK: - Per-action bare first strokes, read through the store
 
     private func makeStore(bindings: String) throws -> (JSONConfigStore, SettingCatalog) {
@@ -198,10 +287,10 @@ struct StoredShortcutConfigDecodingTests {
         let ids = ShortcutAction.allCases.map(\.rawValue) + ["notAnAction"]
         let object = Dictionary(uniqueKeysWithValues: ids.map { ($0, "n") })
         let bindings = try #require(String(data: JSONSerialization.data(withJSONObject: object), encoding: .utf8))
-        let (store, catalog) = try makeStore(bindings: bindings)
+        let (store, _) = try makeStore(bindings: bindings)
 
         // Act
-        let entries = await store.value(forDecodableEntriesOf: catalog.shortcuts.bindings)
+        let entries = await store.shortcutBindings()
 
         // Assert
         let expectedIds = Set(ShortcutAction.allCases.filter(\.allowsBareFirstStroke).map(\.rawValue))
@@ -214,12 +303,12 @@ struct StoredShortcutConfigDecodingTests {
 
     @Test func bareChordDecodesForAnActionThatAllowsIt() async throws {
         // Arrange: the diff viewer's own default is the bare chord g g.
-        let (store, catalog) = try makeStore(bindings: #"""
+        let (store, _) = try makeStore(bindings: #"""
         {"diffViewerScrollToTop": ["g", "g"], "splitRight": ["g", "g"], "diffViewerOpenFileSearch": "/"}
         """#)
 
         // Act
-        let entries = await store.value(forDecodableEntriesOf: catalog.shortcuts.bindings)
+        let entries = await store.shortcutBindings()
 
         // Assert
         #expect(entries == [

@@ -93,25 +93,6 @@ public actor JSONConfigStore {
         return Value.decodeFromJSON(raw) ?? key.defaultValue
     }
 
-    /// Returns the entries of the dictionary-valued `key` that `Element` can
-    /// decode, skipping the rest.
-    ///
-    /// ``value(for:)`` decodes a dictionary all-or-nothing, so one entry
-    /// `Element` rejects (for example a hand-written shortcut binding with an
-    /// unknown key name, which the app also ignores) makes the whole object
-    /// read as the key's default. Use this read for objects users edit by
-    /// hand, together with ``merge(_:into:)`` for writes. Each entry decodes
-    /// through ``SettingCodable/decodeFromJSON(_:entryKey:)``. Returns the
-    /// key's default when the path is absent or does not hold an object.
-    public func value<Element>(forDecodableEntriesOf key: JSONKey<[String: Element]>) -> [String: Element] {
-        guard let object = key.path.lookup(in: loadedRoot()) as? [String: Any] else {
-            return key.defaultValue
-        }
-        return object.reduce(into: [:]) { entries, entry in
-            entries[entry.key] = Element.decodeFromJSON(entry.value, entryKey: entry.key)
-        }
-    }
-
     /// Synchronously returns the current value for `key`, read directly from the
     /// config file without hopping onto the actor.
     ///
@@ -136,24 +117,6 @@ public actor JSONConfigStore {
     public func set<Value>(_ value: Value, for key: JSONKey<Value>) throws {
         try mutateRoot { root in
             key.path.assign(value.encodeForJSON(), in: &root)
-        }
-    }
-
-    /// Writes each of `entries` as its own entry of the dictionary-valued
-    /// `key`, in one file write.
-    ///
-    /// Entries not named in `entries` stay on disk exactly as they are,
-    /// including ones `Element` cannot decode. ``set(_:for:)`` instead
-    /// replaces the whole object with the dictionary it is given, so a
-    /// read-modify-write through ``value(for:)`` deletes every entry the read
-    /// could not decode. Creates the object (and the file) when missing.
-    ///
-    /// - Throws: Errors from `FileManager` or `JSONSerialization` writing the file.
-    public func merge<Element>(_ entries: [String: Element], into key: JSONKey<[String: Element]>) throws {
-        try mutateRoot { root in
-            for (entryKey, element) in entries {
-                key.path.appending(entryKey).assign(element.encodeForJSON(), in: &root)
-            }
         }
     }
 
@@ -184,18 +147,11 @@ public actor JSONConfigStore {
         values { await $0.value(for: key) }
     }
 
-    /// Returns an `AsyncStream` of ``value(forDecodableEntriesOf:)`` for
-    /// `key`, with the same delivery rules as ``values(for:)``.
-    public nonisolated func values<Element>(
-        forDecodableEntriesOf key: JSONKey<[String: Element]>
-    ) -> AsyncStream<[String: Element]> {
-        values { await $0.value(forDecodableEntriesOf: key) }
-    }
-
     // MARK: - Private
 
     /// Streams `read`'s result now and after every file change that alters it.
-    private nonisolated func values<Value: Sendable & Equatable>(
+    /// Internal so typed reads in extensions (``shortcutBindingValues()``) share it.
+    nonisolated func values<Value: Sendable & Equatable>(
         _ read: @escaping @Sendable (JSONConfigStore) async -> Value
     ) -> AsyncStream<Value> {
         AsyncStream<Value> { continuation in
@@ -299,7 +255,7 @@ public actor JSONConfigStore {
         }
     }
 
-    private func loadedRoot() -> [String: Any] {
+    func loadedRoot() -> [String: Any] {
         let resolvedURL = Self.resolvedWriteURL(for: fileURL)
         if cacheIsCurrent(for: resolvedURL.path) { return cachedRoot }
         cachedRoot = (try? readFromDisk(at: resolvedURL)) ?? [:]
@@ -386,7 +342,7 @@ public actor JSONConfigStore {
     /// target's data. A single mutation reads and writes through one resolution
     /// snapshot, so a concurrent retarget serializes against the write instead
     /// of splitting the operation across two targets.
-    private func mutateRoot(_ mutate: (inout [String: Any]) -> Void) throws {
+    func mutateRoot(_ mutate: (inout [String: Any]) -> Void) throws {
         // Write through a symlink to its target rather than at the link path:
         // an atomic write is a temp-file + `rename()`, which would replace the
         // link itself with a regular file and break a dotfiles-managed config.

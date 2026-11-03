@@ -229,7 +229,7 @@ Built-in diff viewer settings.
 
 ## shortcuts
 
-Keyboard shortcut settings from Settings > Keyboard Shortcuts.
+Keyboard shortcut settings from Settings > Keyboard Shortcuts. Bindings go in bindings, or directly here keyed by action id; a direct entry wins over the bindings entry for the same action.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
