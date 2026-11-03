@@ -6592,6 +6592,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
+        applyCreationTitleAsCustomTitle: Bool = true,
         focusInitialBrowserAddressBarOnCreate: Bool = true,
         createdWorkspaceHandler: ((Workspace) -> Void)? = nil
     ) -> Bool {
@@ -6634,7 +6635,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         initialSurface: .browser,
                         initialBrowserURL: initialBrowserURL,
                         initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                        initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                        initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                        applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
                     )
                     closeInitialWorkspaceIfNeeded(
                         initialWorkspaceId: initialWorkspace?.id,
@@ -6675,7 +6677,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 title: title,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             ) else {
                 return false
             }
@@ -6693,7 +6696,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialSurface: initialSurface,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
             createdWorkspaceHandler?(workspace)
             if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
@@ -6708,6 +6712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
             event: event,
             debugSource: debugSource
         ) {
@@ -7204,6 +7209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
+        applyCreationTitleAsCustomTitle: Bool = true,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
@@ -7258,7 +7264,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                select: true
+                select: true,
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else if workingDirectory != nil || initialTerminalInput != nil {
             workspace = context.tabManager.addWorkspace(
@@ -7266,10 +7273,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
                 select: true,
-                autoWelcomeIfNeeded: initialTerminalInput == nil
+                autoWelcomeIfNeeded: initialTerminalInput == nil,
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else if title != nil {
-            workspace = context.tabManager.addWorkspace(title: title, select: true)
+            workspace = context.tabManager.addWorkspace(
+                title: title,
+                select: true,
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+            )
         } else {
             workspace = context.tabManager.addTab(select: true)
         }
@@ -12952,6 +12964,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if !reopenPreviousSession() {
                 NSSound.beep()
             }
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .reopenClosedWorkspace) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            _ = reopenMostRecentlyClosedWorkspace(preferredTabManager: routedManager)
             return true
         }
 

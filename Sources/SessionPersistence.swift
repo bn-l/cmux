@@ -1768,8 +1768,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
-    /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots
-    /// (treated as splits).
+    /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots (treated as splits).
     var layoutMode: String? = nil
     /// Canvas pane frames in z-order; persisted whenever any exist so
     /// positions survive toggling back to splits across restarts.

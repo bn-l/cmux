@@ -83,6 +83,7 @@ enum KeyboardShortcutSettings {
         case newWorkspaceGroup
         case groupSelectedWorkspaces
         case toggleFocusedWorkspaceGroupCollapsed
+        case reopenClosedWorkspace
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
@@ -202,6 +203,7 @@ enum KeyboardShortcutSettings {
             case .newWorkspaceGroup: return String(localized: "shortcut.newWorkspaceGroup.label", defaultValue: "New Workspace Group")
             case .groupSelectedWorkspaces: return String(localized: "shortcut.groupSelectedWorkspaces.label", defaultValue: "Group Selected Workspaces")
             case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
+            case .reopenClosedWorkspace: return String(localized: "menu.history.reopenClosedWorkspace", defaultValue: "Reopen Closed Workspace")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
@@ -370,8 +372,10 @@ enum KeyboardShortcutSettings {
                 // mnemonic. No-ops gracefully when the focused workspace
                 // isn't in a group.
                 return StoredShortcut(key: ".", command: true, shift: false, option: false, control: true)
-            case .reopenClosedBrowserPanel:
+            case .reopenClosedWorkspace:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
+            case .reopenClosedBrowserPanel:
+                return .unbound
             case .focusLeft:
                 return StoredShortcut(key: "←", command: true, shift: false, option: true, control: false)
             case .focusRight:

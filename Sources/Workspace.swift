@@ -2119,7 +2119,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// a panel is explicitly re-zoomed by the user.
     var terminalInheritanceFontPointsByPanelId: [UUID: Float] = [:]
 
-    /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
+    /// Callback used by TabManager to capture browser panels for closed-item restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
     weak var owningTabManager: TabManager?
 

@@ -550,6 +550,7 @@ class TabManager: ObservableObject {
         workspaceGrouping.attach(host: self)
         addWorkspace(
             title: initialWorkspaceTitle,
+            titleSource: .auto,
             workingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded
@@ -1048,6 +1049,7 @@ class TabManager: ObservableObject {
     func addWorkspace(
         id: UUID? = nil,
         title: String? = nil,
+        titleSource: Workspace.CustomTitleSource = .user,
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
@@ -1064,6 +1066,7 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
+        applyCreationTitleAsCustomTitle: Bool = true,
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
@@ -1134,8 +1137,8 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
-            if title != nil {
-                newWorkspace.setCustomTitle(title)
+            if applyCreationTitleAsCustomTitle, let title {
+                newWorkspace.setCustomTitle(title, source: titleSource)
             }
             wireClosedBrowserTracking(for: newWorkspace)
             if eagerLoadTerminal && !select {
@@ -1706,19 +1709,18 @@ class TabManager: ObservableObject {
 
     func setTabColor(tabId: UUID, color: String?) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.setCustomColor(color)
+        applyWorkspaceColor(color, to: [tab])
     }
 
     func applyWorkspaceColor(_ color: String?, toWorkspaceIds workspaceIds: [UUID]) {
         guard !workspaceIds.isEmpty else { return }
-        if workspaceIds.count == 1, let workspaceId = workspaceIds.first {
-            setTabColor(tabId: workspaceId, color: color)
-            return
-        }
-
         let targetIds = Set(workspaceIds)
-        for tab in tabs where targetIds.contains(tab.id) {
-            tab.setCustomColor(color)
+        applyWorkspaceColor(color, to: tabs.filter { targetIds.contains($0.id) })
+    }
+
+    func applyWorkspaceColor(_ color: String?, to workspaces: [Workspace]) {
+        for workspace in workspaces {
+            workspace.setCustomColor(color)
         }
     }
 
@@ -1787,7 +1789,8 @@ class TabManager: ObservableObject {
         title: String? = nil,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false
+        initialBrowserTransparentBackground: Bool = false,
+        applyCreationTitleAsCustomTitle: Bool = true
     ) -> Workspace? {
         workspaceGrouping.createWorkspaceInGroup(
             groupId: groupId,
@@ -1798,7 +1801,8 @@ class TabManager: ObservableObject {
             title: title,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-            initialBrowserTransparentBackground: initialBrowserTransparentBackground
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
         )
     }
 
@@ -1881,6 +1885,7 @@ class TabManager: ObservableObject {
     ) -> Workspace {
         addWorkspace(
             title: title,
+            titleSource: .auto,
             workingDirectory: workingDirectory,
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
@@ -1898,7 +1903,8 @@ class TabManager: ObservableObject {
         initialBrowserOmnibarVisible: Bool,
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
-        select: Bool
+        select: Bool,
+        applyCreationTitleAsCustomTitle: Bool
     ) -> Workspace {
         addWorkspace(
             title: title,
@@ -1909,7 +1915,8 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
         )
     }
 
@@ -4077,8 +4084,8 @@ class TabManager: ObservableObject {
         )
     }
 
-    /// Reopen the most recently closed browser panel (Cmd+Shift+T).
-    /// No-op when no browser panel restore snapshot is available.
+    /// Reopen the most recently closed item, retaining the legacy API name.
+    /// Falls back to the pre-unified browser-panel history when needed.
     @discardableResult
     func reopenMostRecentlyClosedBrowserPanel() -> Bool {
         if reopenMostRecentlyClosedItem() {
@@ -4226,7 +4233,8 @@ class TabManager: ObservableObject {
             title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            applyCreationTitleAsCustomTitle: false
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: excludedStableIdentities)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
@@ -6205,8 +6213,7 @@ extension TabManager {
         selectionSideEffectsGeneration &+= 1
         browserModel.clearRecentlyClosedBrowserPanels()
 
-        // Build the new workspace list locally to avoid intermediate @Published
-        // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
+        // Build locally to avoid intermediate @Published emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []

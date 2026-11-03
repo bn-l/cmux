@@ -40,6 +40,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.newWorkspaceGroup`
 - `shortcuts.bindings.groupSelectedWorkspaces`
 - `shortcuts.bindings.toggleFocusedWorkspaceGroupCollapsed`
+- `shortcuts.bindings.reopenClosedWorkspace`
 - `shortcuts.bindings.focusHistoryBack`
 - `shortcuts.bindings.focusHistoryForward`
 - `shortcuts.bindings.focusHistoryLast` (no default: toggles between the two most recent focus positions)

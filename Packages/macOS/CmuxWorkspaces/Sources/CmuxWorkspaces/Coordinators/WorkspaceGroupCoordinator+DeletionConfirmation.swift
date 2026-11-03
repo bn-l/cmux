@@ -97,7 +97,8 @@ extension WorkspaceGroupCoordinator {
                     initialBrowserOmnibarVisible: false,
                     initialBrowserTransparentBackground: false,
                     inheritWorkingDirectory: true,
-                    select: true
+                    select: true,
+                    applyCreationTitleAsCustomTitle: true
                 )
             }
             let countBefore = model.tabs.count
