@@ -18,10 +18,12 @@ When we change the fork, update this document and the parent submodule SHA.
   absolute fractional row offset while keeping terminal state row based.
 - Carries the fractional pixel transform through Metal and OpenGL cell,
   background, and image shaders.
-- Snapshots one real row below the integer viewport while a fractional offset
+- Captures one real row below the integer viewport while a fractional offset
   is active, so the newly exposed strip is rendered content rather than
-  padding. The GPU cell buffer keeps visible grid dimensions separate from its
-  one-row overscan allocation.
+  padding. Since Ghostty 1.4.0 this uses the render state's own overscan
+  (`overscan_request.below`, read through `rowDataRange()`); the GPU cell
+  buffer keeps visible grid dimensions separate from its one-row overscan
+  allocation and clears that row when nothing below the viewport was captured.
 - Extends the scrollback compression viewport guard across that overscan row.
   Direct Ghostty wheel scrolling, selection autoscroll, prompt jumps, binding
   scrolls, resize/reflow, typing-driven bottom jumps, screen switches, and
@@ -37,12 +39,48 @@ When we change the fork, update this document and the parent submodule SHA.
   layouts, `CompressionIterator`, and embedded surface wheel APIs must be
   reconciled with upstream renderer/compression changes as one unit.
 
-Current cmux pinned fork head: `75e516284`. It layers the whole-device-pixel
-smooth-scroll offset snap on the previous cmux pin `bdd0e08c7` (the os/open
-stderr drain spin fix, itself on `2c54fb03c`) and is published from the fork
-branch `cmux-smooth-scroll`.
+Current cmux pinned fork head: `fa1025f3f` on fork branch `cmux-1.4.0`: Ghostty
+v1.4.0 merged into the previous pin `75e516284` (branch `cmux-smooth-scroll`),
+plus a Zig 0.17 fix for the helper CLI's usage output. Built with Zig 0.17.0.
 Prebuilt archive:
-https://github.com/bn-l/ghostty/releases/tag/xcframework-75e51628411c825ad194e887c930fa6f717ad571-crashsubdir-cmux-crash-v1
+https://github.com/bn-l/ghostty/releases/tag/xcframework-fa1025f3f511e0b9d0083ea98721677233fd3612-crashsubdir-cmux-crash-v1
+
+### Ghostty 1.4.0 merge (`75e516284` + v1.4.0 `83fb95624` = `afcdfb972`)
+
+manaflow-ai/ghostty `main` was not on 1.4.0, so v1.4.0 was merged straight into
+our pin (31 conflicted files) instead of rebasing onto manaflow. manaflow's
+Ghostty work after July (CSI 996, `minimum-contrast`, CJK fallback sizing,
+renderer-memory hooks) is not in this fork; cherry-pick it when cmux needs it.
+
+- 1.4.0 replaces fork code: RenderState overscan (smooth scroll), GPU resource
+  release for occluded surfaces (`ghostty_surface_set_renderer_realized` now
+  sends a render-thread message that calls `displayUnrealized` +
+  `releaseGpuResources` / `displayRealized`), the os/open stderr loop fix, the
+  tmux `.windows` use-after-free fix, and the libxev iOS kevent fix (vendored
+  libxev dropped). URL path matches drop trailing spaces as upstream does.
+- Removed: iOS-only render-queue code (external drain, bounded frame waits,
+  instant mailbox pushes, inline font-grid drain). `renderNow` and
+  `drainMailboxNow` remain as plain drain/update/draw for the C API.
+- C API changes cmux had to follow: clipboard reads take requested MIME types
+  and a listing flag and return `ghostty_clipboard_read_result_e`;
+  completions and confirmations use `ghostty_clipboard_complete_s` /
+  `ghostty_clipboard_confirm_s`; clipboard content has an explicit `len` and is
+  not null-terminated. New: `ghostty_surface_paste_text`,
+  `ghostty_surface_deny_clipboard_request`, and actions such as
+  `RESIZE_WINDOW` and `EXPORT_TERMINAL_IO`. The fork's
+  `ghostty_surface_text_input` stays (typed text, not a paste).
+- `itijah` is vendored in `vendor/itijah` because its build.zig does not
+  compile with Zig 0.17. `apprt.none` has a no-op `wakeup`.
+- 1.4.0's universal xcframework is macOS only (no iOS slices).
+- Known failing tests: "Terminal: selection activity follows screen switches
+  and resets" (fails on `75e516284` too) and the kitty "temporary file outside
+  directory prefix" test (fails on pristine v1.4.0 when the checkout is under
+  /tmp).
+- Zig 0.17 notes: dependency fetches need network TLS (they fail inside a
+  sandbox), and Zig 0.17.0 stored fetched archives with their top-level
+  directory still present, which made the build re-hash them as anonymous
+  `N-V-…` packages. `scripts/populate-ghostty-zig-pkg.py` works around it by
+  unpacking each dependency stripped into `ghostty/zig-pkg/<hash>/`.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 

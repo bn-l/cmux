@@ -174,9 +174,12 @@ enum GhosttyStartupAppearancePreviewState {
 private func cmuxRuntimeReadClipboardCallback(
     _ userdata: UnsafeMutableRawPointer?,
     _ location: ghostty_clipboard_e,
-    _ state: UnsafeMutableRawPointer?
-) -> Bool {
-    GhosttyApp.runtimeReadClipboardCallback(userdata, location, state)
+    _ state: UnsafeMutableRawPointer?,
+    _ mimes: UnsafePointer<UnsafePointer<CChar>?>?,
+    _ mimesLen: Int,
+    _ list: Bool
+) -> ghostty_clipboard_read_result_e {
+    GhosttyApp.runtimeReadClipboardCallback(userdata, location, state, mimes: mimes, mimesLen: mimesLen, list: list)
 }
 
 // GhosttyPasteboardHelper moved to CmuxTerminalServices as
@@ -500,13 +503,39 @@ class GhosttyApp {
     }
 #endif
 
+    /// Ghostty's clipboard read. cmux serves reads as text only: an ordinary
+    /// paste and OSC 52 ask for `text/plain`; Kitty clipboard reads (mode
+    /// 5522) may ask for other types, which are unavailable, or only for a
+    /// listing of what the clipboard holds.
     fileprivate static func runtimeReadClipboardCallback(
         _ userdata: UnsafeMutableRawPointer?,
         _ location: ghostty_clipboard_e,
-        _ state: UnsafeMutableRawPointer?
-    ) -> Bool {
+        _ state: UnsafeMutableRawPointer?,
+        mimes: UnsafePointer<UnsafePointer<CChar>?>?,
+        mimesLen: Int,
+        list: Bool
+    ) -> ghostty_clipboard_read_result_e {
         guard let callbackContext = Self.callbackContext(from: userdata),
-              let requestSurface = callbackContext.runtimeSurface else { return false }
+              let requestSurface = callbackContext.runtimeSurface else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
+
+        let wantsText = (0..<max(mimesLen, 0)).contains { index in
+            mimes?[index].map { String(cString: $0) == "text/plain" } ?? false
+        }
+        if !wantsText {
+            guard list else { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
+            // A listing only: never read or upload the clipboard contents.
+            DispatchQueue.main.async {
+                guard callbackContext.runtimeSurface == requestSurface else { return }
+                let hasText = GhosttyApp.terminalPasteboard.pasteboard(for: location)?.string(forType: .string) != nil
+                Self.completeTextClipboardRequest(
+                    requestSurface,
+                    text: "",
+                    available: hasText ? ["text/plain"] : [],
+                    state: state
+                )
+            }
+            return GHOSTTY_CLIPBOARD_READ_STARTED
+        }
 
         DispatchQueue.main.async {
             func completeClipboardRequest(with text: String) {
@@ -522,9 +551,12 @@ class GhosttyApp {
                         ) ?? false
                     }
                     let completionText = handledByMirror ? "" : text
-                    completionText.withCString { ptr in
-                        ghostty_surface_complete_clipboard_request(requestSurface, ptr, state, false)
-                    }
+                    Self.completeTextClipboardRequest(
+                        requestSurface,
+                        text: completionText,
+                        available: list ? ["text/plain"] : [],
+                        state: state
+                    )
                     callbackContext.terminalSurface?.noteClipboardReadCompleted()
                 }
                 if Thread.isMainThread {
@@ -639,7 +671,47 @@ class GhosttyApp {
             }
         }
 
-        return true
+        return GHOSTTY_CLIPBOARD_READ_STARTED
+    }
+
+    /// Completes a clipboard read with `text` as its only (`text/plain`)
+    /// representation and `available` as the listing. Empty text completes
+    /// with no representation, which Ghostty pastes as nothing. Everything is
+    /// borrowed only for the duration of the call.
+    fileprivate static func completeTextClipboardRequest(
+        _ surface: ghostty_surface_t,
+        text: String,
+        available: [String],
+        state: UnsafeMutableRawPointer?
+    ) {
+        let availableCStrings = available.map { strdup($0) }
+        defer { availableCStrings.forEach { free($0) } }
+        var availablePointers = availableCStrings.map { UnsafePointer($0) }
+        var utf8 = Array(text.utf8)
+        "text/plain".withCString { mime in
+            utf8.withUnsafeMutableBufferPointer { bytes in
+                bytes.withMemoryRebound(to: CChar.self) { chars in
+                    var content = ghostty_clipboard_content_s(
+                        mime: mime,
+                        data: UnsafePointer(chars.baseAddress),
+                        len: chars.count
+                    )
+                    withUnsafePointer(to: &content) { contentPointer in
+                        availablePointers.withUnsafeMutableBufferPointer { availableBuffer in
+                            var complete = ghostty_clipboard_complete_s(
+                                contents: text.isEmpty ? nil : contentPointer,
+                                contents_len: text.isEmpty ? 0 : 1,
+                                available: availableBuffer.isEmpty ? nil : UnsafePointer(availableBuffer.baseAddress),
+                                available_len: availableBuffer.count,
+                                confirmed: false,
+                                remember: false
+                            )
+                            ghostty_surface_complete_clipboard_request(surface, &complete, state)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     let backgroundLogEnabled = {
@@ -849,23 +921,26 @@ class GhosttyApp {
             guard let runtimeApp = GhosttyApp.runtimeAppForActionCallback(app) else { return false }
             return runtimeApp.handleAction(target: target, action: action)
         }
-        // Some GhosttyKit builds import this callback as returning `Void` in Swift even
-        // though the C ABI returns `bool`. Store the C-compatible shim explicitly so the
-        // project compiles against both importer variants.
-        runtimeConfig.read_clipboard_cb = unsafeBitCast(
-            cmuxRuntimeReadClipboardCallback as @convention(c) (
-                UnsafeMutableRawPointer?,
-                ghostty_clipboard_e,
-                UnsafeMutableRawPointer?
-            ) -> Bool,
-            to: ghostty_runtime_read_clipboard_cb.self
-        )
-        runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
-            guard let content else { return }
+        runtimeConfig.read_clipboard_cb = cmuxRuntimeReadClipboardCallback
+        // cmux approves clipboard reads that Ghostty asks it to confirm: complete
+        // with exactly the contents Ghostty offered, which it only borrows for
+        // this call.
+        runtimeConfig.confirm_read_clipboard_cb = { userdata, confirm, state, _ in
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
                   let surface = callbackContext.runtimeSurface else { return }
-
-            ghostty_surface_complete_clipboard_request(surface, content, state, true)
+            guard let confirm else {
+                ghostty_surface_deny_clipboard_request(surface, state)
+                return
+            }
+            var complete = ghostty_clipboard_complete_s(
+                contents: confirm.pointee.contents,
+                contents_len: confirm.pointee.contents_len,
+                available: confirm.pointee.available,
+                available_len: confirm.pointee.available_len,
+                confirmed: true,
+                remember: false
+            )
+            ghostty_surface_complete_clipboard_request(surface, &complete, state)
             DispatchQueue.main.async {
                 callbackContext.terminalSurface?.noteClipboardReadCompleted()
             }
@@ -877,8 +952,12 @@ class GhosttyApp {
 
             var fallback: String?
             for item in buffer {
+                // The data has an explicit length and is not null-terminated.
                 guard let dataPtr = item.data else { continue }
-                let value = String(cString: dataPtr)
+                let value = String(
+                    decoding: UnsafeRawBufferPointer(start: dataPtr, count: item.len),
+                    as: UTF8.self
+                )
 
                 if let mimePtr = item.mime {
                     let mime = String(cString: mimePtr)
