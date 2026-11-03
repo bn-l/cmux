@@ -4,6 +4,7 @@ import CmuxTerminal
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
+import CmuxGit
 import CmuxSettings
 import CmuxWorkspaces
 import CmuxTestSupport
@@ -2559,6 +2560,98 @@ class GhosttyApp {
         }
     }
 
+    /// Opens a web link clicked in a terminal: in the system browser, or in a
+    /// cmux browser split when the terminal-link settings allow it. Shared by
+    /// Ghostty's open-URL action and cmux's own Cmd-click on GitHub references.
+    @MainActor
+    static func openTerminalWebLink(
+        _ target: TerminalOpenURLTarget,
+        sourceWorkspaceId: UUID?,
+        sourcePanelId: UUID?
+    ) -> Bool {
+        if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
+            #if DEBUG
+            cmuxDebugLog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
+            #endif
+            return NSWorkspace.shared.open(target.url)
+        }
+        switch target {
+        case let .external(url):
+            #if DEBUG
+            cmuxDebugLog("link.openURL target=external, opening externally url=\(url)")
+            #endif
+            return NSWorkspace.shared.open(url)
+        case let .embeddedBrowser(url):
+            if BrowserLinkOpenSettings.shouldOpenExternally(url) {
+                #if DEBUG
+                cmuxDebugLog("link.openURL target=embedded but shouldOpenExternally=true url=\(url)")
+                #endif
+                return NSWorkspace.shared.open(url)
+            }
+            guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+                #if DEBUG
+                cmuxDebugLog("link.openURL target=embedded but normalizeHost=nil host=\(url.host ?? "nil") url=\(url)")
+                #endif
+                return NSWorkspace.shared.open(url)
+            }
+
+            // If a host whitelist is configured and this host isn't in it, open externally.
+            if !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
+                #if DEBUG
+                cmuxDebugLog("link.openURL target=embedded but hostWhitelist miss host=\(host) url=\(url)")
+                #endif
+                return NSWorkspace.shared.open(url)
+            }
+            guard let sourceWorkspaceId,
+                  let sourcePanelId else {
+                #if DEBUG
+                cmuxDebugLog("link.openURL target=embedded but tabId/surfaceId=nil")
+                #endif
+                return false
+            }
+            #if DEBUG
+            cmuxDebugLog(
+                "link.openURL target=embedded, opening in browser pane " +
+                "host=\(host) url=\(url) tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId)"
+            )
+            #endif
+            let canAttemptEmbeddedOpen = BrowserAvailabilitySettings.isEnabled() &&
+                AppDelegate.shared?.workspaceContainingPanel(
+                    panelId: sourcePanelId,
+                    preferredWorkspaceId: sourceWorkspaceId
+                ) != nil
+            guard canAttemptEmbeddedOpen else {
+                #if DEBUG
+                cmuxDebugLog(
+                    "link.openURL embedded preflight failed, opening externally " +
+                    "tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId) url=\(url)"
+                )
+                #endif
+                return NSWorkspace.shared.open(url)
+            }
+
+            // Browser split creation changes focus, which unfocuses the source terminal and
+            // calls back into Ghostty. Defer that work until this open_url callback returns.
+            // From here cmux owns the open attempt and the deferred path falls back externally.
+            Task { @MainActor [url, sourceWorkspaceId, sourcePanelId, host] in
+                let didOpen = Self.openEmbeddedBrowserLink(
+                    url: url,
+                    sourceWorkspaceId: sourceWorkspaceId,
+                    sourcePanelId: sourcePanelId,
+                    host: host
+                )
+                guard didOpen else {
+                    #if DEBUG
+                    cmuxDebugLog("link.openURL deferred open failed url=\(url)")
+                    #endif
+                    NSSound.beep()
+                    return
+                }
+            }
+            return true
+        }
+    }
+
     @MainActor
     private static func openEmbeddedBrowserLink(
         url: URL,
@@ -3217,102 +3310,14 @@ class GhosttyApp {
                 // Fall through to the existing NSWorkspace path below.
             }
 
-            if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
-                #if DEBUG
-                cmuxDebugLog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
-                #endif
-                return performOnMain {
-                    NSWorkspace.shared.open(target.url)
-                }
-            }
-            switch target {
-            case let .external(url):
-                #if DEBUG
-                cmuxDebugLog("link.openURL target=external, opening externally url=\(url)")
-                #endif
-                return performOnMain {
-                    NSWorkspace.shared.open(url)
-                }
-            case let .embeddedBrowser(url):
-                if BrowserLinkOpenSettings.shouldOpenExternally(url) {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but shouldOpenExternally=true url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but normalizeHost=nil host=\(url.host ?? "nil") url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-
-                // If a host whitelist is configured and this host isn't in it, open externally.
-                if !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but hostWhitelist miss host=\(host) url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
-                let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
-                guard let sourceWorkspaceId,
-                      let sourcePanelId else {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but tabId/surfaceId=nil")
-                    #endif
-                    return false
-                }
-                #if DEBUG
-                cmuxDebugLog(
-                    "link.openURL target=embedded, opening in browser pane " +
-                    "host=\(host) url=\(url) tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId)"
+            let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
+            let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+            return performOnMain {
+                Self.openTerminalWebLink(
+                    target,
+                    sourceWorkspaceId: sourceWorkspaceId,
+                    sourcePanelId: sourcePanelId
                 )
-                #endif
-                let canAttemptEmbeddedOpen = performOnMain {
-                    BrowserAvailabilitySettings.isEnabled() &&
-                    AppDelegate.shared?.workspaceContainingPanel(
-                        panelId: sourcePanelId,
-                        preferredWorkspaceId: sourceWorkspaceId
-                    ) != nil
-                }
-                guard canAttemptEmbeddedOpen else {
-                    #if DEBUG
-                    cmuxDebugLog(
-                        "link.openURL embedded preflight failed, opening externally " +
-                        "tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId) url=\(url)"
-                    )
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-
-                // Browser split creation changes focus, which unfocuses the source terminal and
-                // calls back into Ghostty. Defer that work until this open_url callback returns.
-                // From here cmux owns the open attempt and the deferred path falls back externally.
-                Task { @MainActor [url, sourceWorkspaceId, sourcePanelId, host] in
-                    let didOpen = Self.openEmbeddedBrowserLink(
-                        url: url,
-                        sourceWorkspaceId: sourceWorkspaceId,
-                        sourcePanelId: sourcePanelId,
-                        host: host
-                    )
-                    guard didOpen else {
-                        #if DEBUG
-                        cmuxDebugLog("link.openURL deferred open failed url=\(url)")
-                        #endif
-                        NSSound.beep()
-                        return
-                    }
-                }
-                return true
             }
         default:
             return false
@@ -6957,11 +6962,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         at point: NSPoint,
         cwd: String
     ) -> WordPathResolution? {
+        guard let cell = viewportCell(at: point) else { return nil }
+        return resolveViewportRowWordPath(row: cell.row, column: cell.column, cwd: cwd)
+    }
+
+    /// The viewport cell under a point in this view, or nil before the
+    /// surface has a cell size.
+    private func viewportCell(at point: NSPoint) -> (row: Int, column: Int)? {
         guard let surface else { return nil }
 
         let size = ghostty_surface_size(surface)
-        let rows = max(Int(size.rows), 1)
-        let cols = max(Int(size.columns), 1)
         // Ghostty reports cell size in backing pixels (`size.cell` in
         // Surface.zig; upstream's macOS app runs it through
         // convertFromBacking) while `point` and `bounds` are in points.
@@ -6980,7 +6990,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 "cell=(\(resolvedCellWidth),\(resolvedCellHeight)) row=\(row) col=\(column)"
         )
 #endif
-        return resolveViewportRowWordPath(row: row, column: column, cwd: cwd)
+        return (row, column)
     }
 
     /// Where ghostty anchors the cell grid inside the surface, in points.
@@ -7011,6 +7021,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         column: Int,
         cwd: String
     ) -> WordPathResolution? {
+        // A blank row reads back as empty text, which resolves to nil and lets
+        // the quicklook fallback take the click.
+        guard let line = visibleLogicalLine(row: row, column: column),
+              let resolution = TerminalPathResolver().resolveVisibleLinePath(
+                  line.text,
+                  column: line.column,
+                  cwd: cwd
+              ) else {
+            return nil
+        }
+
+        return makeWordPathResolution(
+            path: resolution.path,
+            source: .snapshot,
+            rawToken: resolution.rawToken
+        )
+    }
+
+    /// The logical line (soft-wrapped viewport rows joined) through a viewport
+    /// cell, and that cell's column within it.
+    private func visibleLogicalLine(row: Int, column: Int) -> (text: String, column: Int)? {
         guard let surface else { return nil }
 
         let size = ghostty_surface_size(surface)
@@ -7028,8 +7059,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             bottomRow += 1
         }
 
-        // A blank row reads back as empty text, which resolves to nil and lets
-        // the quicklook fallback take the click.
         let lineText = readViewportText(topRow: topRow, bottomRow: bottomRow, columns: cols)
         let logicalColumn = (clampedRow - topRow) * cols + clampedColumn
 #if DEBUG
@@ -7038,20 +7067,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 "logicalCol=\(logicalColumn) len=\(lineText?.count ?? -1)"
         )
 #endif
-        guard let lineText,
-              let resolution = TerminalPathResolver().resolveVisibleLinePath(
-                  lineText,
-                  column: logicalColumn,
-                  cwd: cwd
-              ) else {
-            return nil
-        }
-
-        return makeWordPathResolution(
-            path: resolution.path,
-            source: .snapshot,
-            rawToken: resolution.rawToken
-        )
+        guard let lineText else { return nil }
+        return (lineText, logicalColumn)
     }
 
     /// Whether a viewport row soft-wraps into the row below it.
@@ -7165,6 +7182,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         guard let resolution = resolveWordUnderCursorPath(at: resolvedPoint) else {
+            attemptGitHubReferenceOpen(
+                at: resolvedPoint,
+                runtimeOutcome: ghosttyConsumed ? .consumed : .unhandled
+            )
 #if DEBUG
             runtimeDebugLog(
                 hypothesisID: "h2",
@@ -7250,6 +7271,85 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
         return resolution
+    }
+
+    /// Opens the GitHub issue, pull request, or commit named under the pointer
+    /// when no local path resolved there.
+    ///
+    /// Only a release the terminal runtime left alone is ours to interpret, so a
+    /// click ghostty already handled never reaches GitHub.
+    ///
+    /// Resolving the pane's repository reads git off the main thread, so a bare
+    /// `#123` or commit SHA opens a moment after the release; the click is
+    /// still the user's. `owner/repo#123` names its own repository and skips
+    /// the lookup entirely.
+    private func attemptGitHubReferenceOpen(
+        at point: NSPoint?,
+        runtimeOutcome: TerminalCommandClickRuntimeOutcome
+    ) {
+        guard runtimeOutcome == .unhandled,
+              let point,
+              let termSurface = terminalSurface,
+              let workspace = termSurface.owningWorkspace(),
+              let cell = viewportCell(at: point),
+              let visibleLine = visibleLogicalLine(row: cell.row, column: cell.column) else { return }
+
+        let line = visibleLine.text
+        let column = visibleLine.column
+        let policy = TerminalGitHubReferenceClickPolicy()
+
+        switch policy.decision(runtimeOutcome: runtimeOutcome, inVisibleLine: line, column: column) {
+        case .ignore:
+            return
+        case .open(let reference):
+            openGitHubReference(reference)
+            return
+        case .resolveRepository:
+            break
+        }
+
+        guard let cwd = resolvedWordPathWorkingDirectory(
+            workspace: workspace,
+            terminalSurface: termSurface
+        ) else { return }
+
+        // The pane the click landed in, captured now. A portal can detach the
+        // runtime and a pane can be reassigned while git is being read, and
+        // opening the link against whatever pane this view points at by then
+        // would split the wrong one.
+        let clickedPanelId = termSurface.id
+        let clickedWorkspaceId = tabId
+
+        Task { @MainActor [weak self] in
+            let slug = await GitHubRepositorySlugCache.shared.slug(forDirectory: cwd)
+            guard let self,
+                  self.terminalSurface?.id == clickedPanelId,
+                  self.tabId == clickedWorkspaceId,
+                  case .open(let reference) = policy.decision(
+                      inVisibleLine: line,
+                      column: column,
+                      repositorySlug: slug
+                  ) else { return }
+            self.openGitHubReference(reference)
+        }
+    }
+
+    /// Routes a resolved GitHub reference through the same open path as any
+    /// other web link in the pane, so it honors the embedded-browser and host
+    /// settings.
+    private func openGitHubReference(_ reference: TerminalGitHubReference) {
+        guard let termSurface = terminalSurface,
+              let target = resolveTerminalOpenURLTarget(reference.url.absoluteString) else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "link.githubReference token=\(reference.rawToken) url=\(reference.url.absoluteString)"
+        )
+#endif
+        _ = GhosttyApp.openTerminalWebLink(
+            target,
+            sourceWorkspaceId: tabId,
+            sourcePanelId: termSurface.id
+        )
     }
 
     private func clampedDebugPoint(_ point: NSPoint) -> NSPoint {
