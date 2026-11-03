@@ -35,8 +35,34 @@ enum CmuxMain {
             runSidebarInterpreterWorker()
             exit(0)
         }
+        if UnitTestHostActivation.isBlocked {
+            // Before SwiftUI starts the app, so the launch itself does not
+            // bring the test host to the front.
+            MainActor.assumeIsolated { NSApplication.shared.setActivationPolicy(.prohibited) }
+        }
         cmuxApp.main()
     }
+}
+
+/// When the app hosts the cmuxTests unit tests, it never activates, so a test
+/// run cannot take keyboard focus from the person using the Mac.
+///
+/// xcodebuild injects the test bundle into the app and sets
+/// `XCInjectBundleInto` and `XCTestConfigurationFilePath` (empty, but set).
+/// UI tests launch the app without injecting anything, so they are
+/// unaffected. Under the `.prohibited` activation policy every
+/// `NSApp.activate` and `NSRunningApplication.activate` is a no-op. Windows
+/// still open and take first responders, but none becomes key and
+/// `NSApp.isActive` stays false. A run of tests that need a key window opts in
+/// with `TEST_RUNNER_CMUX_TEST_HOST_ALLOW_ACTIVATION=1 ./scripts/test-unit.sh …`
+/// (xcodebuild strips the prefix and passes the variable to the test host).
+enum UnitTestHostActivation {
+    static let isBlocked: Bool = {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["XCInjectBundleInto"] != nil
+            && environment["XCTestConfigurationFilePath"] != nil
+            && environment["CMUX_TEST_HOST_ALLOW_ACTIVATION"] != "1"
+    }()
 }
 
 struct cmuxApp: App {

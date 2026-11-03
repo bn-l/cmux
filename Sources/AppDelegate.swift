@@ -1110,7 +1110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         systemAppearanceObserver.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
         if isRunningUnderXCTest {
-            NSApp.setActivationPolicy(.regular)
+            NSApp.setActivationPolicy(UnitTestHostActivation.isBlocked ? .prohibited : .regular)
         } else {
             MenuBarOnlySettings.normalizeLegacyStoredPreference()
             syncActivationPolicy()
@@ -8166,6 +8166,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func syncActivationPolicy(defaults: UserDefaults = .standard) {
+        // A defaults change in a test must not make the unit-test host activatable.
+        guard !UnitTestHostActivation.isBlocked else { return }
         MenuBarOnlySettings.applyActivationPolicy(defaults: defaults)
     }
 

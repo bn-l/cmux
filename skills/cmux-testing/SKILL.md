@@ -39,6 +39,10 @@ Swift Testing is the current Apple-supported primitive for tests on this codebas
 
 `reload.sh` does not compile the test target. It builds only the `cmux` scheme, so a green `reload.sh` says nothing about whether `cmuxTests`/`cmuxUITests` still compile. A symbol that is moved or renamed can keep the `cmux` app building while breaking the test target (real case: a `write(to:atomically:)` typo and a removed `TabManager.CommandResult` only surfaced in the `tests` job). Before pushing package/refactor changes, build the `cmux-unit` scheme (with `-derivedDataPath /tmp/cmux-<tag>` and, for `cmuxApp`/`AppDelegate` churn, the GlobalISel workaround flag) or let the `tests` CI job gate it — never treat `reload.sh` alone as proof the tests build.
 
+## Keyboard focus in unit tests
+
+The `cmuxTests` host app never activates (`UnitTestHostActivation` in `Sources/cmuxApp.swift` sets the `.prohibited` activation policy), so a test run cannot take keyboard focus from whoever is using the Mac. Windows still open and accept first responders, but no window is key, `NSApp.keyWindow` is `nil` and `NSApp.isActive` is `false`. A test that needs a real key window or an active app fails under that policy; run it with `TEST_RUNNER_CMUX_TEST_HOST_ALLOW_ACTIVATION=1 ./scripts/test-unit.sh …` (xcodebuild strips `TEST_RUNNER_` and passes the variable to the host). That run takes focus. UI tests launch the app normally and are not affected.
+
 ## Spawning processes from tests
 
 **Never build a spawned process's environment from `ProcessInfo.processInfo.environment`.**
