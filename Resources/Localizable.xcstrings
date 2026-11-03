@@ -98578,834 +98578,6 @@
         }
       }
     },
-    "feed.badge.allowed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Allowed"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "許可"
-          }
-        }
-      }
-    },
-    "feed.badge.answered": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Answered"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "回答済み"
-          }
-        }
-      }
-    },
-    "feed.badge.plan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plan"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プラン"
-          }
-        }
-      }
-    },
-    "feed.context.agent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent:"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェント:"
-          }
-        }
-      }
-    },
-    "feed.empty.all.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tool use, messages, and session events will appear here."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ツールの利用、メッセージ、セッションイベントがここに表示されます。"
-          }
-        }
-      }
-    },
-    "feed.empty.all.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No feed activity yet"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィードのアクティビティはまだありません"
-          }
-        }
-      }
-    },
-    "feed.exitplan.autoaccept": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auto"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動"
-          }
-        }
-      }
-    },
-    "feed.exitplan.bypass": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bypass"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "バイパス"
-          }
-        }
-      }
-    },
-    "feed.exitplan.deny": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deny"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拒否"
-          }
-        }
-      }
-    },
-    "feed.filter.all": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "All"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべて"
-          }
-        }
-      }
-    },
-    "feed.lifecycle.compaction.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ضغط"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sažimanje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Komprimering"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Komprimierung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compaction"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compactación"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compactage"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compattazione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "圧縮"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការបង្រួម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "압축"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Komprimering"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kompaktowanie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compactação"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сжатие"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การบีบอัด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sıkıştırma"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стиснення"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "压缩"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "壓縮"
-          }
-        }
-      }
-    },
-    "feed.lifecycle.subagent.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "وكيل فرعي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podagent"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Underagent"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unteragent"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subagent"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subagente"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sous-agent"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sottoagente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サブエージェント"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ភ្នាក់ងាររង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "하위 에이전트"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Underagent"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podagent"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subagente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Субагент"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เอเจนต์ย่อย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alt aracı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Субагент"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "子代理"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "子代理"
-          }
-        }
-      }
-    },
-    "feed.notification.decisionNeeded": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Decision needed"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "判断が必要です"
-          }
-        }
-      }
-    },
-    "feed.notification.exitPlan.autoAccept": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auto"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動"
-          }
-        }
-      }
-    },
-    "feed.notification.exitPlan.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Review and approve the plan"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プランを確認して承認してください"
-          }
-        }
-      }
-    },
-    "feed.notification.exitPlan.bypass": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bypass"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "バイパス"
-          }
-        }
-      }
-    },
-    "feed.notification.exitPlan.manual": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Manual"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "手動"
-          }
-        }
-      }
-    },
-    "feed.notification.exitPlan.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ plan ready"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@のプラン準備完了"
-          }
-        }
-      }
-    },
-    "feed.notification.exitPlan.ultraplan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ultraplan"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ウルトラプラン"
-          }
-        }
-      }
-    },
-    "feed.notification.permission.all": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "All tools"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべてのツール"
-          }
-        }
-      }
-    },
-    "feed.notification.permission.allowOnce": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Allow Once"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1回だけ許可"
-          }
-        }
-      }
-    },
-    "feed.notification.permission.always": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Always"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "常に許可"
-          }
-        }
-      }
-    },
-    "feed.notification.permission.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ needs approval"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@に承認が必要です"
-          }
-        }
-      }
-    },
-    "feed.notification.permission.deny": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deny"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拒否"
-          }
-        }
-      }
-    },
-    "feed.notification.permission.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ permission"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@の権限確認"
-          }
-        }
-      }
-    },
-    "feed.notification.question.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent is asking a question"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントが質問しています"
-          }
-        }
-      }
-    },
-    "feed.notification.question.reply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reply"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "返信"
-          }
-        }
-      }
-    },
-    "feed.notification.question.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ question"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@からの質問"
-          }
-        }
-      }
-    },
-    "feed.permission.all": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "All tools"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべてのツール"
-          }
-        }
-      }
-    },
-    "feed.permission.always": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Always"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "常に"
-          }
-        }
-      }
-    },
-    "feed.permission.deny": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deny"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拒否"
-          }
-        }
-      }
-    },
-    "feed.permission.once": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Once"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1回"
-          }
-        }
-      }
-    },
-    "feed.promptEcho.permission": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "You: %@ request from %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%2$@からの%1$@リクエスト"
-          }
-        }
-      }
-    },
-    "feed.question.answerAll": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Please answer all questions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべての質問に回答してください"
-          }
-        }
-      }
-    },
-    "feed.question.submit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Submit"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "送信"
-          }
-        }
-      }
-    },
-    "feed.status.expired": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Expired"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "期限切れ"
-          }
-        }
-      }
-    },
     "feed.status.needsInput": {
       "extractionState": "manual",
       "localizations": {
@@ -99527,23 +98699,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "需要輸入"
-          }
-        }
-      }
-    },
-    "feed.status.pending": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pending"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保留中"
           }
         }
       }
@@ -137930,121 +137085,6 @@
         }
       }
     },
-    "settings.automation.kiro.notificationLevel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kiro Notification Level"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kiro通知レベル"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kiro 알림 수준"
-          }
-        }
-      }
-    },
-    "settings.automation.kiro.notificationLevel.minimal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Minimal"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最小"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "최소"
-          }
-        }
-      }
-    },
-    "settings.automation.kiro.notificationLevel.standard": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standard"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "標準"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "표준"
-          }
-        }
-      }
-    },
-    "settings.automation.kiro.notificationLevel.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Controls how many Kiro tool events appear in Feed."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feedに表示するKiroツールイベントの量を制御します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed에 표시되는 Kiro 도구 이벤트 수를 제어합니다."
-          }
-        }
-      }
-    },
-    "settings.automation.kiro.notificationLevel.verbose": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verbose"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "詳細"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "자세히"
-          }
-        }
-      }
-    },
     "settings.automation.kiro.subtitleOff": {
       "extractionState": "manual",
       "localizations": {
@@ -138074,19 +137114,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebar shows Kiro session status, notifications, and Feed tool events."
+            "value": "Sidebar shows Kiro session status and notifications."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーにKiroセッションのステータス、通知、Feedツールイベントが表示されます。"
+            "value": "サイドバーにKiroセッションのステータスと通知が表示されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바에 Kiro 세션 상태, 알림, Feed 도구 이벤트가 표시됩니다."
+            "value": "사이드바에 Kiro 세션 상태와 알림이 표시됩니다."
           }
         }
       }
@@ -141446,115 +140486,115 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبقى إكمالات الوكلاء الفرعيين في Feed بدون إشعارات."
+            "value": "لا تُرسل إكمالات الوكلاء الفرعيين إشعارات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Završeci dječijih agenata ostaju u Feed-u bez obavještenja."
+            "value": "Završeci dječijih agenata ne šalju obavještenja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Underagenters fuldførelser bliver i Feed uden notifikationer."
+            "value": "Underagenters fuldførelser giver ikke besked."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abschlüsse von Unteragenten bleiben ohne Benachrichtigungen im Feed."
+            "value": "Abschlüsse von Unteragenten benachrichtigen nicht."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Child agent completions stay in Feed without notifications."
+            "value": "Child agent completions do not notify."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las finalizaciones de agentes secundarios permanecen en Feed sin notificaciones."
+            "value": "Las finalizaciones de agentes secundarios no notifican."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les fins d’agents enfants restent dans Feed sans notifications."
+            "value": "Les fins d’agents enfants ne notifient pas."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I completamenti degli agenti figli restano in Feed senza notifiche."
+            "value": "I completamenti degli agenti figli non inviano notifiche."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "子エージェントの完了は通知せずFeedにのみ残ります。"
+            "value": "子エージェントの完了は通知しません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "하위 에이전트 완료는 알림 없이 Feed에만 남습니다."
+            "value": "하위 에이전트 완료는 알리지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fullføringer fra underagenter blir i Feed uten varsler."
+            "value": "Fullføringer fra underagenter varsler ikke."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ukończenia agentów podrzędnych pozostają w Feed bez powiadomień."
+            "value": "Ukończenia agentów podrzędnych nie wysyłają powiadomień."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conclusões de agentes filhos ficam no Feed sem notificações."
+            "value": "Conclusões de agentes filhos não notificam."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Завершения дочерних агентов остаются в Feed без уведомлений."
+            "value": "Завершения дочерних агентов не уведомляют."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การทำงานเสร็จของเอเจนต์ลูกจะอยู่ใน Feed โดยไม่มีการแจ้งเตือน"
+            "value": "การทำงานเสร็จของเอเจนต์ลูกจะไม่แจ้งเตือน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alt ajan tamamlanmaları bildirim olmadan Feed’de kalır."
+            "value": "Alt ajan tamamlanmaları bildirim göndermez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Завершення дочірніх агентів залишаються у Feed без сповіщень."
+            "value": "Завершення дочірніх агентів не сповіщають."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "子代理完成事件会留在 Feed 中且不通知。"
+            "value": "子代理完成时不通知。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "子代理完成事件會留在 Feed 中且不通知。"
+            "value": "子代理完成時不通知。"
           }
         }
       }
@@ -160195,29 +159235,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "automation.kiroIntegration kiro cli amazon q agent hooks notifications 자동화 kiro cli amazon q 에이전트 훅 알림 연동"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.automation.kiro-notification-level": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "automation.kiroNotificationLevel kiro cli notification verbosity minimal standard verbose tool events"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "automation.kiroNotificationLevel kiro cli notification verbosity minimal standard verbose tool events kiro 通知 レベル 詳細 最小 標準 ツール イベント"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "automation.kiroNotificationLevel kiro cli notification verbosity minimal standard verbose tool events kiro 알림 수준 자세히 최소 표준 도구 이벤트"
           }
         }
       }

@@ -2,9 +2,10 @@ import Foundation
 
 extension CMUXCLI {
     /// The per-invocation Codex hook events the wrapper injects, paired with the
-    /// cmux subcommand they call and the codex hook timeout (ms). Lifecycle
-    /// events are short; feed events (`PreToolUse`/`PermissionRequest`) are long
-    /// because the user may take time to approve. This is the single source of
+    /// cmux subcommand they call and the codex hook timeout (ms). Every hook
+    /// returns `{}` to Codex at once and runs the cmux call in the background;
+    /// `PermissionRequest` only raises cmux's needs-approval notification and
+    /// never answers for Codex. This is the single source of
     /// truth for `cmux-codex-wrapper`'s injection, mirrored from the historic
     /// hand-rolled `cmux_codex_add_hook` calls in the wrapper.
     static let codexWrapperInjectionEvents: [(agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)] = [

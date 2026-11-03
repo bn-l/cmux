@@ -497,6 +497,32 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertFalse(line.contains("secret"))
     }
 
+    /// A forwarded agent hook becomes exactly one `agent.hook.<name>` event
+    /// with phase `received`. The removed Feed also published `feed.item.*`
+    /// events and a `completed` phase carrying its decision; neither may come
+    /// back.
+    func testWorkstreamEventPublishesOneAgentHookEventAndNoFeedEvent() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let event = WorkstreamEvent(
+            sessionId: "claude-session",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            workspaceId: "workspace",
+            toolName: "Bash"
+        )
+
+        bus.publishWorkstreamEvent(event)
+
+        let events = bus.retainedSnapshot()
+        XCTAssertEqual(events.compactMap { $0["name"] as? String }, ["agent.hook.PermissionRequest"])
+        let published = try XCTUnwrap(events.first)
+        XCTAssertEqual(published["category"] as? String, "agent")
+        XCTAssertEqual(published["source"] as? String, "claude")
+        let payload = try XCTUnwrap(published["payload"] as? [String: Any])
+        XCTAssertEqual(payload["phase"] as? String, "received")
+        XCTAssertNil(payload["result"], "\(payload)")
+    }
+
     func testPublishAppendsDurableEventLog() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-log-\(UUID().uuidString)", isDirectory: true)

@@ -266,8 +266,7 @@ class TerminalController {
         "notification.jump_to_unread",
         "debug.command_palette.toggle",
         "debug.notification.focus",
-        "debug.app.activate",
-        "feed.jump"
+        "debug.app.activate"
     ]
 
     /// The main-actor RPC dispatch coordinator (CmuxControlSocket). Owns the
@@ -1073,20 +1072,6 @@ class TerminalController {
                 return Self.v2Encoder.response(id: parsedRequest.id, coordinatorResult)
             }
             if request.method == "feed.push", request.id == nil {
-                guard let waitTimeout = Self.feedPushWaitTimeoutSeconds(params: request.params) else {
-                    return v2Error(
-                        id: request.id,
-                        code: "invalid_params",
-                        message: "feed.push wait_timeout_seconds must be numeric and between 0 and 120"
-                    )
-                }
-                guard waitTimeout == 0 else {
-                    return v2Error(
-                        id: request.id,
-                        code: "invalid_params",
-                        message: "feed.push without an id requires wait_timeout_seconds 0"
-                    )
-                }
                 _ = socketWorkerV2Response(request)
                 return nil
             }
@@ -1195,26 +1180,6 @@ class TerminalController {
         }
     }
 
-    private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
-        guard let rawTimeout = params["wait_timeout_seconds"] else {
-            return 0
-        }
-        let seconds: Double?
-        if let number = rawTimeout as? NSNumber {
-            seconds = number.doubleValue
-        } else if let value = rawTimeout as? Double {
-            seconds = value
-        } else if let value = rawTimeout as? Int {
-            seconds = Double(value)
-        } else {
-            seconds = nil
-        }
-        guard let seconds, seconds.isFinite, seconds >= 0, seconds <= 120 else {
-            return nil
-        }
-        return seconds
-    }
-
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
         case "auth.status":
@@ -1261,12 +1226,6 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
             return v2Result(id: request.id, v2FeedPush(params: request.params))
-        case "feed.permission.reply":
-            return v2Result(id: request.id, v2FeedPermissionReply(params: request.params))
-        case "feed.question.reply":
-            return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
-        case "feed.exit_plan.reply":
-            return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
@@ -1860,9 +1819,9 @@ class TerminalController {
     }
 
     /// Public entry point mirroring the socket's `processCommand` path so
-    /// in-process callers (e.g. the Feed coordinator's `feed.jump` focus
-    /// request) can reuse the full V1/V2 dispatcher without duplicating
-    /// its auth/policy wrappers.
+    /// in-process callers (sidebar actions, notification jumps, tests) can
+    /// reuse the full V1/V2 dispatcher without duplicating its auth/policy
+    /// wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
         return processCommandUsingSocketExecutionPolicy(line) ?? ""
     }
@@ -2195,7 +2154,6 @@ class TerminalController {
         // Settings/session/feedback: session.restore_previous, settings.open, and
         // feedback.open handled by ControlCommandCoordinator.
 
-        // Feed (workstream): feed.jump/feed.list handled by ControlCommandCoordinator.
         case "sidebar.custom.open":
             return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
 
@@ -2376,11 +2334,6 @@ class TerminalController {
             "feedback.open",
             "feedback.submit",
             "feed.push",
-            "feed.permission.reply",
-            "feed.question.reply",
-            "feed.exit_plan.reply",
-            "feed.jump",
-            "feed.list",
             "surface.list",
             "surface.current",
             "surface.focus",
@@ -5506,39 +5459,14 @@ class TerminalController {
         )
     }
 
-    // MARK: - V2 Feed (workstream) handlers
+    // MARK: - V2 agent hook forwarding
 
+    /// Receives one forwarded agent hook event (`cmux hooks feed`, the agent
+    /// hook subcommands, the Pi extension). The event is published on the
+    /// events stream and drives Jump to Last Prompt and iMessage mode. cmux
+    /// never holds the agent or answers for it, so this always returns at
+    /// once; `wait_timeout_seconds` from older CLIs is ignored.
     private nonisolated func v2FeedPush(params: [String: Any]) -> V2CallResult {
-        let waitTimeout: TimeInterval
-        if let rawTimeout = params["wait_timeout_seconds"] {
-            let seconds: Double?
-            if let number = rawTimeout as? NSNumber {
-                seconds = number.doubleValue
-            } else if let value = rawTimeout as? Double {
-                seconds = value
-            } else if let value = rawTimeout as? Int {
-                seconds = Double(value)
-            } else {
-                seconds = nil
-            }
-            guard let seconds else {
-                return .err(
-                    code: "invalid_params",
-                    message: "feed.push wait_timeout_seconds must be numeric",
-                    data: nil
-                )
-            }
-            guard seconds.isFinite, seconds >= 0, seconds <= 120 else {
-                return .err(
-                    code: "invalid_params",
-                    message: "feed.push wait_timeout_seconds must be between 0 and 120",
-                    data: nil
-                )
-            }
-            waitTimeout = seconds
-        } else {
-            waitTimeout = 0
-        }
         let eventDict: [String: Any]
         if let nested = params["event"] as? [String: Any] {
             eventDict = nested
@@ -5566,19 +5494,9 @@ class TerminalController {
             )
         }
 
-        CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
+        CmuxEventBus.shared.publishWorkstreamEvent(event)
         v2ApplyIMessageModeSideEffects(for: event)
-
-        let result = FeedCoordinator.shared.ingestBlocking(
-            event: event,
-            waitTimeout: waitTimeout
-        )
-        CmuxEventBus.shared.publishWorkstreamEvent(
-            event,
-            phase: "completed",
-            result: FeedSocketEncoding.payload(for: result)
-        )
-        return .ok(FeedSocketEncoding.payload(for: result))
+        return .ok(["status": "acknowledged"])
     }
 
     /// UserPromptSubmit side effects: the workspace's prompt record and, when
@@ -5635,77 +5553,6 @@ class TerminalController {
         default:
             break
         }
-    }
-
-    private nonisolated func v2FeedPermissionReply(params: [String: Any]) -> V2CallResult {
-        guard let requestId = params["request_id"] as? String else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.permission.reply requires request_id",
-                data: nil
-            )
-        }
-        guard let modeRaw = params["mode"] as? String,
-              let mode = WorkstreamPermissionMode(rawValue: modeRaw)
-        else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.permission.reply requires mode ∈ once|always|all|bypass|deny",
-                data: nil
-            )
-        }
-        FeedCoordinator.shared.deliverReply(
-            requestId: requestId,
-            decision: .permission(mode)
-        )
-        return .ok(["delivered": true])
-    }
-
-    private nonisolated func v2FeedQuestionReply(params: [String: Any]) -> V2CallResult {
-        guard let requestId = params["request_id"] as? String else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.question.reply requires request_id",
-                data: nil
-            )
-        }
-        guard let selections = params["selections"] as? [String] else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.question.reply requires selections: [string]",
-                data: nil
-            )
-        }
-        FeedCoordinator.shared.deliverReply(
-            requestId: requestId,
-            decision: .question(selections: selections)
-        )
-        return .ok(["delivered": true])
-    }
-
-    private nonisolated func v2FeedExitPlanReply(params: [String: Any]) -> V2CallResult {
-        guard let requestId = params["request_id"] as? String else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.exit_plan.reply requires request_id",
-                data: nil
-            )
-        }
-        guard let modeRaw = params["mode"] as? String,
-              let mode = WorkstreamExitPlanMode(rawValue: modeRaw)
-        else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.exit_plan.reply requires mode ∈ ultraplan|bypassPermissions|autoAccept|manual|deny",
-                data: nil
-            )
-        }
-        let feedback = params["feedback"] as? String
-        FeedCoordinator.shared.deliverReply(
-            requestId: requestId,
-            decision: .exitPlan(mode, feedback: feedback)
-        )
-        return .ok(["delivered": true])
     }
 
     // MARK: - V2 Browser Methods

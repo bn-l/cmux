@@ -25,10 +25,6 @@ public protocol AgentIntegrationSettingsReading: Sendable {
     /// Whether the Kiro hooks integration is enabled.
     var kiroHooksEnabled: Bool { get }
 
-    /// The Kiro notification verbosity; unrecognized stored values read as
-    /// ``KiroNotificationLevel/standard``.
-    var kiroNotificationLevel: KiroNotificationLevel { get }
-
     /// Whether the Amp hooks integration is enabled.
     var ampHooksEnabled: Bool { get }
 

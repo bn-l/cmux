@@ -53,6 +53,10 @@ def main() -> int:
         )
         env = os.environ.copy()
         env["OPENCODE_CONFIG_DIR"] = str(config_dir)
+        # A Feed plugin an older cmux installed; install must delete it.
+        (config_dir / "plugins").mkdir(parents=True, exist_ok=True)
+        feed_plugin_path = config_dir / "plugins" / "cmux-feed.js"
+        feed_plugin_path.write_text("// cmux-feed-plugin-marker\nexport default async () => ({})\n", encoding="utf-8")
 
         install = subprocess.run(
             [cli_path, "hooks", "opencode", "install", "--yes"],
@@ -73,12 +77,9 @@ def main() -> int:
         if not plugin_path.exists():
             print(f"FAIL: expected plugin at {plugin_path}")
             return 1
-        feed_plugin_path = config_dir / "plugins" / "cmux-feed.js"
-        if not feed_plugin_path.exists():
-            print(f"FAIL: expected feed plugin at {feed_plugin_path}")
-            return 1
-        if "cmux-feed-plugin-marker" not in feed_plugin_path.read_text(encoding="utf-8"):
-            print(f"FAIL: expected cmux feed marker in {feed_plugin_path}")
+        if feed_plugin_path.exists():
+            print(f"FAIL: install must delete the old cmux Feed plugin at {feed_plugin_path}")
+            print(f"stdout={install.stdout.strip()}")
             return 1
 
         try:

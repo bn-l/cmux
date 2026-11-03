@@ -533,15 +533,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// OS notification delivery/response coordination, extracted into
     /// `CmuxNotifications`. The app target injects the concrete
     /// `UNUserNotificationCenter`, terminal identifiers from
-    /// `TerminalNotificationStore`, localized action titles, and the weak-owner
-    /// Feed/app activation seam.
-    lazy var notificationDeliverySeams = NotificationDeliverySeamAdapter(owner: self)
-
+    /// `TerminalNotificationStore`, and localized action titles.
     lazy var notificationDelivery = NotificationDeliveryCoordinator(
         center: TerminalNotificationStore.shared.userNotificationCenter,
         terminalNavigation: notificationNavigation,
-        feedReplying: notificationDeliverySeams,
-        applicationActivation: notificationDeliverySeams,
         terminalIdentifiers: TerminalNotificationDeliveryIdentifiers(
             categoryIdentifier: TerminalNotificationStore.categoryIdentifier,
             showActionIdentifier: TerminalNotificationStore.actionShowIdentifier
@@ -554,38 +549,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             show: String(
                 localized: "terminal.notification.action.show",
                 defaultValue: "Show"
-            ),
-            feedPermissionAllowOnce: String(
-                localized: "feed.notification.permission.allowOnce",
-                defaultValue: "Allow Once"
-            ),
-            feedPermissionAlways: String(
-                localized: "feed.notification.permission.always",
-                defaultValue: "Always"
-            ),
-            feedPermissionAll: String(
-                localized: "feed.notification.permission.all",
-                defaultValue: "All tools"
-            ),
-            feedPermissionDeny: String(
-                localized: "feed.notification.permission.deny",
-                defaultValue: "Deny"
-            ),
-            feedExitPlanUltraplan: String(
-                localized: "feed.notification.exitPlan.ultraplan",
-                defaultValue: "Ultraplan"
-            ),
-            feedExitPlanManual: String(
-                localized: "feed.notification.exitPlan.manual",
-                defaultValue: "Manual"
-            ),
-            feedExitPlanAutoAccept: String(
-                localized: "feed.notification.exitPlan.autoAccept",
-                defaultValue: "Auto"
-            ),
-            feedQuestionReply: String(
-                localized: "feed.notification.question.reply",
-                defaultValue: "Reply"
             )
         )
     }
@@ -1140,22 +1103,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         claimAuthCallbackURLSchemes()
         StartupBreadcrumbLog.append("appDelegate.didFinish.authSchemes.claimed")
 
-        // Install the Feed (workstream) store. Separate from the transport
-        // wiring: the store is a plain singleton here, and the socket
-        // `feed.*` V2 verbs in `TerminalController` push into it directly
-        // via `FeedCoordinator`.
-        FeedCoordinator.shared.install(
-            store: WorkstreamStore(
-                transport: NullWorkstreamTransport(),
-                persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL()),
-                titleProvider: Self.feedWorkstreamTitle(for:)
-            )
-        )
-        StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
-        Task { @MainActor in
-            await FeedCoordinator.shared.store?.start()
-        }
-
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(handleThemesReloadNotification(_:)),
@@ -1167,18 +1114,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self,
             selector: #selector(handleReactGrabDidCopySelection(_:)),
             name: .reactGrabDidCopySelection,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleFeedRequestFocus(_:)),
-            name: .feedRequestFocus,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleFeedRequestSendText(_:)),
-            name: .feedRequestSendText,
             object: nil
         )
 
@@ -8392,60 +8327,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(payload, forType: .string)
-    }
-
-    @objc private func handleFeedRequestFocus(_ notification: Notification) {
-        guard let workspaceId = notification.userInfo?["workspaceId"] as? String,
-              let surfaceId = notification.userInfo?["surfaceId"] as? String
-        else { return }
-
-        // Invoke the existing V2 commands so the Feed-layer focus request
-        // goes through the same code path as a socket-initiated focus.
-        // Serialize through JSON so we reuse the v2 command parser.
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
-        }
-        invoke("workspace.select", ["workspace_id": workspaceId])
-        invoke("surface.focus", ["surface_id": surfaceId])
-        // Flash the terminal's own focus ring (same visual as
-        // cmd+shift+H / Flash Focused Panel) so the user's eye is
-        // pulled to the terminal content the Feed jumped to.
-        invoke("surface.trigger_flash", ["surface_id": surfaceId])
-    }
-
-    @objc private func handleFeedRequestSendText(_ notification: Notification) {
-        guard let surfaceId = notification.userInfo?["surfaceId"] as? String,
-              let text = notification.userInfo?["text"] as? String,
-              !text.isEmpty
-        else { return }
-
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params,
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
-        }
-        // Terminal-mode Return is CR. sendNamedKey "Return" also works
-        // but one send_text is atomic, so append CR directly.
-        invoke("surface.send_text", [
-            "surface_id": surfaceId,
-            "text": text + "\r",
-        ])
     }
 
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {

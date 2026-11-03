@@ -43,10 +43,6 @@ struct SettingCatalogTests {
                 "automation.kiroIntegration",
                 "integrations.kiro.hooksEnabled",
             ],
-            "kiroNotificationLevel": [
-                "automation.kiroNotificationLevel",
-                "integrations.kiro.notificationLevel",
-            ],
             "suppressSubagentNotifications": [
                 "automation.suppressSubagentNotifications",
                 "integrations.suppressSubagentNotifications",

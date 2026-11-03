@@ -86,40 +86,12 @@ private final class FakeTerminalNavigation: NotificationDeliveryTerminalNavigati
     }
 }
 
-@MainActor
-private final class FakeFeedReplying: NotificationFeedReplying {
-    struct Reply: Equatable {
-        let requestId: String
-        let decision: NotificationFeedDecision
-    }
-
-    var capabilitiesByRequestId: [String: NotificationFeedPermissionCapabilities] = [:]
-    private(set) var replies: [Reply] = []
-
-    func deliverReply(requestId: String, decision: NotificationFeedDecision) {
-        replies.append(Reply(requestId: requestId, decision: decision))
-    }
-
-    func permissionCapabilities(requestId: String) -> NotificationFeedPermissionCapabilities? {
-        capabilitiesByRequestId[requestId]
-    }
-}
-
-@MainActor
-private final class FakeApplicationActivation: NotificationApplicationActivating {
-    private(set) var activationCount = 0
-
-    func activateApplication() {
-        activationCount += 1
-    }
-}
-
 private final class DummyNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {}
 
 @Suite(.serialized)
 @MainActor
 struct NotificationDeliveryCoordinatorTests {
-    @Test("configure installs terminal and Feed categories and delegate")
+    @Test("configure installs only the terminal category and the delegate")
     func configureInstallsCategoriesAndDelegate() async throws {
         let center = FakeNotificationCenter()
         let delegate = DummyNotificationDelegate()
@@ -135,28 +107,9 @@ struct NotificationDeliveryCoordinatorTests {
         #expect(terminalCategory.actions.map(\.title) == ["Show"])
         #expect(terminalCategory.options.contains(.customDismissAction))
 
-        let fullPermission = try #require(categories["CMUXFeedPermissionOnceAlwaysAll"])
-        #expect(fullPermission.actions.map(\.identifier) == [
-            "feed.permission.once",
-            "feed.permission.always",
-            "feed.permission.all",
-            "feed.permission.deny",
-        ])
-        #expect(fullPermission.actions.last?.options.contains(.destructive) == true)
-
-        let denyOnlyPermission = try #require(categories["CMUXFeedPermissionDeny"])
-        #expect(denyOnlyPermission.actions.map(\.identifier) == ["feed.permission.deny"])
-
-        let exitPlan = try #require(categories["CMUXFeedExitPlan"])
-        #expect(exitPlan.actions.map(\.identifier) == [
-            "feed.exit_plan.ultraplan",
-            "feed.exit_plan.manual",
-            "feed.exit_plan.autoAccept",
-        ])
-
-        let question = try #require(categories["CMUXFeedQuestion"])
-        #expect(question.actions.map(\.identifier) == ["feed.question.open"])
-        #expect(question.actions.first?.options.contains(.foreground) == true)
+        // Only the terminal category exists: cmux never offers notification
+        // buttons that answer an agent's permission, plan or question prompt.
+        #expect(Set(categories.keys) == ["terminal.category"])
     }
 
     @Test("configuration never blocks its caller on notification-center entry")
@@ -194,76 +147,30 @@ struct NotificationDeliveryCoordinatorTests {
         #expect(audible.contains(.sound))
     }
 
-    @Test("Feed permission always falls back to once when always is unsupported")
-    func feedPermissionAlwaysFallsBackToOnce() {
-        let feed = FakeFeedReplying()
-        feed.capabilitiesByRequestId["req-1"] = NotificationFeedPermissionCapabilities(
-            supportsOnce: true,
-            supportsAlways: false,
-            supportsAll: false
-        )
-        let coordinator = makeCoordinator(feedReplying: feed)
-
-        coordinator.handle(NotificationDeliveryResponse(
-            categoryIdentifier: "CMUXFeedPermissionOnceAlways",
-            actionIdentifier: "feed.permission.always",
-            requestIdentifier: "feed.req-1",
-            userInfo: ["requestId": "req-1"]
-        ))
-
-        #expect(feed.replies == [.init(requestId: "req-1", decision: .permission(.once))])
-    }
-
-    @Test("Feed permission action is consumed without reply when requested mode is unsupported")
-    func feedPermissionUnsupportedModeDoesNotReply() {
-        let feed = FakeFeedReplying()
-        feed.capabilitiesByRequestId["req-1"] = NotificationFeedPermissionCapabilities(
-            supportsOnce: true,
-            supportsAlways: true,
-            supportsAll: false
-        )
-        let coordinator = makeCoordinator(feedReplying: feed)
-
-        coordinator.handle(NotificationDeliveryResponse(
-            categoryIdentifier: "CMUXFeedPermissionAll",
-            actionIdentifier: "feed.permission.all",
-            requestIdentifier: "feed.req-1",
-            userInfo: ["requestId": "req-1"]
-        ))
-
-        #expect(feed.replies.isEmpty)
-    }
-
-    @Test("Feed response without request id is consumed before terminal routing")
-    func feedMissingRequestIdIsConsumed() {
+    @Test(
+        "Allow/Deny/plan taps on a Feed notification left over from an older build do nothing",
+        arguments: [
+            ("CMUXFeedPermissionOnceAlways", "feed.permission.always"),
+            ("CMUXFeedPermissionDeny", "feed.permission.deny"),
+            ("CMUXFeedExitPlan", "feed.exit_plan.autoAccept"),
+            ("CMUXFeedQuestion", "feed.question.open"),
+        ]
+    )
+    func leftoverFeedActionIsIgnored(categoryIdentifier: String, actionIdentifier: String) {
         let terminal = FakeTerminalNavigation()
-        let feed = FakeFeedReplying()
-        let coordinator = makeCoordinator(terminalNavigation: terminal, feedReplying: feed)
+        let coordinator = makeCoordinator(terminalNavigation: terminal)
 
         coordinator.handle(NotificationDeliveryResponse(
-            categoryIdentifier: "CMUXFeedQuestion",
-            actionIdentifier: UNNotificationDefaultActionIdentifier,
-            requestIdentifier: "feed.missing",
-            userInfo: ["tabId": UUID().uuidString]
+            categoryIdentifier: categoryIdentifier,
+            actionIdentifier: actionIdentifier,
+            requestIdentifier: "feed.req-1",
+            userInfo: ["requestId": "req-1", "tabId": UUID().uuidString]
         ))
 
-        #expect(feed.replies.isEmpty)
         #expect(terminal.opens.isEmpty)
-    }
-
-    @Test("Feed question default response activates the app")
-    func feedQuestionDefaultActivatesApp() {
-        let activation = FakeApplicationActivation()
-        let coordinator = makeCoordinator(applicationActivation: activation)
-
-        coordinator.handle(NotificationDeliveryResponse(
-            categoryIdentifier: "CMUXFeedQuestion",
-            actionIdentifier: UNNotificationDefaultActionIdentifier,
-            requestIdentifier: "feed.req-2",
-            userInfo: ["requestId": "req-2"]
-        ))
-
-        #expect(activation.activationCount == 1)
+        #expect(terminal.storedOpens.isEmpty)
+        #expect(terminal.performedClickActions.isEmpty)
+        #expect(terminal.markedReadIds.isEmpty)
     }
 
     @Test("terminal default response with click action performs and marks read")
@@ -375,30 +282,16 @@ struct NotificationDeliveryCoordinatorTests {
 
     private func makeCoordinator(
         center: FakeNotificationCenter = FakeNotificationCenter(),
-        terminalNavigation: FakeTerminalNavigation = FakeTerminalNavigation(),
-        feedReplying: FakeFeedReplying = FakeFeedReplying(),
-        applicationActivation: FakeApplicationActivation = FakeApplicationActivation()
+        terminalNavigation: FakeTerminalNavigation = FakeTerminalNavigation()
     ) -> NotificationDeliveryCoordinator {
         NotificationDeliveryCoordinator(
             center: center,
             terminalNavigation: terminalNavigation,
-            feedReplying: feedReplying,
-            applicationActivation: applicationActivation,
             terminalIdentifiers: TerminalNotificationDeliveryIdentifiers(
                 categoryIdentifier: "terminal.category",
                 showActionIdentifier: "terminal.show"
             ),
-            actionTitles: NotificationDeliveryActionTitles(
-                show: "Show",
-                feedPermissionAllowOnce: "Allow Once",
-                feedPermissionAlways: "Always",
-                feedPermissionAll: "All tools",
-                feedPermissionDeny: "Deny",
-                feedExitPlanUltraplan: "Ultraplan",
-                feedExitPlanManual: "Manual",
-                feedExitPlanAutoAccept: "Auto",
-                feedQuestionReply: "Reply"
-            )
+            actionTitles: NotificationDeliveryActionTitles(show: "Show")
         )
     }
 

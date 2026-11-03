@@ -50,10 +50,6 @@ public struct AgentIntegrationSettingsStore: AgentIntegrationSettingsReading {
         keys.kiroHooksEnabled.value(in: defaults)
     }
 
-    public var kiroNotificationLevel: KiroNotificationLevel {
-        KiroNotificationLevel(rawValue: keys.kiroNotificationLevel.value(in: defaults)) ?? .standard
-    }
-
     public var ampHooksEnabled: Bool {
         keys.ampHooksEnabled.value(in: defaults)
     }

@@ -11,7 +11,6 @@ final class FakeSpawnPolicyProvider: TerminalSurfaceSpawnPolicyProviding {
             cursorHooksEnabled: true,
             geminiHooksEnabled: true,
             kiroHooksEnabled: true,
-            kiroNotificationLevel: "all",
             ampHooksEnabled: true,
             shellIntegrationEnabled: false,
             watchGitStatusEnabled: false,

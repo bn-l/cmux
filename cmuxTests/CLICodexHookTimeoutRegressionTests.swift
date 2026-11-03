@@ -12,13 +12,24 @@ struct CLICodexHookTimeoutRegressionTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let previousCommand = "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_CODEX_HOOKS_DISABLED\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks codex prompt-submit; else \"$cmux_cli\" hooks codex prompt-submit; fi; } || echo '{}'; else echo '{}'; fi"
-        let legacyHookJSON: [String: Any] = [
-            "hooks": [
-                "UserPromptSubmit": [
-                    ["hooks": [["command": previousCommand, "timeout": 5, "type": "command"]]],
-                ],
+        // The previous release also wrote one `hooks feed` script hook per
+        // tool/lifecycle event (5s timeout); setup must delete them all.
+        let legacyFeedEvents = [
+            "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop",
+        ]
+        let legacyScriptsDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        var legacyHooks: [String: Any] = [
+            "UserPromptSubmit": [
+                ["hooks": [["command": previousCommand, "timeout": 5, "type": "command"]]],
             ],
         ]
+        for event in legacyFeedEvents {
+            let script = legacyScriptsDir.appendingPathComponent("cmux-codex-hook-persistent-feed-\(event).sh").path
+            legacyHooks[event] = [["hooks": [["command": script, "timeout": 5, "type": "command"]]]]
+        }
+        let legacyHookJSON: [String: Any] = ["hooks": legacyHooks]
         try JSONSerialization.data(withJSONObject: legacyHookJSON, options: [.prettyPrinted, .sortedKeys])
             .write(to: codexHome.appendingPathComponent("hooks.json", isDirectory: false), options: .atomic)
 
@@ -34,7 +45,6 @@ struct CLICodexHookTimeoutRegressionTests {
         let sessionStartHooks = hooks.filter { $0.eventName == "SessionStart" }
         let promptHooks = hooks.filter { $0.eventName == "UserPromptSubmit" }
         let stopHooks = hooks.filter { $0.eventName == "Stop" }
-        let feedHooks = hooks.filter { $0.body.contains("hooks feed --source codex") }
         #expect(!hooks.map(\.body).contains(previousCommand), "Installer should remove stale synchronous hook")
         #expect(sessionStartHooks.count == 1, "Installer should install one session-start hook")
         #expect(sessionStartHooks.allSatisfy { $0.body.contains("hooks codex session-start") })
@@ -48,21 +58,10 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(stopHooks.allSatisfy { $0.body.contains("hooks codex stop") })
         #expect(stopHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
         #expect(stopHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
-        let expectedFeedEvents: Set<String> = [
-            "PreToolUse",
-            "PermissionRequest",
-            "PostToolUse",
-            "PreCompact",
-            "PostCompact",
-            "SubagentStart",
-            "SubagentStop",
-        ]
-        let installedFeedEvents = Set(feedHooks.compactMap { hook in
-            expectedFeedEvents.first { hook.body.contains("--event \($0)") }
-        })
-        #expect(feedHooks.count == expectedFeedEvents.count, "Installer should install every Codex feed hook")
-        #expect(installedFeedEvents == expectedFeedEvents)
-        #expect(feedHooks.allSatisfy { !$0.body.contains("nohup sh -c") && !$0.body.contains(">/dev/null 2>&1 &") })
+        // cmux installs no Codex tool/approval hooks: only the three lifecycle
+        // hooks remain, and every legacy `hooks feed` entry is gone.
+        #expect(Set(hooks.map(\.eventName)) == ["SessionStart", "UserPromptSubmit", "Stop"])
+        #expect(!hooks.contains { $0.body.contains("hooks feed") || $0.command.contains("persistent-feed-") })
     }
 
     @Test func codexInstalledHookReturnsBeforeSlowCmuxCommandFinishes() throws {

@@ -650,9 +650,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             approvalCommands.contains { $0.contains("set_status hermes-agent Hermes Agent needs input") },
             "Expected Hermes approval notification to mark needs input, saw \(approvalCommands)"
         )
-        XCTAssertFalse(
-            approvalCommands.contains { $0.contains(#""method":"feed.push""#) },
-            "Hermes approval notifications are also installed as feed hooks, so the generic notification handler must not push duplicate feed events. Saw \(approvalCommands)"
+        XCTAssertEqual(
+            approvalCommands.filter { $0.contains(#""method":"feed.push""#) }.count, 1,
+            "No `hooks feed` hook is installed for Hermes any more, so the notification handler forwards the event once. Saw \(approvalCommands)"
         )
 
         let session = try storedHermesSession()
@@ -680,7 +680,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertFalse(
             responseCommands.contains { $0.contains(#""method":"feed.push""#) },
-            "Hermes approval responses are also installed as feed hooks, so the generic approval handler must not push duplicate feed events. Saw \(responseCommands)"
+            "`approval-response` has no forwarded event name, so nothing goes to feed.push. Saw \(responseCommands)"
         )
 
         let responseSession = try storedHermesSession()
@@ -901,17 +901,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Antigravity hooks must still dispatch when agy does not preserve CMUX_SURFACE_ID, saw \(allCommands)"
         )
 
-        let preToolUse = try XCTUnwrap(cmuxGroup["PreToolUse"] as? [[String: Any]])
-        let preToolCommands = preToolUse
-            .compactMap { $0["hooks"] as? [[String: Any]] }
-            .flatMap { $0 }
-        XCTAssertTrue(
-            preToolCommands.contains {
-                ($0["command"] as? String)?.contains("hooks feed --source antigravity --event PreToolUse") == true
-                    && ($0["timeout"] as? Int) == 120
-            },
-            "Expected Antigravity PreToolUse feed hook with second-based timeout, saw \(preToolCommands)"
-        )
+        // cmux no longer installs `hooks feed` tool hooks: nothing of cmux's
+        // sits in Antigravity's tool path.
+        XCTAssertFalse(allCommands.contains { $0.contains("hooks feed") }, "\(allCommands)")
+        XCTAssertNil(cmuxGroup["PreToolUse"])
+        XCTAssertNil(cmuxGroup["PostToolUse"])
 
         let stop = try XCTUnwrap(cmuxGroup["Stop"] as? [[String: Any]])
         XCTAssertTrue(
@@ -925,13 +919,74 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(cmuxGroup["SessionEnd"])
         XCTAssertNotNil(cmuxGroup["turn-completion"])
         XCTAssertNotNil(cmuxGroup["Notification"])
-        XCTAssertNotNil(cmuxGroup["PostToolUse"])
     }
 
-    func testKiroHookInstallUsesAgentConfigShapeAndPreservesDenyExit() throws {
+    /// Older cmux versions installed a synchronous `hooks feed` preToolUse hook
+    /// (120s, propagating exit 2 so the Feed could deny tools). Reinstalling
+    /// must delete it, keep the user's own hooks, and install no tool hooks.
+    func testKiroHookInstallRemovesLegacyFeedHooksAndInstallsNoToolHooks() throws {
+        // Arrange
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-kiro-hook-install-\(UUID().uuidString)", isDirectory: true)
+        let hookURL = root
+            .appendingPathComponent("agents", isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: hookURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Verbatim from the previous release's `hooks kiro install`.
+        let legacyFeedCommand = "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_KIRO_HOOKS_DISABLED\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks feed --source kiro --event preToolUse; else \"$cmux_cli\" hooks feed --source kiro --event preToolUse; fi; status=$?; if [ \"$status\" -eq 2 ]; then exit 2; fi; if [ \"$status\" -ne 0 ]; then echo '{}'; fi; else echo '{}'; fi"
+        let existing: [String: Any] = [
+            "name": "cmux",
+            "hooks": [
+                "preToolUse": [
+                    ["command": legacyFeedCommand, "timeout_ms": 120_000],
+                    ["command": "my-own-linter", "timeout_ms": 1_000],
+                ],
+                "postToolUse": [
+                    ["command": legacyFeedCommand.replacingOccurrences(of: "preToolUse", with: "postToolUse"), "timeout_ms": 120_000],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: existing).write(to: hookURL)
+
+        // Act
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "kiro", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "KIRO_HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            ],
+            timeout: 5
+        )
+
+        // Assert
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            result.stdout.contains("kiro-cli chat --agent cmux"),
+            "Expected Kiro install to print the --agent cmux activation hint, saw: \(result.stdout)"
+        )
+        let installed = try String(contentsOf: hookURL, encoding: .utf8)
+        XCTAssertFalse(installed.contains("hooks feed"), installed)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        XCTAssertEqual(json["name"] as? String, "cmux")
+        XCTAssertNil(json["version"], "Kiro agent configs should not receive Cursor's hooks version field")
+        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
+        let preToolUse = try XCTUnwrap(hooks["preToolUse"] as? [[String: Any]])
+        XCTAssertEqual(preToolUse.compactMap { $0["command"] as? String }, ["my-own-linter"])
+        XCTAssertNil(hooks["postToolUse"], "\(hooks)")
+        XCTAssertNotNil(hooks["agentSpawn"])
+        XCTAssertNotNil(hooks["userPromptSubmit"])
+        XCTAssertNotNil(hooks["stop"])
+    }
+
+    func testKiroFreshHookInstallGrantsToolsAndInstallsNoToolHooks() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-kiro-hook-fresh-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -948,78 +1003,48 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(
-            result.stdout.contains("kiro-cli chat --agent cmux"),
-            "Expected Kiro install to print the --agent cmux activation hint, saw: \(result.stdout)"
-        )
-
         let hookURL = root
             .appendingPathComponent("agents", isDirectory: true)
             .appendingPathComponent("cmux.json", isDirectory: false)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
-        XCTAssertEqual(json["name"] as? String, "cmux")
-        XCTAssertNil(json["version"], "Kiro agent configs should not receive Cursor's hooks version field")
         XCTAssertEqual(
             json["tools"] as? [String], ["*"],
-            "Kiro cmux agent must grant the full tool set so `--agent cmux` can run tools and fire preToolUse hooks"
+            "Kiro cmux agent must grant the full tool set so `--agent cmux` can run tools"
         )
-
         let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
-        let preToolUse = try XCTUnwrap(hooks["preToolUse"] as? [[String: Any]])
-        XCTAssertTrue(
-            preToolUse.contains {
-                ($0["command"] as? String)?.contains("hooks feed --source kiro --event preToolUse") == true
-                    && ($0["timeout_ms"] as? Int) == 120_000
-                    && (($0["command"] as? String)?.contains("|| echo '{}'") == false)
-                    && (($0["command"] as? String)?.contains("status=$?") == true)
-                    && (($0["command"] as? String)?.contains("exit 2") == true)
-            },
-            "Expected Kiro preToolUse feed hook to preserve cmux's exit status for deny decisions, saw \(preToolUse)"
-        )
-        XCTAssertNotNil(hooks["agentSpawn"])
-        XCTAssertNotNil(hooks["userPromptSubmit"])
-        XCTAssertNotNil(hooks["postToolUse"])
-        XCTAssertNotNil(hooks["stop"])
+        XCTAssertNil(hooks["preToolUse"], "\(hooks)")
+        XCTAssertNil(hooks["postToolUse"], "\(hooks)")
+        XCTAssertEqual(Set(hooks.keys), ["agentSpawn", "userPromptSubmit", "stop"])
     }
 
-    func testKiroFeedDenyUsesPreToolUseExitCodeTwo() throws {
+    /// cmux never answers an agent. Even when the socket replies with a Feed
+    /// "deny" decision (the shape older cmux apps sent), `hooks feed` must
+    /// exit 0 with `{}` so Kiro runs its own approval flow, and the event must
+    /// go out as a one-way push (no id, no wait) labelled as a plain tool start.
+    func testKiroFeedHookNeverAnswersKiroEvenWhenSocketRepliesWithDeny() throws {
+        // Arrange
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("kiro-feed-deny")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-kiro-feed-deny-\(UUID().uuidString)", isDirectory: true)
-        let workspaceId = "33333333-3333-3333-3333-333333333333"
-        let surfaceId = "44444444-4444-4444-4444-444444444444"
-
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
         }
-
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = self.jsonObject(line) else {
-                return self.malformedRequestResponse(raw: line)
-            }
-            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-            }
-            XCTAssertEqual(method, "feed.push")
+            let id = self.jsonObject(line)?["id"] as? String
             return self.v2Response(
-                id: id,
+                id: id ?? "unsolicited",
                 ok: true,
-                result: [
-                    "status": "resolved",
-                    "decision": [
-                        "kind": "permission",
-                        "mode": "deny",
-                    ],
-                ]
+                result: ["status": "resolved", "decision": ["kind": "permission", "mode": "deny"]]
             )
         }
 
+        // Act
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "feed", "--source", "kiro", "--event", "preToolUse"],
@@ -1028,8 +1053,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "PWD": root.path,
                 "CMUX_SOCKET_PATH": socketPath,
-                "CMUX_WORKSPACE_ID": workspaceId,
-                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
+                "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
                 "CMUX_KIRO_PID": "525252",
                 "CMUX_KIRO_NOTIFICATION_LEVEL": "standard",
             ],
@@ -1038,59 +1063,56 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         wait(for: [serverHandled], timeout: 5)
 
+        // Assert
         XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 2, result.stderr)
-        XCTAssertTrue(result.stderr.contains("User denied permission via cmux Feed."), result.stderr)
-
-        let feedEvents = state.commands.compactMap { command -> [String: Any]? in
-            guard let payload = self.jsonObject(command),
-                  payload["method"] as? String == "feed.push",
-                  let params = payload["params"] as? [String: Any],
-                  let event = params["event"] as? [String: Any] else {
-                return nil
-            }
-            return event
-        }
-        XCTAssertEqual(feedEvents.count, 1, "Expected one Kiro Feed event, saw \(state.commands)")
-        XCTAssertEqual(feedEvents.first?["hook_event_name"] as? String, "PermissionRequest")
-        XCTAssertEqual(feedEvents.first?["_source"] as? String, "kiro")
-        XCTAssertEqual(feedEvents.first?["_ppid"] as? Int, 525252)
+        XCTAssertEqual(result.status, 0, "hooks feed must never deny for the user: \(result.stderr)")
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertFalse(result.stderr.localizedCaseInsensitiveContains("denied"), result.stderr)
+        let pushes = state.commands.compactMap { self.jsonObject($0) }.filter { $0["method"] as? String == "feed.push" }
+        XCTAssertEqual(pushes.count, 1, "Expected one Kiro event, saw \(state.commands)")
+        let push = try XCTUnwrap(pushes.first)
+        XCTAssertNil(push["id"], "feed.push must be one-way (no id), saw \(push)")
+        let params = try XCTUnwrap(push["params"] as? [String: Any])
+        XCTAssertEqual((params["wait_timeout_seconds"] as? NSNumber)?.doubleValue, 0)
+        let event = try XCTUnwrap(params["event"] as? [String: Any])
+        XCTAssertEqual(event["hook_event_name"] as? String, "PreToolUse")
+        XCTAssertEqual(event["_source"] as? String, "kiro")
+        XCTAssertEqual(event["_ppid"] as? Int, 525252)
     }
 
-    /// The Feed permission modes that allow a tool (`once` / `always` / `all`
-    /// / `bypass`, the WorkstreamPermissionMode raw values) must exit 0 so
-    /// Kiro proceeds; an unrecognized/malformed mode must fail closed with
-    /// exit 2 rather than silently allowing the tool.
-    func testKiroFeedAllowModesProceedAndUnknownModeDenies() throws {
-        func runKiroDecision(mode: String) throws -> ProcessRunResult {
+    /// Every agent event that used to block on a Feed decision (Claude
+    /// PermissionRequest, Codex PermissionRequest, Kiro/Gemini side-effecting
+    /// pre-tool events) must return `{}` at once even when the app never
+    /// replies. Before the Feed removal these held the agent for up to 120s.
+    func testFeedHookReturnsAtOnceWhenSocketNeverReplies() throws {
+        let cases: [(source: String, event: String, tool: String)] = [
+            ("claude", "PermissionRequest", "Bash"),
+            ("codex", "PermissionRequest", "shell"),
+            ("kiro", "preToolUse", "fs_write"),
+            ("gemini", "PreToolUse", "Bash"),
+            ("opencode", "PermissionRequest", "bash"),
+        ]
+        for testCase in cases {
+            // Arrange
             let cliPath = try bundledCLIPath()
-            let socketPath = makeSocketPath("kiro-feed-mode")
+            let socketPath = makeSocketPath("feed-no-reply")
             let listenerFD = try bindUnixSocket(at: socketPath)
             let state = MockSocketServerState()
             let root = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-kiro-feed-mode-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("cmux-feed-no-reply-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             defer {
                 Darwin.close(listenerFD)
                 unlink(socketPath)
                 try? FileManager.default.removeItem(at: root)
             }
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line), let id = payload["id"] as? String else {
-                    return self.malformedRequestResponse(raw: line)
-                }
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "status": "resolved",
-                        "decision": ["kind": "permission", "mode": mode],
-                    ]
-                )
-            }
+            let serverHandled = startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { _ in nil }
+
+            // Act
+            let started = Date()
             let result = runProcess(
                 executablePath: cliPath,
-                arguments: ["hooks", "feed", "--source", "kiro", "--event", "preToolUse"],
+                arguments: ["hooks", "feed", "--source", testCase.source, "--event", testCase.event],
                 environment: [
                     "HOME": root.path,
                     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -1098,36 +1120,32 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "CMUX_SOCKET_PATH": socketPath,
                     "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
                     "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
-                    "CMUX_KIRO_PID": "525252",
-                    "CMUX_KIRO_NOTIFICATION_LEVEL": "standard",
                 ],
-                standardInput: #"{"hook_event_name":"preToolUse","session_id":"kiro-session-mode","cwd":"\#(root.path)","tool_name":"fs_write","tool_input":{"operations":[{"mode":"Line","path":"\#(root.appendingPathComponent("README.md").path)"}]}}"#,
-                timeout: 5
+                standardInput: #"{"hook_event_name":"\#(testCase.event)","session_id":"no-reply-\#(testCase.source)","cwd":"\#(root.path)","tool_name":"\#(testCase.tool)","tool_input":{"command":"rm -rf build"}}"#,
+                timeout: 10
             )
+            let elapsed = Date().timeIntervalSince(started)
             wait(for: [serverHandled], timeout: 5)
-            return result
-        }
 
-        for mode in ["once", "always", "all", "bypass"] {
-            let result = try runKiroDecision(mode: mode)
-            XCTAssertFalse(result.timedOut, "\(mode): \(result.stderr)")
-            XCTAssertEqual(result.status, 0, "mode \(mode) should allow (exit 0): \(result.stderr)")
-            XCTAssertEqual(result.stdout, "{}\n", "mode \(mode) should print {}")
+            // Assert
+            let label = "\(testCase.source) \(testCase.event)"
+            XCTAssertFalse(result.timedOut, "\(label) held the agent waiting for a reply: \(result.stderr)")
+            XCTAssertLessThan(elapsed, 3, "\(label) took \(elapsed)s; it must not wait on the socket")
+            XCTAssertEqual(result.status, 0, "\(label): \(result.stderr)")
+            XCTAssertEqual(result.stdout, "{}\n", label)
+            XCTAssertEqual(
+                state.commands.filter { $0.contains("\"feed.push\"") }.count, 1,
+                "\(label) should still forward the event, saw \(state.commands)"
+            )
         }
-
-        let unknown = try runKiroDecision(mode: "totally-bogus-mode")
-        XCTAssertFalse(unknown.timedOut, unknown.stderr)
-        XCTAssertEqual(unknown.status, 2, "unrecognized mode must fail closed (exit 2): \(unknown.stderr)")
-        XCTAssertTrue(unknown.stderr.contains("unrecognized"), unknown.stderr)
     }
 
-    /// At the default `standard` notification level, Kiro read-only tool
-    /// events (`fs_read`) are suppressed (no Feed telemetry) while mutating
-    /// tools (`fs_write`) still emit. Guards that suppression keys off the
-    /// classified wire name (`PostToolUse`) rather than the raw camelCase hook
-    /// event — i.e. the suppression actually triggers for real Kiro events.
-    func testKiroStandardLevelSuppressesReadOnlyToolFeedEvents() throws {
-        func feedPushCount(forTool tool: String) throws -> Int {
+    /// The Kiro Notification Level setting only filtered Kiro events for the
+    /// removed Feed. A terminal spawned by an older build can still export
+    /// `CMUX_KIRO_NOTIFICATION_LEVEL`; it must have no effect, so read-only
+    /// and mutating tool events are forwarded alike.
+    func testKiroToolEventsIgnoreTheRemovedNotificationLevel() throws {
+        func feedPushCount(forTool tool: String, level: String) throws -> Int {
             let cliPath = try bundledCLIPath()
             let socketPath = makeSocketPath("kiro-suppress")
             let listenerFD = try bindUnixSocket(at: socketPath)
@@ -1157,7 +1175,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
                     "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
                     "CMUX_KIRO_PID": "525252",
-                    "CMUX_KIRO_NOTIFICATION_LEVEL": "standard",
+                    "CMUX_KIRO_NOTIFICATION_LEVEL": level,
                 ],
                 standardInput: #"{"hook_event_name":"postToolUse","session_id":"kiro-suppress","cwd":"\#(root.path)","tool_name":"\#(tool)"}"#,
                 timeout: 5
@@ -1165,18 +1183,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertFalse(result.timedOut, "\(tool): \(result.stderr)")
             XCTAssertEqual(result.status, 0, "\(tool): \(result.stderr)")
             XCTAssertEqual(result.stdout, "{}\n", "\(tool) stdout")
-            // A non-suppressed event sends one feed.push, so wait for the
-            // server to record it (generous timeout to avoid flaking on the
-            // socket/process round-trip under CI load). A suppressed event
-            // sends nothing, so this wait simply times out silently.
+            // Every event sends one feed.push; wait for the server to record
+            // it (generous timeout for the socket/process round-trip under load).
             _ = XCTWaiter().wait(for: [serverHandled], timeout: 5)
             return state.commands.filter { $0.contains("feed.push") }.count
         }
 
-        XCTAssertEqual(try feedPushCount(forTool: "fs_read"), 0,
-                       "read-only kiro tool at standard level must be suppressed")
-        XCTAssertGreaterThan(try feedPushCount(forTool: "fs_write"), 0,
-                             "mutating kiro tool at standard level must still emit telemetry")
+        for level in ["minimal", "standard"] {
+            XCTAssertEqual(try feedPushCount(forTool: "fs_read", level: level), 1, "fs_read at \(level)")
+            XCTAssertEqual(try feedPushCount(forTool: "fs_write", level: level), 1, "fs_write at \(level)")
+        }
     }
 
     func testLowercaseGenericFeedToolsStayTelemetryOutsideKiro() throws {
@@ -2796,11 +2812,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { $0["timeout"] as? Int }
-        let preToolUseGroups = try XCTUnwrap(hooks["PreToolUse"] as? [[String: Any]])
-        let preToolUseTimeouts = preToolUseGroups
-            .compactMap { $0["hooks"] as? [[String: Any]] }
-            .flatMap { $0 }
-            .compactMap { $0["timeout"] as? Int }
         let allCommands = hooks.values
             .compactMap { $0 as? [[String: Any]] }
             .flatMap { $0 }
@@ -2817,7 +2828,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Grok Notification should not use the generic stop handler, saw \(notificationCommands)"
         )
         XCTAssertEqual(notificationTimeouts, [5])
-        XCTAssertEqual(preToolUseTimeouts, [120])
+        XCTAssertNil(hooks["PreToolUse"], "cmux installs no Grok tool hooks: \(hooks.keys)")
+        XCTAssertNil(hooks["PostToolUse"], "the legacy `hooks feed` PostToolUse entry must be gone: \(hooks.keys)")
+        XCTAssertFalse(allCommands.contains { $0.contains("hooks feed") }, "\(allCommands)")
         XCTAssertFalse(
             allCommands.contains { $0.contains("[ -n \"$CMUX_SURFACE_ID\" ]") },
             "Grok strips CMUX_* from hook subprocesses, so installed commands must not gate on CMUX_SURFACE_ID. Saw \(allCommands)"

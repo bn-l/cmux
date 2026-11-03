@@ -56,7 +56,7 @@ public struct AutomationCatalogSection: SettingCatalogSection {
     // `automation.*` (this catalog) and `integrations.*` (IntegrationsCatalogSection)
     // with the same `userDefaultsKey`, so writes through either namespace land
     // on the same persisted value. The shared keys are claudeCode*, cursor*,
-    // gemini*, kiro* (including kiroNotificationLevel), amp*,
+    // gemini*, kiro*, amp*,
     // and suppressSubagentNotifications. There is no
     // precedence ambiguity because both DefaultsKey wrappers read/write the
     // same `UserDefaults` slot — the dual namespace exists to keep the JSON
@@ -84,12 +84,6 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         id: "automation.kiroIntegration",
         defaultValue: true,
         userDefaultsKey: "kiroHooksEnabled"
-    )
-
-    public let kiroNotificationLevel = DefaultsKey<String>(
-        id: "automation.kiroNotificationLevel",
-        defaultValue: "standard",
-        userDefaultsKey: "kiroNotificationLevel"
     )
 
     public let portBase = DefaultsKey<Int>(

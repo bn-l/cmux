@@ -3,24 +3,17 @@ import Foundation
 
 extension CMUXCLI {
     private static let kimiLifecycleHookTimeoutSeconds = 10
-    private static let kimiFeedHookTimeoutSeconds = 120
 
     func kimiCodeHookEvents(def: AgentHookDef) -> [KimiCodeHookConfig.Event] {
-        var events = def.events.map { event in
+        // Reinstalling replaces the whole cmux block, so the `cmux hooks
+        // feed` entries older versions wrote into it go away too.
+        def.events.map { event in
             KimiCodeHookConfig.Event(
                 name: event.agentEvent,
                 command: hookCommand(for: def, event: event),
                 timeout: Self.kimiLifecycleHookTimeoutSeconds
             )
         }
-        events.append(contentsOf: def.feedHookEvents.map { agentEvent in
-            KimiCodeHookConfig.Event(
-                name: agentEvent,
-                command: feedHookCommand(for: def, agentEvent: agentEvent),
-                timeout: Self.kimiFeedHookTimeoutSeconds
-            )
-        })
-        return events
     }
 
     func installKimiHooks(_ def: AgentHookDef) throws {

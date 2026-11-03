@@ -20,6 +20,12 @@ final class OpenCodeHookRegressionTests: XCTestCase {
 
         let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
         try #"{"plugin":["other-plugin","./plugins/cmux-session.js"]}"#.write(to: configURL, atomically: true, encoding: .utf8)
+        // A Feed plugin an older cmux installed: it held OpenCode's permission
+        // prompts open for the Feed. Install must delete it.
+        let pluginsDir = configDir.appendingPathComponent("plugins", isDirectory: true)
+        try FileManager.default.createDirectory(at: pluginsDir, withIntermediateDirectories: true)
+        let legacyFeedPluginURL = pluginsDir.appendingPathComponent("cmux-feed.js", isDirectory: false)
+        try "// cmux-feed-plugin-marker\nexport default async () => ({})\n".write(to: legacyFeedPluginURL, atomically: true, encoding: .utf8)
         let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
         try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
         chmod(fakeOpenCodeURL.path, 0o755)
@@ -35,13 +41,17 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let pluginSource = try String(contentsOf: pluginURL, encoding: .utf8)
         XCTAssertTrue(pluginSource.contains("cmux-opencode-session-plugin-marker"))
         XCTAssertTrue(pluginSource.contains("\"hooks\", \"opencode\""))
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: legacyFeedPluginURL.path),
+            "install must delete the old cmux Feed plugin; stdout: \(result.stdout)"
+        )
 
         let secondResult = runProcess(executablePath: cliPath, arguments: ["setup-hooks", "--agent", "opencode"], environment: environment, timeout: 5)
         XCTAssertFalse(secondResult.timedOut, secondResult.stderr)
         XCTAssertEqual(secondResult.status, 0, secondResult.stderr)
         XCTAssertFalse(secondResult.stdout.contains("Will write OpenCode cmux plugin"), secondResult.stdout)
         XCTAssertTrue(secondResult.stdout.contains("OpenCode hooks already up to date"), secondResult.stdout)
-        XCTAssertTrue(try String(contentsOf: configDir.appendingPathComponent("plugins/cmux-feed.js"), encoding: .utf8).contains("cmux-feed-plugin-marker"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyFeedPluginURL.path), secondResult.stdout)
 
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: try Data(contentsOf: configURL), options: []) as? [String: Any])
         XCTAssertEqual(try XCTUnwrap(json["plugin"] as? [String]), ["other-plugin", "./plugins/cmux-session.js"])

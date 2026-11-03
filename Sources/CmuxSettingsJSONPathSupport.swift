@@ -480,7 +480,6 @@ extension CmuxSettingsFileStore {
         "automation.cursorIntegration",
         "automation.geminiIntegration",
         "automation.kiroIntegration",
-        "automation.kiroNotificationLevel",
         "automation.portBase",
         "automation.portRange",
         "browser.defaultSearchEngine",

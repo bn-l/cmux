@@ -16,7 +16,6 @@ import Combine
 import CmuxTerminal
 import CmuxBrowser
 import struct CmuxSettings.IntegrationsCatalogSection
-import enum CmuxSettings.KiroNotificationLevel
 @_implementationOnly import XCTest
 
 #if canImport(cmux_DEV)
@@ -988,17 +987,22 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
-    func testSettingsFileStoreInvalidKiroNotificationLevelDoesNotSkipLaterAutomationKeys() throws {
+    /// `automation.kiroNotificationLevel` only filtered Kiro events for the
+    /// removed Feed. Configs that still carry it must load: the key is
+    /// ignored (nothing is written to its old defaults slot) and later
+    /// automation keys still apply.
+    func testSettingsFileStoreIgnoresRemovedKiroNotificationLevelAndAppliesLaterAutomationKeys() throws {
         let defaults = UserDefaults.standard
-        let previousKiroLevel = defaults.object(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+        let removedKiroLevelKey = "kiroNotificationLevel"
+        let previousKiroLevel = defaults.object(forKey: removedKiroLevelKey)
         let previousPortBase = defaults.object(forKey: AutomationSettings.portBaseKey)
         let previousPortRange = defaults.object(forKey: AutomationSettings.portRangeKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousKiroLevel {
-                defaults.set(previousKiroLevel, forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+                defaults.set(previousKiroLevel, forKey: removedKiroLevelKey)
             } else {
-                defaults.removeObject(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+                defaults.removeObject(forKey: removedKiroLevelKey)
             }
             if let previousPortBase {
                 defaults.set(previousPortBase, forKey: AutomationSettings.portBaseKey)
@@ -1016,7 +1020,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             }
         }
-        defaults.removeObject(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
+        defaults.removeObject(forKey: removedKiroLevelKey)
         defaults.removeObject(forKey: AutomationSettings.portBaseKey)
         defaults.removeObject(forKey: AutomationSettings.portRangeKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
@@ -1029,7 +1033,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             """
             {
               "automation": {
-                "kiroNotificationLevel": "loud",
+                "kiroNotificationLevel": "verbose",
                 "portBase": 32100,
                 "portRange": 42
               }
@@ -1044,7 +1048,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertNil(defaults.object(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey))
+        XCTAssertNil(defaults.object(forKey: removedKiroLevelKey))
         XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portBaseKey), 32100)
         XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portRangeKey), 42)
     }

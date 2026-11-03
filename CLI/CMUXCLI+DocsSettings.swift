@@ -85,11 +85,10 @@ extension CMUXCLI {
         DocsReference(
             topic: "agents",
             aliases: ["integrations", "agent-integrations"],
-            summary: "Agent hook integrations, Feed approvals, notifications, and session restore.",
+            summary: "Agent hook integrations, notifications, and session restore.",
             webURL: "https://cmux.com/docs/agent-integrations/oh-my-codex",
             rawResources: [
                 DocsResource(label: "agent hook docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-hooks.md"),
-                DocsResource(label: "feed docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/feed.md"),
                 DocsResource(label: "notifications docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/notifications.md"),
             ],
             commands: [

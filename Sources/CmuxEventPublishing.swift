@@ -411,25 +411,16 @@ extension CmuxEventBus {
         )
     }
 
-    // swiftlint:disable:next discouraged_optional_collection
-    func publishWorkstreamEvent(_ event: WorkstreamEvent, phase: String, result: [String: Any]? = nil) {
+    /// One `agent.hook.<HookEventName>` event per forwarded agent hook.
+    /// `phase` stays `received` for consumers written against the older
+    /// received/completed pair; cmux no longer answers hooks, so nothing
+    /// follows it.
+    func publishWorkstreamEvent(_ event: WorkstreamEvent) {
         var payload = Self.workstreamPayload(event)
-        payload["phase"] = phase
-        if let result {
-            payload["result"] = result
-        }
-
+        payload["phase"] = "received"
         publish(
             name: "agent.hook.\(event.hookEventName.rawValue)",
             category: "agent",
-            source: event.source,
-            workspaceId: event.workspaceId,
-            payload: payload
-        )
-
-        publish(
-            name: "feed.item.\(phase)",
-            category: "feed",
             source: event.source,
             workspaceId: event.workspaceId,
             payload: payload

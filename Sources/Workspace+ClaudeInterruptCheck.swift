@@ -40,8 +40,7 @@ extension Workspace {
     /// A Claude hook reported this pane's lifecycle. The hook's word supersedes
     /// a queued Esc/Ctrl+C inference, even when the value is unchanged (a new
     /// prompt re-asserts `.running`). Called only from the hook socket path, so
-    /// app-side writes such as the feed concluding a rejected permission
-    /// request do not cancel the check that request's Esc queued.
+    /// app-side status writes do not cancel the check an Esc queued.
     func supersedeClaudeInterruptCheck(key: String, panelId: UUID?) {
         guard key == Self.claudeInterruptStatusKey, let panelId = panelId ?? focusedPanelId else { return }
         pendingClaudeInterruptCheckTokens[panelId] = nil

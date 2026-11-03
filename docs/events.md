@@ -1,7 +1,7 @@
 # cmux Events
 
 cmux exposes a reconnectable event stream for local tools that need to observe
-workspace, pane, surface, notification, browser, Feed, and agent-hook activity.
+workspace, pane, surface, notification, browser, and agent-hook activity.
 
 The same events are appended to `~/.cmuxterm/events.jsonl` as newline-delimited
 JSON. The live stream is delivered over the existing cmux socket. Clients call
@@ -14,7 +14,7 @@ from the same connection.
 cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
 cmux events --category window --category workspace --category pane --category surface
 cmux events --category notification
-cmux events --category feed --category agent --no-heartbeat
+cmux events --category agent --no-heartbeat
 ```
 
 Every event has a monotonically increasing process-local `seq` and a `boot_id`.
@@ -36,7 +36,7 @@ effects that do not have an authoritative model lifecycle event.
 Send one JSON request line to the socket:
 
 ```json
-{"id":"client-1","method":"events.stream","params":{"after_seq":123,"categories":["notification","feed"]}}
+{"id":"client-1","method":"events.stream","params":{"after_seq":123,"categories":["notification","agent"]}}
 ```
 
 Parameters:
@@ -131,7 +131,7 @@ Event fields:
 | `seq` | Process-local sequence. Increases by one for every emitted event. |
 | `boot_id` | UUID process-boot identifier for this in-memory event log. Changes when cmux restarts. |
 | `id` | Stable event id for the current cmux process. Use it for dedupe. |
-| `name` | Specific event name, such as `feed.item.received`. |
+| `name` | Specific event name, such as `agent.hook.UserPromptSubmit`. |
 | `category` | Coarse subscription group. |
 | `source` | Producer, such as `socket.v2`, `notification.store`, or `codex`. |
 | `occurred_at` | ISO-8601 timestamp with fractional seconds. |
@@ -186,8 +186,7 @@ batched behind a bounded 1,024-line queue. Under sustained disk backpressure,
 cmux drops the oldest pending disk-only lines and keeps the live socket stream
 and in-memory replay buffer moving. Clients can read those files for recent
 auditing, but should treat the socket `ack.resume.gap` contract plus snapshot
-commands as the source of truth for catch-up after long outages. Feed still
-writes its specialized long-term audit log to `~/.cmuxterm/workstream.jsonl`.
+commands as the source of truth for catch-up after long outages.
 
 ## CLI
 
@@ -323,14 +322,11 @@ Notifications:
 | `notification.removed` | One notification was removed. |
 | `notification.cleared` | Notifications were cleared in bulk. |
 
-Feed and agent hooks:
+Agent hooks:
 
 | Name | Trigger |
 | --- | --- |
-| `feed.item.received` | `feed.push` received a hook/workstream event. |
-| `feed.item.completed` | `feed.push` returned a hook decision, timeout, or no-op result. |
-| `feed.item.resolved` | A Feed reply command resolved a permission, question, or plan item. |
-| `agent.hook.<HookEventName>` | Agent hook event received through Feed. Examples include Claude Code and Codex permission requests when their hooks are installed. |
+| `agent.hook.<HookEventName>` | An agent hook event forwarded with `feed.push`, such as `UserPromptSubmit` or `Stop`. |
 
 App, browser, and config:
 
@@ -345,36 +341,36 @@ App, browser, and config:
 
 ## Agent hooks
 
-Agent integrations use `cmux hooks feed --source <agent>` or an equivalent
-plugin bridge. The event stream publishes both agent and Feed events:
+Agent integrations forward hook events with `cmux hooks feed --source <agent>`,
+the agent hook subcommands, or a generated extension. Forwarding is one-way:
+cmux never holds an agent or answers a permission, plan or question prompt, so
+each event is published once with `phase` `received`:
 
 ```json
 {
-  "name": "agent.hook.PermissionRequest",
+  "name": "agent.hook.UserPromptSubmit",
   "category": "agent",
   "source": "codex",
   "workspace_id": "9B6920C1-6C29-4C27-A069-78CF285F932A",
   "payload": {
-    "session_id": "session-123",
-    "hook_event_name": "PermissionRequest",
+    "session_id": "codex-session-123",
+    "hook_event_name": "UserPromptSubmit",
     "_source": "codex",
-    "tool_name": "exec_command",
-    "_opencode_request_id": "request-456",
+    "context": null,
+    "context_length": 42,
+    "redacted_fields": ["context"],
     "phase": "received"
   }
 }
 ```
 
-The `feed.item.completed` event contains the same workstream payload plus a
-`result` object matching the `feed.push` socket response.
-
 ## Privacy
 
 `surface.input_sent`, `browser.input`, v1 terminal send commands, notification
 text fields, and large agent-hook fields redact local text and include only
-length metadata. Feed and agent-hook events keep operational identifiers such as
-hook name, tool name, request id, phase, and decision result so local consumers
-can correlate events without receiving prompt/tool payloads by default.
+length metadata. Agent-hook events keep operational identifiers such as hook
+name, tool name, request id, and phase so local consumers can correlate events
+without receiving prompt/tool payloads by default.
 
 Consumers should treat the stream as local-sensitive data and avoid forwarding
 it to third-party services without an explicit user opt-in.

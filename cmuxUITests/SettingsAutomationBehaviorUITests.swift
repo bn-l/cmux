@@ -76,7 +76,7 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
         static let geminiOff = "Gemini runs without cmux integration."
 
         // Suppress Subagent Notifications subtitles.
-        static let suppressOn = "Child agent completions stay in Feed without notifications."
+        static let suppressOn = "Child agent completions do not notify."
         static let suppressOff = "Child agent completions notify like top-level agents."
     }
 
@@ -408,8 +408,8 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
     //   terminal-launch + hook harness.
     //
     // TIER 2 (needs runtime seam): Suppress Subagent Notifications — affects
-    //   whether child-agent completions raise a notification vs. only landing
-    //   in Feed, decided by process-ancestry logic in the notification path.
+    //   whether child-agent completions raise a notification, decided by
+    //   process-ancestry logic in the notification path.
     //   Observable only with a real nested-agent completion event. Stored
     //   value proven TIER 1 via the subtitle.
     //

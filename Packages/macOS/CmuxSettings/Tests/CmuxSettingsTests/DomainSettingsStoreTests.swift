@@ -104,7 +104,6 @@ struct AgentIntegrationSettingsStoreTests {
         #expect(store.ampHooksEnabled == true)
         #expect(store.suppressesSubagentNotifications == true)
         #expect(store.customClaudePath == nil)
-        #expect(store.kiroNotificationLevel == .standard)
     }
 
     @Test func readsStoredOverridesUnderLegacyKeys() {
@@ -133,20 +132,6 @@ struct AgentIntegrationSettingsStoreTests {
 
         defaults.set("  /usr/local/bin/claude \n", forKey: "claudeCodeCustomClaudePath")
         #expect(store.customClaudePath == "/usr/local/bin/claude")
-    }
-
-    @Test func kiroNotificationLevelParsesAndFallsBackToStandard() {
-        let defaults = makeScratchDefaults()
-        let store = AgentIntegrationSettingsStore(defaults: defaults)
-
-        defaults.set("verbose", forKey: "kiroNotificationLevel")
-        #expect(store.kiroNotificationLevel == .verbose)
-
-        defaults.set("minimal", forKey: "kiroNotificationLevel")
-        #expect(store.kiroNotificationLevel == .minimal)
-
-        defaults.set("unsupported", forKey: "kiroNotificationLevel")
-        #expect(store.kiroNotificationLevel == .standard)
     }
 }
 

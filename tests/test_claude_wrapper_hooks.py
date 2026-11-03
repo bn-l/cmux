@@ -526,7 +526,9 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest"}
+    # No PermissionRequest: cmux never holds or answers Claude's permission,
+    # plan or question prompts.
+    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
@@ -589,12 +591,16 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"PreToolUse hook should have async:true, got {pre_tool_use_hooks}",
         failures,
     )
-    permission_request_hooks = hooks.get("PermissionRequest", [{}])[0].get("hooks", [{}])
-    expect(
-        any(h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude' for h in permission_request_hooks),
-        f"PermissionRequest hook should call hooks feed, got {permission_request_hooks}",
-        failures,
-    )
+    # Every `hooks feed` forwarder must be async: Claude never waits on cmux
+    # for an event it only forwards.
+    sync_feed_hooks = [
+        (hook_name, hook)
+        for hook_name, groups in hooks.items()
+        for group in groups
+        for hook in group.get("hooks", [])
+        if "hooks feed" in hook.get("command", "") and hook.get("async") is not True
+    ]
+    expect(not sync_feed_hooks, f"hooks feed must only run async, got {sync_feed_hooks}", failures)
     subagent_stop_hooks = hooks.get("SubagentStop", [{}])[0].get("hooks", [{}])
     expect(
         any(
@@ -638,7 +644,7 @@ def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> Non
     )
     expected_hooks = {
         "SessionStart", "Stop", "SubagentStop", "SessionEnd",
-        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
+        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse",
     }
     expect(
         set(settings.get("hooks", {}).keys()) == expected_hooks,

@@ -2,188 +2,96 @@ import Testing
 
 // `FeedEventClassifier` lives in `CLI/FeedEventClassifier.swift`, which is
 // compiled into both the `cmux-cli` target and this test target — so the pure
-// classification decision can be unit-tested directly, without `@testable`
-// importing the `cmux_cli` executable module (whose symbols the app-hosted
-// test bundle cannot link).
+// mapping can be unit-tested directly, without `@testable` importing the
+// `cmux_cli` executable module (whose symbols the app-hosted test bundle
+// cannot link).
 
-/// Regression coverage for the feed-event → user-attention classification.
+/// Coverage for the raw agent hook event → wire `hook_event_name` mapping that
+/// `cmux hooks feed` forwards. The wire name drives Jump to Last Prompt
+/// (`UserPromptSubmit`), iMessage mode (`UserPromptSubmit` / `Stop`) and the
+/// `agent.hook.<name>` events stream, so a wrong mapping silently breaks those.
 ///
-/// The "Terminal needs approval" notification (see `FeedCoordinator`) fires
-/// only for events that `classifyFeedEvent` marks actionable and whose wire
-/// `hook_event_name` is `PermissionRequest` / `ExitPlanMode` /
-/// `AskUserQuestion`. The class of bug this guards against is broad
-/// pattern-matching that maps a *tool-starting* lifecycle event to an
-/// approval, over-triggering the notification.
-///
-/// https://github.com/manaflow-ai/cmux/issues/4985
-@Suite("Feed event classification")
+/// The mapping no longer depends on the tool name: cmux never turns a tool
+/// start into an approval it holds (https://github.com/manaflow-ai/cmux/issues/4985
+/// was the over-triggering this used to guard).
+@Suite("Feed event wire names")
 struct FeedEventClassificationTests {
-    private func classify(_ source: String, _ event: String, tool: String = "")
-        -> (name: String, actionable: Bool)
-    {
-        let result = FeedEventClassifier.classify(source: source, event: event, toolName: tool)
-        return (result.0, result.1)
+    private func wire(_ source: String, _ event: String) -> String {
+        FeedEventClassifier.wireEventName(source: source, event: event)
     }
 
-    // MARK: Hermes Agent (the reported bug)
-
-    /// Hermes emits `pre_tool_call` when a tool *starts* — no approval is
-    /// pending. It has a distinct `pre_approval_request` event for real
-    /// approvals. `pre_tool_call` must never be actionable, even for a
-    /// side-effecting tool like `terminal`, or the user sees a spurious
-    /// "Terminal needs approval" banner with nothing pending in the TUI.
-    @Test func hermesPreToolCallIsTelemetryEvenForSideEffectingTools() {
-        #expect(classify("hermes-agent", "pre_tool_call", tool: "terminal").actionable == false)
-        #expect(classify("hermes-agent", "pre_tool_call", tool: "Bash").actionable == false)
-        #expect(classify("hermes-agent", "pre_tool_call", tool: "Write").actionable == false)
-        #expect(classify("hermes-agent", "pre_tool_call", tool: "Read").actionable == false)
-        #expect(classify("hermes-agent", "pre_tool_call", tool: "terminal").name == "PreToolUse")
+    @Test func promptAndStopEventsMapForEveryRegisteredAgent() {
+        #expect(wire("claude", "UserPromptSubmit") == "UserPromptSubmit")
+        #expect(wire("claude", "Stop") == "Stop")
+        #expect(wire("codex", "user_prompt_submit") == "UserPromptSubmit")
+        #expect(wire("codex", "stop") == "Stop")
+        #expect(wire("hermes-agent", "pre_llm_call") == "UserPromptSubmit")
+        #expect(wire("hermes-agent", "post_llm_call") == "Stop")
+        #expect(wire("kiro", "userPromptSubmit") == "UserPromptSubmit")
+        #expect(wire("kiro", "stop") == "Stop")
+        #expect(wire("gemini", "UserPromptSubmit") == "UserPromptSubmit")
+        #expect(wire("gemini", "Stop") == "Stop")
     }
 
-    /// Lifecycle bookends are telemetry only.
-    @Test func hermesLifecycleEventsAreNotActionable() {
-        #expect(classify("hermes-agent", "post_tool_call").actionable == false)
-        #expect(classify("hermes-agent", "pre_llm_call").actionable == false)
-        #expect(classify("hermes-agent", "post_llm_call").actionable == false)
-        #expect(classify("hermes-agent", "on_session_start").actionable == false)
-        #expect(classify("hermes-agent", "on_session_end").actionable == false)
+    /// A tool start is a tool start for every agent, whatever the tool.
+    /// Before the Feed removal, generic and Kiro pre-tool events for
+    /// side-effecting tools were rewritten to `PermissionRequest` and held.
+    @Test func toolStartsAreNeverRewrittenToApprovals() {
+        #expect(wire("gemini", "PreToolUse") == "PreToolUse")
+        #expect(wire("copilot", "beforeShellExecution") == "PreToolUse")
+        #expect(wire("kiro", "preToolUse") == "PreToolUse")
+        #expect(wire("hermes-agent", "pre_tool_call") == "PreToolUse")
+        #expect(wire("claude", "PreToolUse") == "PreToolUse")
     }
 
-    /// `pre_approval_request` carries the real approval semantic. The
-    /// "needs approval" notification fires for it via the dedicated
-    /// `notification` hook subcommand, so on the feed path it stays a
-    /// non-blocking `Notification` (avoids a double banner).
-    @Test func hermesApprovalRequestStaysNonBlockingOnFeedPath() {
-        let approval = classify("hermes-agent", "pre_approval_request")
-        #expect(approval.name == "Notification")
-        #expect(approval.actionable == false)
+    /// Codex runs `PermissionRequest` hooks before its own approval reviewer;
+    /// it is forwarded as a plain tool start.
+    @Test func codexPermissionRequestIsAToolStart() {
+        #expect(wire("codex", "PermissionRequest") == "PreToolUse")
+        #expect(wire("codex", "permission_request") == "PreToolUse")
+        #expect(wire("codex", "beforeShellExecution") == "PreToolUse")
     }
 
-    /// Future Hermes event names must be safe by default: unknown → no
-    /// notification (non-actionable telemetry).
-    @Test func hermesUnknownEventIsSafeByDefault() {
-        let unknown = classify("hermes-agent", "some_future_event", tool: "terminal")
-        #expect(unknown.actionable == false)
+    /// Hermes approval events are status notifications, not approvals.
+    @Test func hermesApprovalEventsAreNotifications() {
+        #expect(wire("hermes-agent", "pre_approval_request") == "Notification")
+        #expect(wire("hermes-agent", "post_approval_response") == "Notification")
     }
 
-    // MARK: Claude (dedicated-approval agent — must not regress)
-
-    /// Claude owns approvals through its `PermissionRequest` hook; its
-    /// `PreToolUse` is telemetry and must not escalate side-effecting tools.
-    @Test func claudePreToolUseDoesNotEscalate() {
-        #expect(classify("claude", "PreToolUse", tool: "Bash").actionable == false)
-        #expect(classify("claude", "PreToolUse", tool: "Write").actionable == false)
-    }
-
-    @Test func claudePermissionRequestIsActionable() {
-        #expect(classify("claude", "PermissionRequest", tool: "Bash").name == "PermissionRequest")
-        #expect(classify("claude", "PermissionRequest", tool: "Bash").actionable == true)
-        #expect(classify("claude", "PermissionRequest", tool: "ExitPlanMode").name == "ExitPlanMode")
-        #expect(classify("claude", "PermissionRequest", tool: "AskUserQuestion").name == "AskUserQuestion")
-    }
-
-    @Test func claudeLifecycleFeedEventsStayTelemetryAndPreserveNames() {
+    @Test func lifecycleEventsPreserveTheirNames() {
         for event in ["PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"] {
-            let classification = classify("claude", event, tool: "Bash")
-            #expect(classification.name == event)
-            #expect(classification.actionable == false)
+            #expect(wire("claude", event) == event)
+            #expect(wire("codex", event) == event)
+            #expect(wire("gemini", event) == event)
         }
     }
 
-    // MARK: Generic agents without a dedicated approval event
-
-    /// Agents whose only signal is `PreToolUse` (gemini, copilot, …) still
-    /// escalate side-effecting tools to an approval — that path is correct
-    /// and must be preserved.
-    @Test func genericPreToolUseEscalatesSideEffectingTools() {
-        #expect(classify("gemini", "PreToolUse", tool: "Bash").name == "PermissionRequest")
-        #expect(classify("gemini", "PreToolUse", tool: "Bash").actionable == true)
-        #expect(classify("gemini", "PreToolUse", tool: "Read").actionable == false)
-    }
-
-    /// Even on the maybe-approval (generic pre-tool) path, the two dedicated
-    /// approval tool names route to their own wire kinds — they are never
-    /// collapsed into a generic `PermissionRequest`. Guards the shared
-    /// `dedicatedApprovalEvent(for:)` branch inside `.toolStartMaybeApproval`.
-    @Test func genericPreToolUseRoutesDedicatedApprovalTools() {
-        #expect(classify("gemini", "PreToolUse", tool: "ExitPlanMode").name == "ExitPlanMode")
-        #expect(classify("gemini", "PreToolUse", tool: "ExitPlanMode").actionable == true)
-        #expect(classify("gemini", "PreToolUse", tool: "AskUserQuestion").name == "AskUserQuestion")
-        #expect(classify("gemini", "PreToolUse", tool: "AskUserQuestion").actionable == true)
-    }
-
-    /// Codex runs `PermissionRequest` hooks before its own approval reviewer,
-    /// so Feed must keep both pre-tool events and permission requests as
-    /// telemetry. Otherwise "Approve for me" gets bypassed by cmux's Feed UI.
-    @Test func codexPreToolUseIsTelemetry() {
-        #expect(classify("codex", "PreToolUse", tool: "shell").actionable == false)
-        #expect(classify("codex", "beforeShellExecution", tool: "shell").actionable == false)
-        #expect(classify("codex", "beforeShellExecution", tool: "shell").name == "PreToolUse")
-        #expect(classify("codex", "PermissionRequest", tool: "shell").name == "PreToolUse")
-        #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
-    }
-
-    @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {
-        for event in ["PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"] {
-            let classification = classify("codex", event, tool: "shell")
-            #expect(classification.name == event)
-            #expect(classification.actionable == false)
-        }
-    }
-
-    @Test func codexSnakeCaseLifecycleFeedEventsStayTelemetryAndPreserveNames() {
+    @Test func codexSnakeCaseLifecycleEventsMapToWireNames() {
         let cases = [
             ("post_tool_use", "PostToolUse"),
             ("pre_compact", "PreCompact"),
             ("post_compact", "PostCompact"),
             ("subagent_start", "SubagentStart"),
             ("subagent_stop", "SubagentStop"),
+            ("session_start", "SessionStart"),
+            ("session_end", "SessionEnd"),
         ]
-        for (event, expectedName) in cases {
-            let classification = classify("codex", event, tool: "shell")
-            #expect(classification.name == expectedName)
-            #expect(classification.actionable == false)
+        for (event, expected) in cases {
+            #expect(wire("codex", event) == expected, "\(event)")
         }
     }
 
-    /// Unknown source + unknown event is safe by default.
-    @Test func unknownSourceUnknownEventIsSafe() {
-        #expect(classify("totally-new-agent", "some_future_event", tool: "Bash").actionable == false)
+    /// Kiro's camelCase names are absent from the generic table; without its
+    /// own entry they would all collapse to the unknown fallback.
+    @Test func kiroCamelCaseEventsMapToWireNames() {
+        #expect(wire("kiro", "postToolUse") == "PostToolUse")
+        #expect(wire("kiro", "agentSpawn") == "SessionStart")
     }
 
-    // MARK: Kiro (camelCase events, no dedicated approval event)
-
-    /// Kiro has no dedicated approval event, so its `preToolUse` escalates
-    /// side-effecting tools to an approval — resolved against Kiro's internal
-    /// tool names (`fs_write`, `execute_bash`, `use_aws`). Read-only `fs_read`
-    /// stays telemetry. Registering kiro is required because its camelCase
-    /// event names are absent from the generic table and would otherwise
-    /// resolve to `.unknown` (non-actionable), silently dropping approvals.
-    @Test func kiroPreToolUseEscalatesSideEffectingTools() {
-        #expect(classify("kiro", "preToolUse", tool: "fs_write").name == "PermissionRequest")
-        #expect(classify("kiro", "preToolUse", tool: "fs_write").actionable == true)
-        #expect(classify("kiro", "preToolUse", tool: "execute_bash").actionable == true)
-        #expect(classify("kiro", "preToolUse", tool: "use_aws").actionable == true)
-        #expect(classify("kiro", "preToolUse", tool: "fs_read").actionable == false)
-        #expect(classify("kiro", "preToolUse", tool: "fs_read").name == "PreToolUse")
-    }
-
-    /// Kiro lifecycle + post-tool events are telemetry only and map to the
-    /// right wire names despite their camelCase spelling.
-    @Test func kiroLifecycleEventsClassifyCorrectly() {
-        #expect(classify("kiro", "postToolUse", tool: "fs_write").name == "PostToolUse")
-        #expect(classify("kiro", "postToolUse", tool: "fs_write").actionable == false)
-        #expect(classify("kiro", "agentSpawn").name == "SessionStart")
-        #expect(classify("kiro", "userPromptSubmit").name == "UserPromptSubmit")
-        #expect(classify("kiro", "stop").name == "Stop")
-    }
-
-    /// Kiro's case-insensitive tool aliases must stay scoped to kiro: another
-    /// agent emitting a lowercase `fs_write` / `write` must NOT be escalated
-    /// (guards the resolved "lowercase tools broaden Feed prompts" fix).
-    @Test func kiroToolAliasesDoNotLeakToOtherAgents() {
-        #expect(classify("gemini", "PreToolUse", tool: "fs_write").actionable == false)
-        #expect(classify("gemini", "PreToolUse", tool: "write").actionable == false)
-        #expect(classify("gemini", "PreToolUse", tool: "execute_bash").actionable == false)
+    /// Unknown events fall back to a plain tool start, never an approval.
+    @Test func unknownEventsFallBackToToolStart() {
+        #expect(wire("totally-new-agent", "some_future_event") == "PreToolUse")
+        #expect(wire("hermes-agent", "some_future_event") == "PreToolUse")
+        #expect(wire("kiro", "PreToolUse") == "PreToolUse")
     }
 }

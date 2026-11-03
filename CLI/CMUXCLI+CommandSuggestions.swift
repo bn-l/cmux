@@ -93,7 +93,6 @@ extension CMUXCLI {
         "enable-browser",
         "events",
         "feedback",
-        "feed",
         "feed-hook",
         "find-window",
         "focus-pane",

@@ -1,6 +1,6 @@
 # Agent hook integrations
 
-cmux uses agent hooks to show running state, Feed approvals, notifications, and to restore agent sessions after a normal app relaunch.
+cmux uses agent hooks to show running state and notifications, and to restore agent sessions after a normal app relaunch. Hooks only report to cmux: cmux never holds an agent or answers its permission, plan or question prompts.
 
 Claude Code is handled by the cmux Claude wrapper when Claude Code integration is enabled in Settings. Other agents are installed with:
 
@@ -15,33 +15,27 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, 
 
 ## Integrations
 
-| Agent | Binary checked | Installed file | Session restore | Feed bridge |
-| --- | --- | --- | --- | --- |
-| Claude Code | `claude` through wrapper | wrapper-injected settings | `claude --resume <id>` | PermissionRequest |
-| Codex | `codex` | `~/.codex/hooks.json`, `~/.codex/config.toml` | `codex resume <id>` | PreToolUse, PermissionRequest telemetry |
-| Grok | `grok` | `~/.grok/hooks/cmux-session.json` | `grok -r <id>` | PreToolUse |
-| OpenCode | `opencode` | `~/.config/opencode/plugins/cmux-session.js`, `~/.config/opencode/plugins/cmux-feed.js` | `opencode --session <id>` | plugin event bus |
-| Pi | `pi` | `~/.pi/agent/extensions/cmux-session.ts` | `pi --session <id>` | tool_execution_start / tool_execution_end telemetry |
-| OMP | `omp` | `~/.omp/agent/extensions/cmux-omp-session.ts` or `$PI_CODING_AGENT_DIR/extensions/cmux-omp-session.ts` | `omp --session <id>` | none |
-| Campfire | `campfire` | `~/.campfire/agent/extensions/cmux-campfire-session.ts` or `$CAMPFIRE_CODING_AGENT_DIR/extensions/cmux-campfire-session.ts` | `campfire --session <id>` | none |
-| Amp | `amp` | `~/.config/amp/plugins/cmux-session.ts` | `amp threads continue <id>` | none |
-| Cursor CLI | `cursor-agent` | `~/.cursor/hooks.json` | `cursor-agent --resume <id>` | beforeShellExecution |
-| Gemini | `gemini` | `~/.gemini/settings.json` | `gemini --resume <id>` | PreToolUse |
-| Kiro CLI | `kiro-cli` | `~/.kiro/agents/cmux.json` or `$KIRO_HOME/agents/cmux.json` | `kiro-cli chat --resume-id <id>` | preToolUse, postToolUse |
-| Rovo Dev | `acli` | `~/.rovodev/config.yml` | `acli rovodev run --restore <id>` | none |
-| Copilot | `copilot` | `~/.copilot/config.json` | `copilot --resume <id>` | PreToolUse |
-| CodeBuddy | `codebuddy` | `~/.codebuddy/settings.json` | `codebuddy --resume <id>` | PreToolUse |
-| Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
-| Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
-| Kimi Code | `kimi` | `~/.kimi-code/config.toml` | not yet | PreToolUse, PostToolUse, PermissionRequest |
+| Agent | Binary checked | Installed file | Session restore |
+| --- | --- | --- | --- |
+| Claude Code | `claude` through wrapper | wrapper-injected settings | `claude --resume <id>` |
+| Codex | `codex` | `~/.codex/hooks.json`, `~/.codex/config.toml` | `codex resume <id>` |
+| Grok | `grok` | `~/.grok/hooks/cmux-session.json` | `grok -r <id>` |
+| OpenCode | `opencode` | `~/.config/opencode/plugins/cmux-session.js` | `opencode --session <id>` |
+| Pi | `pi` | `~/.pi/agent/extensions/cmux-session.ts` | `pi --session <id>` |
+| OMP | `omp` | `~/.omp/agent/extensions/cmux-omp-session.ts` or `$PI_CODING_AGENT_DIR/extensions/cmux-omp-session.ts` | `omp --session <id>` |
+| Campfire | `campfire` | `~/.campfire/agent/extensions/cmux-campfire-session.ts` or `$CAMPFIRE_CODING_AGENT_DIR/extensions/cmux-campfire-session.ts` | `campfire --session <id>` |
+| Amp | `amp` | `~/.config/amp/plugins/cmux-session.ts` | `amp threads continue <id>` |
+| Cursor CLI | `cursor-agent` | `~/.cursor/hooks.json` | `cursor-agent --resume <id>` |
+| Gemini | `gemini` | `~/.gemini/settings.json` | `gemini --resume <id>` |
+| Kiro CLI | `kiro-cli` | `~/.kiro/agents/cmux.json` or `$KIRO_HOME/agents/cmux.json` | `kiro-cli chat --resume-id <id>` |
+| Rovo Dev | `acli` | `~/.rovodev/config.yml` | `acli rovodev run --restore <id>` |
+| Copilot | `copilot` | `~/.copilot/config.json` | `copilot --resume <id>` |
+| CodeBuddy | `codebuddy` | `~/.codebuddy/settings.json` | `codebuddy --resume <id>` |
+| Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` |
+| Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` |
+| Kimi Code | `kimi` | `~/.kimi-code/config.toml` | not yet |
 
-OpenCode also supports project-local Feed installation:
-
-```bash
-cmux hooks opencode install --project
-```
-
-That writes `.opencode/plugins/cmux-feed.js` in the current directory.
+Installing the OpenCode hooks deletes the `cmux-feed.js` plugin older cmux versions installed (global and in the current directory's `.opencode/plugins/`).
 
 ## What the hooks record
 
@@ -160,12 +154,12 @@ Campfire ships this integration natively: current campfire versions include a bu
 
 Kiro stores hooks inside agent configuration files. The cmux installer creates or updates a `cmux` agent config with lifecycle, tool, and completion hooks; merge the generated `hooks` block into another Kiro agent config if you want the same cmux notifications on that agent.
 
-Kiro Feed verbosity follows **Settings > Automation > Kiro Notification Level** or `automation.kiroNotificationLevel` in `cmux.json`. `minimal` keeps actionable approval cards only, `standard` also keeps mutating tool events, and `verbose` keeps every Kiro tool event.
+Older cmux versions also installed synchronous `cmux hooks feed` tool hooks (PreToolUse, PermissionRequest and similar) so the removed Feed could hold agents on approval prompts. `cmux hooks setup` and `cmux hooks <agent> install` now delete those entries; `cmux hooks <agent> uninstall` deletes them too. The Kiro Notification Level setting (`automation.kiroNotificationLevel`) only filtered those Kiro hooks and was removed with them; cmux ignores the key in existing configs.
 
 ## Troubleshooting
 
 Run `cmux hooks <agent> install --yes` to reinstall one integration. Run `cmux hooks <agent> uninstall --yes` before editing generated files by hand.
 
-If Feed shows nothing, confirm the terminal has `CMUX_SURFACE_ID` and the hook file contains a `cmux hooks feed --source <agent>` command, generated extension bridge, or OpenCode feed plugin. Pi reports non-blocking tool execution telemetry through its generated extension. OMP, Campfire, and Rovo Dev currently provide lifecycle and restore hooks only, so they do not create Feed approval cards. Amp's bundled plugin reports live tab-status updates (idle / thinking / running / reading / done / error / interrupted) and lifecycle restore but does not create Feed approval cards.
+If `cmux events --category agent` shows no `agent.hook.*` events, confirm the terminal has `CMUX_SURFACE_ID` and the hook file contains a `cmux hooks <agent>` or `cmux hooks feed --source <agent>` command or a generated extension bridge. Pi reports non-blocking tool execution telemetry through its generated extension. OMP, Campfire, and Rovo Dev currently provide lifecycle and restore hooks only. Amp's bundled plugin reports live tab-status updates (idle / thinking / running / reading / done / error / interrupted) and lifecycle restore.
 
 If relaunch does not resume an agent, check `~/.cmuxterm/<agent>-hook-sessions.json` for the saved session and verify the agent's resume command still works outside cmux.

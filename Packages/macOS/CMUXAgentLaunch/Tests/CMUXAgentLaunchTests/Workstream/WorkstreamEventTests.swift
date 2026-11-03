@@ -26,8 +26,9 @@ struct WorkstreamEventTests {
         #expect(event.source == "claude")
         #expect(event.workspaceId == "11111111-1111-1111-1111-111111111111")
         #expect(event.toolName == "Write")
-        #expect(event.context?.lastUserMessage == "write a file")
-        #expect(event.context?.permissionMode == "plan")
+        // `permissionMode` came from the removed Feed approval UI; older
+        // senders may still include it and it must not break decoding.
+        #expect(event.context == WorkstreamContext(lastUserMessage: "write a file"))
         #expect(event.requestId == "req-1")
         #expect(event.ppid == 1234)
         // `toolInputJSON` round-trips through JSONSerialization which may
@@ -52,11 +53,7 @@ struct WorkstreamEventTests {
             toolInputJSON: "{\"plan\":\"step1\\nstep2\"}",
             context: WorkstreamContext(
                 lastUserMessage: "make a plan",
-                assistantPreamble: "I will make a short plan.",
-                allowedPrompts: [
-                    WorkstreamAllowedPrompt(tool: "Bash", prompt: "run tests")
-                ],
-                permissionMode: "plan"
+                assistantPreamble: "I will make a short plan."
             ),
             requestId: "plan-1",
             ppid: 999
@@ -74,8 +71,6 @@ struct WorkstreamEventTests {
         #expect((planDict["plan"] as? String)?.contains("step1") == true)
         #expect(back.context?.lastUserMessage == "make a plan")
         #expect(back.context?.assistantPreamble == "I will make a short plan.")
-        #expect(back.context?.allowedPrompts.first?.prompt == "run tests")
-        #expect(back.context?.permissionMode == "plan")
     }
 
     @Test("Missing optional fields decode as nil")
@@ -146,6 +141,18 @@ struct WorkstreamEventTests {
         let encodedFuture = try #require(object["future_field"] as? [String: Any])
         #expect(encodedFuture["enabled"] as? Bool == true)
         #expect(encodedFuture["count"] as? Int == 2)
+    }
+
+    @Test("Context drops blank text and ignores keys from older senders")
+    func contextDropsBlankTextAndUnknownKeys() throws {
+        let json = """
+        {"lastUserMessage": "  \\n ", "assistantPreamble": " done ", "allowedPrompts": [{"tool": "Bash", "prompt": "x"}]}
+        """.data(using: .utf8)!
+        let context = try JSONDecoder().decode(WorkstreamContext.self, from: json)
+        #expect(context.lastUserMessage == nil)
+        #expect(context.assistantPreamble == "done")
+        #expect(!context.isEmpty)
+        #expect(WorkstreamContext(lastUserMessage: " ", assistantPreamble: "").isEmpty)
     }
 
     @Test("Non-JSON tool input re-encodes as a string")

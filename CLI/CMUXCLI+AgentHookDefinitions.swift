@@ -39,12 +39,12 @@ extension CMUXCLI {
         /// separate `session-finalize` subcommand / ``AgentHookAction/sessionFinalize``
         /// action, which performs the destructive cleanup this flag suppresses.
         let sessionEndIsTurnBoundary: Bool
-        /// Feed-hook events. Each entry installs a second hook for
-        /// `agentEvent` that invokes `cmux hooks feed --source <name>`
-        /// with a 120s timeout so the socket reply wait doesn't trip the
-        /// agent's default hook timeout when the user takes time to
-        /// approve/deny a permission / plan / question.
-        let feedHookEvents: [String]
+        /// Events older cmux versions installed an extra synchronous
+        /// `cmux hooks feed --source <name>` hook for, so the removed Feed
+        /// could hold the agent on permission, plan and question prompts.
+        /// Never installed now; kept only so `hooks setup` and `hooks
+        /// uninstall` recognize and delete those entries.
+        let legacyFeedHookEvents: [String]
         let postInstallAction: PostInstallAction?
         /// Optional CLI note printed after a successful install (or
         /// "already up to date") to guide a required activation step — e.g.
@@ -110,7 +110,7 @@ extension CMUXCLI {
              aliases: Set<String> = [],
              publishesStopNotification: Bool = true,
              sessionEndIsTurnBoundary: Bool = false,
-             feedHookEvents: [String] = [],
+             legacyFeedHookEvents: [String] = [],
              postInstallAction: PostInstallAction? = nil,
              postInstallNote: String? = nil) {
             self.name = name; self.displayName = displayName; self.statusKey = statusKey
@@ -128,7 +128,7 @@ extension CMUXCLI {
                 let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return normalized.isEmpty ? nil : normalized
             })
-            self.feedHookEvents = feedHookEvents
+            self.legacyFeedHookEvents = legacyFeedHookEvents
             self.postInstallAction = postInstallAction
             self.postInstallNote = postInstallNote
         }
@@ -186,27 +186,28 @@ extension CMUXCLI {
         subcommand == "session-start" || subcommand == "prompt-submit" || subcommand == "stop"
     }
 
-    static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
-        let inline: String
+    /// The exact `cmux hooks feed` hook commands older cmux versions wrote for
+    /// one of ``AgentHookDef/legacyFeedHookEvents``, so setup and uninstall can
+    /// delete them. Builds the strings only; unlike
+    /// ``hookCommandString(for:event:)`` it never writes a Codex hook script.
+    static func legacyFeedHookCommandStrings(for def: AgentHookDef, agentEvent: String) -> [String] {
+        let command = "cmux hooks feed --source \(def.name) --event \(agentEvent)"
         let noOpCommand = feedHookNoOpShellCommand(for: def, agentEvent: agentEvent)
-        switch def.format {
-        case .kiroAgentJSON:
-            inline = exitTwoPropagatingAgentHookShellCommand(
-                "cmux hooks feed --source \(def.name) --event \(agentEvent)",
-                for: def,
-                noOpCommand: noOpCommand
-            )
-        default:
-            inline = agentHookShellCommand(
-                "cmux hooks feed --source \(def.name) --event \(agentEvent)",
-                for: def,
-                noOpCommand: noOpCommand
-            )
+        let inline: String
+        if case .kiroAgentJSON = def.format {
+            inline = exitTwoPropagatingAgentHookShellCommand(command, for: def, noOpCommand: noOpCommand)
+        } else {
+            inline = agentHookShellCommand(command, for: def, noOpCommand: noOpCommand)
         }
-        if def.name == "codex" {
-            return codexPersistentHookScriptCommand(inline, eventTag: "feed-\(agentEvent)")
-        }
-        return inline
+        guard def.name == "codex" else { return [inline] }
+        // The script `codexPersistentHookScriptCommand` wrote for event tag
+        // `feed-<event>` (named by `writeCodexHookScript`).
+        let scriptPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+            .appendingPathComponent("cmux-codex-hook-persistent-feed-\(agentEvent).sh", isDirectory: false)
+            .path
+        return [inline, scriptPath]
     }
 
     private static func feedHookNoOpShellCommand(for def: AgentHookDef, agentEvent: String) -> String {
@@ -417,12 +418,12 @@ extension CMUXCLI {
         if usesPinnedHookDispatch(def), command.contains(pinnedHookMarker(for: def)) {
             return true
         }
-        if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })
-            || def.feedHookEvents.contains(where: { feedHookCommandString(for: def, agentEvent: $0) == command })
-        {
+        if def.events.contains(where: { hookCommandString(for: def, event: $0) == command }) {
             return true
         }
-        return includeLegacy && isLegacyCmuxOwnedHookCommand(command, for: def)
+        guard includeLegacy else { return false }
+        return def.legacyFeedHookEvents.contains { legacyFeedHookCommandStrings(for: def, agentEvent: $0).contains(command) }
+            || isLegacyCmuxOwnedHookCommand(command, for: def)
     }
 
     private static func isLegacyCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {
@@ -543,16 +544,6 @@ extension CMUXCLI {
         var markers = [def.hookMarker]
         if def.name == "codex" {
             markers.append("cmux codex-hook")
-        }
-        return markers
-    }
-
-    /// Marker substrings used when removing / upgrading our own Feed bridge
-    /// entries on reinstall or uninstall.
-    static func feedHookMarkers(for def: AgentHookDef) -> [String] {
-        var markers = ["cmux hooks feed --source"]
-        if def.name == "codex" {
-            markers.append("cmux feed-hook --source")
         }
         return markers
     }

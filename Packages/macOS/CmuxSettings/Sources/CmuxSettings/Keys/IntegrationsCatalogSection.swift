@@ -50,15 +50,6 @@ public struct IntegrationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "kiroHooksEnabled"
     )
 
-    // Stored as the raw `minimal` / `standard` / `verbose` string so it stays
-    // in sync with the `cmux` CLI's `CMUX_KIRO_NOTIFICATION_LEVEL` env var and
-    // the `automation.kiroNotificationLevel` config key.
-    public let kiroNotificationLevel = DefaultsKey<String>(
-        id: "integrations.kiro.notificationLevel",
-        defaultValue: "standard",
-        userDefaultsKey: "kiroNotificationLevel"
-    )
-
     public let suppressSubagentNotifications = DefaultsKey<Bool>(
         id: "integrations.suppressSubagentNotifications",
         defaultValue: true,

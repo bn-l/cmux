@@ -125,8 +125,6 @@ enum CmuxSocketEventMapper {
             return DomainEventMapping(name: "notification.jump_to_unread_requested", category: "notification", params: .unchanged)
         case "surface.jump_to_last_prompt":
             return DomainEventMapping(name: "surface.jump_to_last_prompt_requested", category: "surface", params: .unchanged)
-        case "feed.permission.reply", "feed.question.reply", "feed.exit_plan.reply":
-            return DomainEventMapping(name: "feed.item.resolved", category: "feed", params: .unchanged)
         case "app.focus_override.set":
             return DomainEventMapping(name: "app.focus_override.changed", category: "app", params: .unchanged)
         case "app.simulate_active":

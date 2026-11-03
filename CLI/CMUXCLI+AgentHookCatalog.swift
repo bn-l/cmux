@@ -14,7 +14,7 @@ extension CMUXCLI {
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
             ],
-            feedHookEvents: [
+            legacyFeedHookEvents: [
                 "PreToolUse",
                 "PermissionRequest",
                 "PostToolUse",
@@ -41,7 +41,7 @@ extension CMUXCLI {
             ],
             publishesStopNotification: false,
             sessionEndIsTurnBoundary: true,
-            feedHookEvents: ["PreToolUse"]
+            legacyFeedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
             name: "opencode", displayName: "OpenCode", statusKey: "opencode",
@@ -94,7 +94,7 @@ extension CMUXCLI {
                 .init(agentEvent: "beforeShellExecution", cmuxSubcommand: "shell-exec"),
                 .init(agentEvent: "afterShellExecution", cmuxSubcommand: "shell-done"),
             ],
-            feedHookEvents: ["beforeShellExecution"]
+            legacyFeedHookEvents: ["beforeShellExecution"]
         ),
         AgentHookDef(
             name: "gemini", displayName: "Gemini", statusKey: "gemini",
@@ -107,7 +107,7 @@ extension CMUXCLI {
                 .init(agentEvent: "AfterAgent", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse"]
+            legacyFeedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
             name: "kiro", displayName: "Kiro", statusKey: "kiro",
@@ -121,7 +121,7 @@ extension CMUXCLI {
                 .init(agentEvent: "userPromptSubmit", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "stop", cmuxSubcommand: "stop"),
             ],
-            feedHookEvents: ["preToolUse", "postToolUse"],
+            legacyFeedHookEvents: ["preToolUse", "postToolUse"],
             postInstallNote: String(
                 localized: "cli.hooks.kiro.postInstallNote",
                 defaultValue: "Kiro applies these hooks only when run as the cmux agent. Start Kiro with `kiro-cli chat --agent cmux`, or make it the default with `kiro-cli settings chat.defaultAgent cmux`."
@@ -143,7 +143,7 @@ extension CMUXCLI {
             ],
             aliases: ["agy"],
             sessionEndIsTurnBoundary: true,
-            feedHookEvents: ["PreToolUse", "PostToolUse"]
+            legacyFeedHookEvents: ["PreToolUse", "PostToolUse"]
         ),
         AgentHookDef(
             name: "rovodev", displayName: "Rovo Dev", statusKey: "rovodev",
@@ -174,7 +174,7 @@ extension CMUXCLI {
                 .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),
             ],
             sessionEndIsTurnBoundary: true,
-            feedHookEvents: ["pre_tool_call", "post_tool_call", "pre_approval_request", "post_approval_response"]
+            legacyFeedHookEvents: ["pre_tool_call", "post_tool_call", "pre_approval_request", "post_approval_response"]
         ),
         AgentHookDef(
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
@@ -187,7 +187,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse"]
+            legacyFeedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
             name: "codebuddy", displayName: "CodeBuddy", statusKey: "codebuddy",
@@ -200,7 +200,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse"]
+            legacyFeedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
             name: "factory", displayName: "Factory", statusKey: "factory",
@@ -213,7 +213,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse"]
+            legacyFeedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
             name: "qoder", displayName: "Qoder", statusKey: "qoder",
@@ -225,7 +225,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse"]
+            legacyFeedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
             name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
@@ -242,7 +242,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Interrupt", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse", "PostToolUse", "PermissionRequest"]
+            legacyFeedHookEvents: ["PreToolUse", "PostToolUse", "PermissionRequest"]
         ),
     ]
 

@@ -36,11 +36,6 @@ extension ControlAppFocusContext {
     func controlSimulateAppActive() {}
 }
 
-extension ControlFeedContext {
-    func controlFeedResolvePossibleSurface(workstreamID: String) -> Bool { false }
-    func controlFeedSnapshotItems(pendingOnly: Bool) -> [JSONValue] { [] }
-}
-
 extension ControlPaneContext {
     func controlPaneList(routing: ControlRoutingSelectors) -> ControlPaneListSnapshot? { nil }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { false }

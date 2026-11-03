@@ -1296,12 +1296,10 @@ final class GhosttyConfigTests: XCTestCase {
         }
 
         defaults.removeObject(forKey: IntegrationsCatalogSection().kiroHooksEnabled.userDefaultsKey)
-        defaults.removeObject(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
         XCTAssertTrue(AgentIntegrationSettingsStore(defaults: defaults).kiroHooksEnabled)
-        XCTAssertEqual(AgentIntegrationSettingsStore(defaults: defaults).kiroNotificationLevel, .standard)
     }
 
-    func testKiroIntegrationRespectsStoredPreferenceAndNotificationLevel() {
+    func testKiroIntegrationRespectsStoredPreference() {
         let suiteName = "cmux.tests.kiro-hooks.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated user defaults suite")
@@ -1312,12 +1310,7 @@ final class GhosttyConfigTests: XCTestCase {
         }
 
         defaults.set(false, forKey: IntegrationsCatalogSection().kiroHooksEnabled.userDefaultsKey)
-        defaults.set(KiroNotificationLevel.verbose.rawValue, forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
         XCTAssertFalse(AgentIntegrationSettingsStore(defaults: defaults).kiroHooksEnabled)
-        XCTAssertEqual(AgentIntegrationSettingsStore(defaults: defaults).kiroNotificationLevel, .verbose)
-
-        defaults.set("unsupported", forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
-        XCTAssertEqual(AgentIntegrationSettingsStore(defaults: defaults).kiroNotificationLevel, .standard)
     }
 
     func testSubagentNotificationSuppressionDefaultsToEnabledWhenUnset() {

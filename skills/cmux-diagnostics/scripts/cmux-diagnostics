@@ -146,7 +146,6 @@ declare -a hook_checks=(
   "codex:$HOME/.codex/hooks.json:cmux hooks codex"
   "codex-config:$HOME/.codex/config.toml:codex_hooks"
   "opencode-session:$HOME/.config/opencode/plugins/cmux-session.js:cmux hooks opencode"
-  "opencode-feed:$HOME/.config/opencode/plugins/cmux-feed.js:cmux hooks feed --source opencode"
   "pi:$HOME/.pi/agent/extensions/cmux-session.ts:cmux hooks pi"
   "amp:$HOME/.config/amp/plugins/cmux-session.ts:cmux hooks amp"
   "cursor:$HOME/.cursor/hooks.json:cmux hooks cursor"

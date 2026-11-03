@@ -216,7 +216,10 @@ struct CLIHookNoResponseTests {
         }
 
         let server = Self.startAcceptedSocketThatDoesNotRead(listenerFD: listenerFD, holdFor: 1.0)
-        let largeToolInput = String(repeating: "x", count: 8 * 1024 * 1024)
+        // Under the forwarder's 1 MiB stdin cap (a larger payload is dropped
+        // before connecting, so the stalled socket would never be reached) but
+        // far beyond a Unix socket buffer, so the write stalls on the server.
+        let largeToolInput = String(repeating: "x", count: 900 * 1024)
         let input = """
         {"hook_event_name":"PreToolUse","session_id":"codex-session-no-read","cwd":"\(root.path)","tool_name":"apply_patch","tool_input":{"payload":"\(largeToolInput)"}}
         """

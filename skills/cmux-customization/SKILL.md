@@ -15,7 +15,7 @@ Use this skill for user-facing cmux customization. Keep the user's config intact
 - Workflows and layouts: use `commands` with workspace definitions to open a worktree, multiple checkouts, local services, browser previews, or SSH sessions in a deliberate split layout.
 - Sidebar and app behavior: use `cmux-settings` for supported settings such as appearance, sidebar display, notification behavior, browser routing, automation, shortcuts, and new-workspace placement.
 - Workspace metadata: use the cmux CLI or `cmux-workspace` for workspace names, descriptions, colors, read state, and sidebar metadata updates.
-- Feed and notifications: use `cmux hooks setup` for Feed event sources, notification settings for delivery behavior, and notification hooks in `cmux.json` for filtering or post-processing banners.
+- Agent hooks and notifications: use `cmux hooks setup` for agent running state and notifications, notification settings for delivery behavior, and notification hooks in `cmux.json` for filtering or post-processing banners.
 - Team presets and examples: use project-local `.cmux/cmux.json` to share worktree, SSH, review, dev, CI, and docs workspace patterns with a repo.
 - Import, export, and reset: back up the current config, apply the smallest diff, validate it, and keep a rollback path for user-owned customizations.
 - Terminal behavior: use Ghostty config for fonts, themes, cursor style, copy-on-select, shell integration, terminal keybindings, and terminal rendering.

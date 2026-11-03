@@ -49,7 +49,9 @@ CMUX_CODEX_HOOK_SUBCOMMANDS = (
     "stop",
 )
 
-CMUX_CODEX_FEED_EVENTS = (
+# Events older cmux versions installed a synchronous `cmux hooks feed` hook
+# for. cmux no longer installs them; install and uninstall must delete them.
+LEGACY_CMUX_CODEX_FEED_EVENTS = (
     "PreToolUse",
     "PermissionRequest",
     "PostToolUse",
@@ -601,7 +603,13 @@ def cmux_codex_hook_command(subcommand: str) -> str:
     )
 
 
-def cmux_codex_feed_command(agent_event: str) -> str:
+def cmux_codex_hook_script_path(tag: str) -> str:
+    # `writeCodexHookScript` names scripts after the real home directory
+    # (FileManager.homeDirectoryForCurrentUser ignores $HOME).
+    return str(Path(os.path.expanduser("~" + os.environ.get("USER", ""))) / ".cmux" / "hooks" / f"cmux-codex-hook-{tag}.sh")
+
+
+def legacy_cmux_codex_feed_command(agent_event: str) -> str:
     routed_arguments = f"hooks feed --source codex --event {agent_event}"
     noop_command = "{ cat >/dev/null 2>/dev/null || true; echo '{}'; }"
     return (
@@ -616,8 +624,15 @@ def cmux_codex_feed_command(agent_event: str) -> str:
 
 def is_cmux_codex_hook_command(command: str) -> bool:
     hook_commands = {cmux_codex_hook_command(subcommand) for subcommand in CMUX_CODEX_HOOK_SUBCOMMANDS}
-    feed_commands = {cmux_codex_feed_command(agent_event) for agent_event in CMUX_CODEX_FEED_EVENTS}
-    return command in hook_commands or command in feed_commands
+    hook_scripts = {cmux_codex_hook_script_path(f"persistent-{subcommand}") for subcommand in CMUX_CODEX_HOOK_SUBCOMMANDS}
+    return command in hook_commands or command in hook_scripts
+
+
+def is_legacy_cmux_codex_feed_command(command: str) -> bool:
+    return any(
+        command in (legacy_cmux_codex_feed_command(event), cmux_codex_hook_script_path(f"persistent-feed-{event}"))
+        for event in LEGACY_CMUX_CODEX_FEED_EVENTS
+    )
 
 
 def toml_basic_string_unescape(value: str) -> str:
@@ -723,12 +738,23 @@ def codex_hook_commands(hooks: dict) -> list[str]:
     return commands
 
 
-def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -> None:
+def test_install_writes_only_codex_lifecycle_hooks(cli_path: str, root: Path) -> None:
+    # Arrange: a hooks.json from an older cmux with every `hooks feed` entry
+    # (script and inline forms) plus a third-party PreToolUse hook.
     codex_home = root / "codex-home"
     codex_home.mkdir()
+    legacy_hooks: dict = {}
+    for event_name in LEGACY_CMUX_CODEX_FEED_EVENTS:
+        legacy_hooks[event_name] = [
+            {"hooks": [{"type": "command", "command": cmux_codex_hook_script_path(f"persistent-feed-{event_name}"), "timeout": 5}]},
+            {"hooks": [{"type": "command", "command": legacy_cmux_codex_feed_command(event_name), "timeout": 120}]},
+        ]
+    legacy_hooks["PreToolUse"].append({"hooks": [{"type": "command", "command": "my-own-guard", "timeout": 3}]})
+    (codex_home / "hooks.json").write_text(json.dumps({"hooks": legacy_hooks}), encoding="utf-8")
     env = os.environ.copy()
     env["CODEX_HOME"] = str(codex_home)
 
+    # Act
     result = subprocess.run(
         [cli_path, "hooks", "codex", "install", "--yes"],
         capture_output=True,
@@ -737,11 +763,12 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
         env=env,
         timeout=20,
     )
+
+    # Assert
     if result.returncode != 0:
         raise AssertionError(
             f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
         )
-
     hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
     hook_groups = hooks.get("hooks", {})
     for event_name in ["SessionStart", "UserPromptSubmit", "Stop"]:
@@ -750,15 +777,13 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
             raise AssertionError(f"missing {event_name} hook group: {hooks!r}")
         if groups[-1]["hooks"][0].get("timeout") != 5:
             raise AssertionError(f"wrong {event_name} timeout: {groups[-1]!r}")
-    for event_name in CMUX_CODEX_FEED_EVENTS:
-        groups = hook_groups.get(event_name)
-        if not groups:
-            raise AssertionError(f"missing {event_name} hook group: {hooks!r}")
-        command = groups[-1]["hooks"][0]["command"]
-        if command != cmux_codex_feed_command(event_name):
-            raise AssertionError(f"wrong {event_name} feed command: {command!r}")
-        if groups[-1]["hooks"][0].get("timeout") != 5:
-            raise AssertionError(f"wrong {event_name} timeout: {groups[-1]!r}")
+    leftover = [c for c in codex_hook_commands(hooks) if is_legacy_cmux_codex_feed_command(c) or "hooks feed" in c]
+    if leftover:
+        raise AssertionError(f"install must delete every legacy `hooks feed` hook, left {leftover!r}")
+    if codex_hook_commands({"hooks": {"PreToolUse": hook_groups.get("PreToolUse", [])}}) != ["my-own-guard"]:
+        raise AssertionError(f"install must keep only the user's PreToolUse hook: {hook_groups.get('PreToolUse')!r}")
+    if set(hook_groups) != {"SessionStart", "UserPromptSubmit", "Stop", "PreToolUse"}:
+        raise AssertionError(f"unexpected hook events after install: {sorted(hook_groups)!r}")
 
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
     if not _toml_has_line(config_toml, "hooks = true"):
@@ -767,13 +792,16 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
         raise AssertionError(f"deprecated codex_hooks feature was written: {config_toml!r}")
     state = codex_hook_trust_state(config_toml)
     expected_trust = expected_cmux_codex_hook_trust(hooks, codex_home / "hooks.json")
-    if not expected_trust:
-        raise AssertionError(f"expected cmux Codex trust entries, got {expected_trust!r}")
+    if len(expected_trust) != 3:
+        raise AssertionError(f"expected trust for the 3 cmux lifecycle hooks, got {expected_trust!r}")
     for key, trusted_hash in expected_trust.items():
         if state.get(key, {}).get("trusted_hash") != trusted_hash:
             raise AssertionError(
                 f"missing trusted hash for {key}: expected {trusted_hash!r}, got state {state!r}"
             )
+    stray = [key for key in state if any(f":{CODEX_HOOK_EVENT_LABELS[e]}:" in key for e in LEGACY_CMUX_CODEX_FEED_EVENTS)]
+    if stray:
+        raise AssertionError(f"cmux must not trust tool/approval hooks it no longer installs: {stray!r}")
 
 
 def test_install_escapes_codex_hook_trust_state_keys(cli_path: str, root: Path) -> None:
@@ -811,7 +839,7 @@ def test_install_escapes_codex_hook_trust_state_keys(cli_path: str, root: Path) 
 def test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-third-party"
     codex_home.mkdir()
-    cmux_pre_tool = cmux_codex_feed_command("PreToolUse")
+    cmux_stop = cmux_codex_hook_command("stop")
     orca_hook = (
         "if [ -x '/Users/lawrence/Library/Application Support/orca/agent-hooks/codex-hook.sh' ]; "
         "then /bin/sh '/Users/lawrence/Library/Application Support/orca/agent-hooks/codex-hook.sh'; fi"
@@ -820,8 +848,8 @@ def test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path: 
         json.dumps(
             {
                 "hooks": {
-                    "PreToolUse": [
-                        {"hooks": [{"type": "command", "command": cmux_pre_tool, "timeout": 120000}]},
+                    "Stop": [
+                        {"hooks": [{"type": "command", "command": cmux_stop, "timeout": 5}]},
                         {"hooks": [{"type": "command", "command": orca_hook}]},
                     ]
                 }
@@ -847,10 +875,10 @@ def test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path: 
         )
 
     hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
-    groups = hooks["hooks"]["PreToolUse"]
+    groups = hooks["hooks"]["Stop"]
     first_command = groups[0]["hooks"][0]["command"]
     second_command = groups[1]["hooks"][0]["command"]
-    if first_command != cmux_pre_tool:
+    if not is_cmux_codex_hook_command(first_command):
         raise AssertionError(f"cmux hook did not keep its existing position: {groups!r}")
     if second_command != orca_hook:
         raise AssertionError(f"third-party hook was not preserved after cmux hook: {groups!r}")
@@ -861,7 +889,7 @@ def test_install_deduplicates_interleaved_codex_hook_positions(
 ) -> None:
     codex_home = root / "codex-home-interleaved"
     codex_home.mkdir()
-    cmux_pre_tool = cmux_codex_feed_command("PreToolUse")
+    cmux_stop = cmux_codex_hook_command("stop")
     user_hook_before = "printf before"
     user_hook_middle = "printf middle"
     user_hook_after = "printf after"
@@ -869,11 +897,11 @@ def test_install_deduplicates_interleaved_codex_hook_positions(
         json.dumps(
             {
                 "hooks": {
-                    "PreToolUse": [
+                    "Stop": [
                         {"hooks": [{"type": "command", "command": user_hook_before}]},
-                        {"hooks": [{"type": "command", "command": cmux_pre_tool, "timeout": 120000}]},
+                        {"hooks": [{"type": "command", "command": cmux_stop, "timeout": 5}]},
                         {"hooks": [{"type": "command", "command": user_hook_middle}]},
-                        {"hooks": [{"type": "command", "command": cmux_pre_tool, "timeout": 120000}]},
+                        {"hooks": [{"type": "command", "command": cmux_stop, "timeout": 5}]},
                         {"hooks": [{"type": "command", "command": user_hook_after}]},
                     ]
                 }
@@ -899,31 +927,32 @@ def test_install_deduplicates_interleaved_codex_hook_positions(
         )
 
     hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
-    commands = [group["hooks"][0]["command"] for group in hooks["hooks"]["PreToolUse"]]
+    commands = [group["hooks"][0]["command"] for group in hooks["hooks"]["Stop"]]
+    shape = ["cmux" if is_cmux_codex_hook_command(command) else command for command in commands]
     expected = [
         user_hook_before,
-        cmux_pre_tool,
+        "cmux",
         user_hook_middle,
         user_hook_after,
     ]
-    if commands != expected:
+    if shape != expected:
         raise AssertionError(f"interleaved cmux hook dedupe changed: {commands!r}")
 
 
 def test_install_collapses_consecutive_codex_hook_positions(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-consecutive"
     codex_home.mkdir()
-    cmux_pre_tool = cmux_codex_feed_command("PreToolUse")
+    cmux_stop = cmux_codex_hook_command("stop")
     user_hook_before = "printf before"
     user_hook_after = "printf after"
     (codex_home / "hooks.json").write_text(
         json.dumps(
             {
                 "hooks": {
-                    "PreToolUse": [
+                    "Stop": [
                         {"hooks": [{"type": "command", "command": user_hook_before}]},
-                        {"hooks": [{"type": "command", "command": cmux_pre_tool, "timeout": 120000}]},
-                        {"hooks": [{"type": "command", "command": cmux_pre_tool, "timeout": 120000}]},
+                        {"hooks": [{"type": "command", "command": cmux_stop, "timeout": 5}]},
+                        {"hooks": [{"type": "command", "command": cmux_stop, "timeout": 5}]},
                         {"hooks": [{"type": "command", "command": user_hook_after}]},
                     ]
                 }
@@ -949,13 +978,14 @@ def test_install_collapses_consecutive_codex_hook_positions(cli_path: str, root:
         )
 
     hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
-    commands = [group["hooks"][0]["command"] for group in hooks["hooks"]["PreToolUse"]]
+    commands = [group["hooks"][0]["command"] for group in hooks["hooks"]["Stop"]]
+    shape = ["cmux" if is_cmux_codex_hook_command(command) else command for command in commands]
     expected = [
         user_hook_before,
-        cmux_pre_tool,
+        "cmux",
         user_hook_after,
     ]
-    if commands != expected:
+    if shape != expected:
         raise AssertionError(f"consecutive cmux hooks were not collapsed: {commands!r}")
 
 
@@ -1005,10 +1035,11 @@ def test_install_replaces_legacy_codex_hook_commands(cli_path: str, root: Path) 
     commands = codex_hook_commands(hooks)
     if any("cmux codex-hook" in command or "cmux feed-hook --source" in command for command in commands):
         raise AssertionError(f"legacy cmux hook commands were not removed: {commands!r}")
-    if cmux_codex_hook_command("stop") not in commands:
+    stop_commands = codex_hook_commands({"hooks": {"Stop": hooks["hooks"].get("Stop", [])}})
+    if not any(is_cmux_codex_hook_command(command) for command in stop_commands):
         raise AssertionError(f"current Stop hook was not installed: {commands!r}")
-    if cmux_codex_feed_command("PreToolUse") not in commands:
-        raise AssertionError(f"current PreToolUse feed hook was not installed: {commands!r}")
+    if "PreToolUse" in hooks["hooks"]:
+        raise AssertionError(f"cmux must not install a Codex PreToolUse hook: {hooks!r}")
 
 
 def test_install_migrates_legacy_codex_hooks_feature(cli_path: str, root: Path) -> None:
@@ -1376,7 +1407,8 @@ def test_install_recovers_hook_trust_when_cmux_marker_is_unclosed(
 ) -> None:
     codex_home = root / "codex-home-unclosed-trust-install"
     codex_home.mkdir()
-    stale_key = f"{(codex_home / 'hooks.json').resolve()}:pre_tool_use:0:0"
+    # A key cmux owns after install (cmux installs no pre_tool_use hook).
+    stale_key = f"{(codex_home / 'hooks.json').resolve()}:session_start:0:0"
     (codex_home / "config.toml").write_text(
         "[features]\n"
         "hooks = true\n"
@@ -1426,12 +1458,13 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
     codex_home = root / "codex-home-stale-trust-with-plugins"
     codex_home.mkdir()
     hooks_path = codex_home / "hooks.json"
-    stale_key = f"{hooks_path.resolve()}:pre_tool_use:0:0"
+    # A key cmux owns after install (cmux installs no pre_tool_use hook).
+    stale_key = f"{hooks_path.resolve()}:session_start:0:0"
     stale_old_cmux_key = f"{hooks_path.resolve()}:pre_tool_use:9:0"
     stale_old_cmux_hash = codex_command_hook_hash(
         event_label="pre_tool_use",
         matcher=None,
-        command=cmux_codex_feed_command("PreToolUse"),
+        command=legacy_cmux_codex_feed_command("PreToolUse"),
         timeout=120_000,
         status_message=None,
     )
@@ -1545,7 +1578,8 @@ def test_install_enables_hooks_when_stale_trust_marker_captures_dotted_feature(
     codex_home = root / "codex-home-stale-trust-with-dotted-feature"
     codex_home.mkdir()
     hooks_path = codex_home / "hooks.json"
-    stale_key = f"{hooks_path.resolve()}:pre_tool_use:0:0"
+    # A key cmux owns after install (cmux installs no pre_tool_use hook).
+    stale_key = f"{hooks_path.resolve()}:session_start:0:0"
     config_path = codex_home / "config.toml"
     config_path.write_text(
         "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin\n"
@@ -2399,7 +2433,7 @@ def main() -> int:
             test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
-            test_install_adds_codex_permission_request_hook(cli_path, root)
+            test_install_writes_only_codex_lifecycle_hooks(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)
             test_install_deduplicates_interleaved_codex_hook_positions(cli_path, root)
@@ -2442,7 +2476,7 @@ def main() -> int:
             print(f"FAIL: {exc}")
             return 1
 
-    print("PASS: Codex Feed hooks leave Codex approvals non-blocking")
+    print("PASS: Codex hooks never hold or answer Codex")
     return 0
 
 

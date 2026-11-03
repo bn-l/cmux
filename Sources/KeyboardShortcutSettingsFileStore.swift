@@ -874,13 +874,6 @@ final class CmuxSettingsFileStore {
         }
         applyBooleanSettings(AutomationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         applyStringSettings(AutomationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
-        if let raw = jsonString(section["kiroNotificationLevel"]) {
-            if KiroNotificationLevel(rawValue: raw) != nil {
-                snapshot.managedUserDefaults[IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey] = .string(raw)
-            } else {
-                logInvalid("automation.kiroNotificationLevel", sourcePath: sourcePath)
-            }
-        }
         if let value = jsonInt(section["portBase"]) {
             guard value > 0 else {
                 logInvalid("automation.portBase", sourcePath: sourcePath)

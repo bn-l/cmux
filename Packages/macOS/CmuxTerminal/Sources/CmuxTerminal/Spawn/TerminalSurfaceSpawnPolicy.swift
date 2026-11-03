@@ -34,10 +34,6 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
     /// Whether Kiro hooks are enabled (`CMUX_KIRO_HOOKS_DISABLED`).
     public var kiroHooksEnabled: Bool
 
-    /// The Kiro notification level raw value
-    /// (`CMUX_KIRO_NOTIFICATION_LEVEL`).
-    public var kiroNotificationLevel: String
-
     /// Whether Amp hooks are enabled (`CMUX_AMP_HOOKS_DISABLED`).
     public var ampHooksEnabled: Bool
 
@@ -61,7 +57,6 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         cursorHooksEnabled: Bool,
         geminiHooksEnabled: Bool,
         kiroHooksEnabled: Bool,
-        kiroNotificationLevel: String,
         ampHooksEnabled: Bool,
         shellIntegrationEnabled: Bool,
         watchGitStatusEnabled: Bool,
@@ -75,7 +70,6 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         self.cursorHooksEnabled = cursorHooksEnabled
         self.geminiHooksEnabled = geminiHooksEnabled
         self.kiroHooksEnabled = kiroHooksEnabled
-        self.kiroNotificationLevel = kiroNotificationLevel
         self.ampHooksEnabled = ampHooksEnabled
         self.shellIntegrationEnabled = shellIntegrationEnabled
         self.watchGitStatusEnabled = watchGitStatusEnabled

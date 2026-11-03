@@ -7,21 +7,24 @@ extension CMUXCLI {
     }
 
     func hermesAgentEvents(def: AgentHookDef) -> [HermesAgentHookConfig.Event] {
-        var events = def.events.map { event in
+        def.events.map { event in
             HermesAgentHookConfig.Event(
                 name: event.agentEvent,
                 command: hermesAgentShellCommand(hookCommand(for: def, event: event)),
                 timeout: 5
             )
         }
-        events.append(contentsOf: def.feedHookEvents.map { agentEvent in
-            HermesAgentHookConfig.Event(
-                name: agentEvent,
-                command: hermesAgentShellCommand(feedHookCommand(for: def, agentEvent: agentEvent)),
-                timeout: 120
-            )
-        })
-        return events
+    }
+
+    /// Allowlist approvals older cmux versions wrote for their `cmux hooks
+    /// feed` entries; install and uninstall delete them. The allowlist keys
+    /// on event and command only, so the timeout is irrelevant.
+    private func hermesAgentLegacyFeedEvents(def: AgentHookDef) -> [HermesAgentHookConfig.Event] {
+        def.legacyFeedHookEvents.flatMap { agentEvent in
+            Self.legacyFeedHookCommandStrings(for: def, agentEvent: agentEvent).map { command in
+                HermesAgentHookConfig.Event(name: agentEvent, command: hermesAgentShellCommand(command), timeout: 120)
+            }
+        }
     }
 
     func installHermesAgentHooks(_ def: AgentHookDef) throws {
@@ -62,7 +65,10 @@ extension CMUXCLI {
         }
 
         let oldAllowlist = fm.contents(atPath: allowlistPath)
-        let newAllowlist = try HermesAgentHookAllowlist.installing(events: events, in: oldAllowlist)
+        let newAllowlist = try HermesAgentHookAllowlist.installing(
+            events: events,
+            in: HermesAgentHookAllowlist.uninstalling(events: hermesAgentLegacyFeedEvents(def: def), from: oldAllowlist)
+        )
         if oldAllowlist != newAllowlist {
             try newAllowlist.write(to: URL(fileURLWithPath: allowlistPath), options: .atomic)
             print("Approved \(def.displayName) cmux shell hooks in \(allowlistPath)")
@@ -91,7 +97,10 @@ extension CMUXCLI {
 
         guard fm.fileExists(atPath: allowlistPath) else { return }
         let oldAllowlist = fm.contents(atPath: allowlistPath)
-        let newAllowlist = try HermesAgentHookAllowlist.uninstalling(events: events, from: oldAllowlist)
+        let newAllowlist = try HermesAgentHookAllowlist.uninstalling(
+            events: events + hermesAgentLegacyFeedEvents(def: def),
+            from: oldAllowlist
+        )
         if oldAllowlist != newAllowlist {
             try newAllowlist.write(to: URL(fileURLWithPath: allowlistPath), options: .atomic)
             print("Removed Hermes Agent cmux shell hook approvals from \(allowlistPath)")

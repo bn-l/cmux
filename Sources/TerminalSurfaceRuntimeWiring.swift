@@ -51,7 +51,6 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             cursorHooksEnabled: integrations.cursorHooksEnabled,
             geminiHooksEnabled: integrations.geminiHooksEnabled,
             kiroHooksEnabled: integrations.kiroHooksEnabled,
-            kiroNotificationLevel: integrations.kiroNotificationLevel.rawValue,
             ampHooksEnabled: integrations.ampHooksEnabled,
             shellIntegrationEnabled: UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
             watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),

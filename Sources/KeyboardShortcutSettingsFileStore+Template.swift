@@ -185,7 +185,6 @@ extension CmuxSettingsFileStore {
                     "cursorIntegration": IntegrationsCatalogSection().cursorHooksEnabled.defaultValue,
                     "geminiIntegration": IntegrationsCatalogSection().geminiHooksEnabled.defaultValue,
                     "kiroIntegration": IntegrationsCatalogSection().kiroHooksEnabled.defaultValue,
-                    "kiroNotificationLevel": IntegrationsCatalogSection().kiroNotificationLevel.defaultValue,
                     "portBase": AutomationSettings.defaultPortBase,
                     "portRange": AutomationSettings.defaultPortRange,
                 ],

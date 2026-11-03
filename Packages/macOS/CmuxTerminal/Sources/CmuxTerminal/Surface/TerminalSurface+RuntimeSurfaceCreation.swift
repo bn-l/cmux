@@ -137,7 +137,6 @@ extension TerminalSurface {
         if !spawnPolicy.kiroHooksEnabled {
             setManagedEnvironmentValue("CMUX_KIRO_HOOKS_DISABLED", "1")
         }
-        setManagedEnvironmentValue("CMUX_KIRO_NOTIFICATION_LEVEL", spawnPolicy.kiroNotificationLevel)
         if !spawnPolicy.ampHooksEnabled {
             setManagedEnvironmentValue("CMUX_AMP_HOOKS_DISABLED", "1")
         }

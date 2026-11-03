@@ -69,7 +69,6 @@ public final class ControlCommandCoordinator {
         // to the next domain and finally to the legacy app-side dispatcher.
         if let result = handleWindow(request) { return result }
         if let result = handleAppFocus(request) { return result }
-        if let result = handleFeed(request) { return result }
         if let result = handleNotification(request) { return result }
         if let result = handleLayout(request) { return result }
         if let result = handleWorkspaceGroup(request) { return result }
