@@ -3472,7 +3472,6 @@ final class TextBoxInputTextView: NSTextView {
     var terminalTitle = ""
     var completionRootDirectory: String? {
         didSet {
-            warmMentionCompletionIndexesIfNeeded()
             if oldValue != completionRootDirectory {
                 refreshMentionCompletions()
             }
@@ -3508,8 +3507,6 @@ final class TextBoxInputTextView: NSTextView {
     private var mentionCompletionPanel: TextBoxMentionCompletionPanel?
     private var mentionCompletionPanelHost: NSHostingView<TextBoxMentionCompletionPopoverView>?
     private var mentionCompletionControllerStorage: TextBoxMentionCompletionController?
-    private var warmedMentionCompletionRootDirectory: String?
-    private var mentionCompletionWarmupTask: Task<Void, Never>?
     private var mentionCompletionWindowObserverTokens: [NSObjectProtocol] = []
     private weak var mentionCompletionObservedWindow: NSWindow?
     private var mentionCompletionRepositionIsScheduled = false
@@ -3535,7 +3532,6 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     deinit {
-        mentionCompletionWarmupTask?.cancel()
         removeMentionCompletionWindowObservers()
         dismissMentionCompletions()
         removeAttachmentKeyDownMonitor()
@@ -4349,17 +4345,6 @@ final class TextBoxInputTextView: NSTextView {
             for: query,
             rootDirectory: completionRootDirectory
         )
-    }
-
-    private func warmMentionCompletionIndexesIfNeeded() {
-        let rootDirectory = completionRootDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cacheKey = rootDirectory?.isEmpty == false ? rootDirectory : nil
-        guard warmedMentionCompletionRootDirectory != cacheKey else { return }
-        warmedMentionCompletionRootDirectory = cacheKey
-        mentionCompletionWarmupTask?.cancel()
-        mentionCompletionWarmupTask = Task {
-            await TextBoxMentionIndexStore.shared.warmIndexes(rootDirectory: cacheKey)
-        }
     }
 
     private func handleMentionCompletionKeyEvent(_ event: NSEvent) -> Bool {

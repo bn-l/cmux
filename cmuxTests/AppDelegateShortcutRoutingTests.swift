@@ -7514,6 +7514,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
+                range: NSRange(location: 0, length: 16),
+                query: "Sources/TextBox",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+        // File mentions list one folder at a time; nothing below the typed
+        // folder is visited, so a root-level query cannot reach Sources/.
+        let rootQuerySuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
                 range: NSRange(location: 0, length: 13),
                 query: "TextBoxInput",
                 trigger: "@"
@@ -7524,6 +7535,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(suggestions.first?.title, "@Sources/TextBoxInput.swift")
         XCTAssertEqual(suggestions.first?.systemImageName, "doc")
         XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[@Sources/TextBoxInput.swift](") == true)
+        XCTAssertFalse(rootQuerySuggestions.contains { $0.title.contains("TextBoxInput.swift") })
     }
 
     func testTextBoxMentionFileSuggestionsRefreshCachedMisses() async throws {

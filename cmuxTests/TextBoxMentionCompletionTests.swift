@@ -484,8 +484,8 @@ struct TextBoxMentionCompletionTests {
         let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
-                range: NSRange(location: 0, length: 13),
-                query: "TextBoxInput",
+                range: NSRange(location: 0, length: 16),
+                query: "Sources/TextBox",
                 trigger: "@"
             ),
             rootDirectory: root.path
@@ -496,6 +496,87 @@ struct TextBoxMentionCompletionTests {
         #expect(suggestions.first?.insertionText.hasPrefix("[@Sources/TextBoxInput.swift](") == true)
     }
 
+    /// File mentions must never walk below the folder the user typed: the old
+    /// recursive index ran `rg --files` over `~` and tripped the Desktop /
+    /// Documents / Photos privacy prompts.
+    @Test(arguments: ["", "deep", "a/", "a/deep", "a/b/", "a/b/deep"])
+    func testTextBoxMentionFileSuggestionsNeverReachBelowTheTypedFolder(query: String) async throws {
+        // Arrange
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-mention-depth-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+        let deepFolder = root.appendingPathComponent("a/b/c", isDirectory: true)
+        try fileManager.createDirectory(at: deepFolder, withIntermediateDirectories: true)
+        try "deep".write(to: deepFolder.appendingPathComponent("deep.txt"), atomically: true, encoding: .utf8)
+
+        // Act
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: query.utf16.count + 1),
+                query: query,
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        // Assert: every suggestion is a direct child of the typed folder.
+        let typedFolder = query.contains("/") ? String(query[..<query.lastIndex(of: "/")!]) : ""
+        let expectedParent = typedFolder.isEmpty ? root.standardizedFileURL.path : root.appendingPathComponent(typedFolder).standardizedFileURL.path
+        #expect(!suggestions.contains { $0.title.contains("deep.txt") })
+        for suggestion in suggestions {
+            let target = try #require(Self.markdownTarget(suggestion.insertionText))
+            #expect(URL(fileURLWithPath: target).deletingLastPathComponent().standardizedFileURL.path == expectedParent)
+        }
+    }
+
+    @Test
+    func testTextBoxMentionFileSuggestionsWalkOneFolderPerTypedSegment() async throws {
+        // Arrange
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-mention-segments-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+        let deepFolder = root.appendingPathComponent("a/b/c", isDirectory: true)
+        try fileManager.createDirectory(at: deepFolder, withIntermediateDirectories: true)
+        try "deep".write(to: deepFolder.appendingPathComponent("deep.txt"), atomically: true, encoding: .utf8)
+
+        // Act
+        func titles(_ query: String) async -> [String] {
+            await TextBoxMentionIndexStore.shared.suggestions(
+                for: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 1), query: query, trigger: "@"),
+                rootDirectory: root.path
+            ).map(\.title)
+        }
+        let rootTitles = await titles("")
+        let aTitles = await titles("a/")
+        let cTitles = await titles("a/b/c/")
+        let filteredTitles = await titles("a/b/c/dee")
+        let missingFolderTitles = await titles("nope/")
+
+        // Assert
+        #expect(rootTitles == ["@a/"])
+        #expect(aTitles == ["@a/b/"])
+        #expect(cTitles == ["@a/b/c/deep.txt"])
+        #expect(filteredTitles == ["@a/b/c/deep.txt"])
+        #expect(missingFolderTitles.isEmpty)
+    }
+
+    /// The path inside `[label](path)` or `[label](<path>)`.
+    private static func markdownTarget(_ link: String) -> String? {
+        guard let open = link.range(of: "]("), link.hasSuffix(")") else { return nil }
+        var target = String(link[open.upperBound..<link.index(before: link.endIndex)])
+        if target.hasPrefix("<"), target.hasSuffix(">") {
+            target = String(target.dropFirst().dropLast())
+        }
+        return target.removingPercentEncoding
+    }
+
     @Test
     func testTextBoxMentionMarkdownEscapesAngleTargetDelimiters() {
         let link = TextBoxMentionMarkdown.link(
@@ -504,22 +585,6 @@ struct TextBoxMentionCompletionTests {
         )
 
         #expect(link == "[@Docs/\\[draft\\].md](<Docs/roadmap %3Cdraft%3E.md>)")
-    }
-
-    @Test
-    func testTextBoxProcessTerminationStatusResumesMultipleWaiters() async {
-        let status = TextBoxProcessTerminationStatus()
-
-        async let firstWaiter: Int32 = status.wait()
-        async let secondWaiter: Int32 = status.wait()
-        await Task.yield()
-
-        await status.finish(status: 7)
-
-        let (firstStatus, secondStatus) = await (firstWaiter, secondWaiter)
-        #expect(firstStatus == 7)
-        #expect(secondStatus == 7)
-        #expect(await status.wait() == 7)
     }
 
     @Test
@@ -602,28 +667,29 @@ struct TextBoxMentionCompletionTests {
         let nestedFileSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
-                range: NSRange(location: 0, length: 7),
-                query: "Nested",
+                range: NSRange(location: 0, length: 15),
+                query: "Sources/Nested",
                 trigger: "@"
             ),
             rootDirectory: root.path
         )
         #expect(nestedFileSuggestions.first?.title == "@Sources/Nested.swift")
 
-        let warmedSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+        let sourcesListing = await TextBoxMentionIndexStore.shared.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
-                range: NSRange(location: 0, length: 1),
-                query: "",
+                range: NSRange(location: 0, length: 9),
+                query: "Sources/",
                 trigger: "@"
             ),
             rootDirectory: root.path
         )
-        #expect(warmedSuggestions.contains { $0.title == "@Sources/Empty/" })
+        #expect(sourcesListing.map(\.title) == ["@Sources/Empty/", "@Sources/Nested.swift"])
+        #expect(!suggestions.contains { $0.title == "@Sources/Empty/" })
     }
 
     @Test
-    func testTextBoxMentionFileSuggestionsFindNestedDirectoriesAndFilesWithFuzzyIndex() async throws {
+    func testTextBoxMentionFileSuggestionsFuzzyMatchWithinTheTypedFolder() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-nested-file-mentions-\(UUID().uuidString)",
@@ -653,8 +719,8 @@ struct TextBoxMentionCompletionTests {
         let directorySuggestions = await TextBoxMentionIndexStore.shared.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
-                range: NSRange(location: 0, length: 11),
-                query: "Components",
+                range: NSRange(location: 0, length: 13),
+                query: "Sources/ompon",
                 trigger: "@"
             ),
             rootDirectory: root.path
@@ -666,8 +732,8 @@ struct TextBoxMentionCompletionTests {
         let nestedFileSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
-                range: NSRange(location: 0, length: 10),
-                query: "NestedView",
+                range: NSRange(location: 0, length: 26),
+                query: "Sources/Components/edVie",
                 trigger: "@"
             ),
             rootDirectory: root.path
@@ -675,6 +741,18 @@ struct TextBoxMentionCompletionTests {
 
         #expect(nestedFileSuggestions.first?.title == "@Sources/Components/NestedView.swift")
         #expect(nestedFileSuggestions.first?.systemImageName == "doc")
+
+        let fixtureSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 19),
+                query: "Fixtures/Fixture39",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        #expect(fixtureSuggestions.first?.title == "@Fixtures/Fixture39.txt")
 
         let missingSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
             for: TextBoxMentionQuery(
@@ -738,16 +816,26 @@ struct TextBoxMentionCompletionTests {
             encoding: .utf8
         )
 
+        let rootSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
         let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
-                range: NSRange(location: 0, length: 14),
-                query: "VisibleNeedle",
+                range: NSRange(location: 0, length: 22),
+                query: "library/VisibleNeedle",
                 trigger: "@"
             ),
             rootDirectory: root.path
         )
 
+        #expect(rootSuggestions.contains { $0.title == "@library/" })
         #expect(suggestions.contains { $0.title == "@library/VisibleNeedle.swift" })
     }
 
