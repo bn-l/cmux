@@ -571,16 +571,14 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Workspace not found", data: .object([
                 "workspace_id": .string(workspaceID.uuidString),
             ]))
-        case .resolved(let windowID, let iMessageModeEnabled, let messageRecorded, let reordered, let index, let preview):
+        case .resolved(let windowID, let messageRecorded, let index, let preview):
             return .ok(.object([
                 "workspace_id": .string(workspaceID.uuidString),
                 "workspace_ref": ref(.workspace, workspaceID),
                 "window_id": orNull(windowID?.uuidString),
                 "window_ref": ref(.window, windowID),
-                "i_message_mode_enabled": .bool(iMessageModeEnabled),
                 "message_recorded": .bool(messageRecorded),
                 "message_preview": orNull(preview),
-                "reordered": .bool(reordered),
                 "index": .int(Int64(index)),
             ]))
         }

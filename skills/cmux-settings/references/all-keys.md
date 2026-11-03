@@ -45,7 +45,6 @@ General app preferences from Settings > App.
 | `app.openMarkdownInCmuxViewer` | boolean | `true` | When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview. |
 | `app.globalFontMagnification` | integer | `100` | Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded. |
 | `app.reorderOnNotification` | boolean | `true` | Move workspaces with new notifications toward the top. |
-| `app.iMessageMode` | boolean | `false` | Move a workspace to the top and show the submitted message when sending an agent prompt. |
 | `app.confirmQuit` | `"always"` or `"dirty-only"` or `"never"` | `"always"` | Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback. |
 | `app.warnBeforeQuit` | boolean | `true` | Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs. |
 | `app.warnBeforeClosingTab` | boolean | `true` | Show a confirmation before closing a tab. |

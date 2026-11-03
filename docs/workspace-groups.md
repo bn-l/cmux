@@ -136,15 +136,6 @@ Resolution order for group new-workspace placement:
 
 `Cmd-N` inside a group uses the active group workspace as the placement reference. The group header `+` button and CLI path use the anchor as the reference, so `afterCurrent` behaves like `top` there.
 
-## iMessage mode (planned)
-
-When the sidebar is in iMessage mode (latest unread floats to top), the intended behavior for groups is two boolean knobs:
-
-- `sortInsideGroups` (default `true`): workspaces inside each group sort by latest unread; group section position is unchanged.
-- `floatGroups` (default `false`): the whole group section reorders by its most-recent unread member.
-
-Neither knob is wired up yet. The current build keeps the sidebar's existing iMessage-mode behavior unchanged regardless of groups. A follow-up will add the `sidebar.imessageMode.*` keys to `cmux.json`, the schema, and the Settings UI; this section is documented here so the eventual JSON shape is decided up front.
-
 ## Persistence
 
 Groups (name, anchor, pin state, collapse state, color, icon) round-trip through `~/Library/Application Support/cmux/session-<bundle-id>.json` alongside workspaces. Membership lives on `Workspace.groupId`. Writes are atomic via the existing `SessionPersistenceStore` rename-into-place pattern.

@@ -10,13 +10,11 @@ public enum ControlWorkspacePromptSubmitResolution: Sendable, Equatable {
     /// data carries only `workspace_id`).
     case notFound
     /// The prompt was submitted. Carries the owning window id (may be absent),
-    /// whether iMessage mode is enabled, the submit outcome, and the latest
-    /// submitted message preview (may be absent).
+    /// whether a message was recorded, the workspace's sidebar index, and the
+    /// latest submitted message preview (may be absent).
     case resolved(
         windowID: UUID?,
-        iMessageModeEnabled: Bool,
         messageRecorded: Bool,
-        reordered: Bool,
         index: Int,
         messagePreview: String?
     )

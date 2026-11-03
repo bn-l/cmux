@@ -8,15 +8,15 @@ import CmuxSettings
 #endif
 
 final class CommandPaletteSettingsToggleTests: XCTestCase {
-    func testIMessageModeCommandTogglesDefaultAndReportsState() throws {
+    func testHideAllSidebarDetailsCommandTogglesDefaultAndReportsState() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
                 CommandPaletteSettingsToggleCommands.descriptor(
-                    commandId: "palette.toggleSetting.iMessageMode"
+                    commandId: "palette.toggleSetting.hideAllSidebarDetails"
                 )
             )
 
-            let settingTitle = String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode")
+            let settingTitle = String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details")
             let enableTitle = String.localizedStringWithFormat(
                 String(localized: "command.toggleSetting.enableTitle", defaultValue: "Enable %@"),
                 settingTitle
@@ -33,7 +33,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
 
             descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
 
-            XCTAssertEqual(defaults.object(forKey: IMessageModeSettings.key) as? Bool, true)
+            XCTAssertEqual(defaults.object(forKey: SettingCatalog().sidebar.hideAllDetails.userDefaultsKey) as? Bool, true)
             XCTAssertTrue(descriptor.isOn(defaults))
             XCTAssertEqual(descriptor.commandTitle(defaults: defaults), disableTitle)
             XCTAssertTrue(descriptor.commandSubtitle(defaults: defaults).contains(onState))

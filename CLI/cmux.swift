@@ -28591,8 +28591,8 @@ export default CMUXSessionRestore;
     // MARK: - Agent hook event forwarding
 
     /// Best-effort one-way `feed.push` used by the per-agent hook handlers so
-    /// prompt-submit / stop events reach Jump to Last Prompt, iMessage mode
-    /// and the `agent.hook.*` events stream. Failures are swallowed.
+    /// prompt-submit / stop events reach the workspace prompt record, Jump to
+    /// Last Prompt and the `agent.hook.*` events stream. Failures are swallowed.
     private func sendBestEffortFeedTelemetry(socketPath: String, line: String, socketPassword: String?) {
         let oneWayClient = SocketClient(path: socketPath)
         defer { oneWayClient.close() }
@@ -28677,8 +28677,9 @@ export default CMUXSessionRestore;
         sendBestEffortFeedTelemetry(socketPath: client.socketPath, line: line, socketPassword: socketPassword)
     }
 
-    /// The two context fields the app still reads (iMessage mode): the
-    /// submitted prompt and the assistant's final message.
+    /// Conversation text for the event's `context`: the submitted prompt (the
+    /// app records it on the workspace) and the assistant's final message
+    /// (the events stream reports only its length; the app does not read it).
     private func feedContextForEvent(hookEventName: String, rawObject: [String: Any]?) -> [String: Any]? {
         var context: [String: Any] = [:]
         if hookEventName == "UserPromptSubmit" {
@@ -29017,8 +29018,8 @@ export default CMUXSessionRestore;
         eventDict["_opencode_request_id"] = requestId
 
         // Fire-and-forget: cmux never holds an agent or answers for it. The
-        // event only feeds Jump to Last Prompt, iMessage mode and the
-        // `agent.hook.*` events stream; the agent always gets `{}` back.
+        // event only feeds the workspace prompt record, Jump to Last Prompt and
+        // the `agent.hook.*` events stream; the agent always gets `{}` back.
         let request: [String: Any] = [
             "method": "feed.push",
             "params": ["event": eventDict, "wait_timeout_seconds": 0],

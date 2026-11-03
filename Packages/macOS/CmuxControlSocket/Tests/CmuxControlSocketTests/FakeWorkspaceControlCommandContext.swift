@@ -14,6 +14,8 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         placement: WorkspaceGroupNewPlacement?,
         referenceWorkspaceID: UUID?
     )?
+    var promptSubmitResolution: ControlWorkspacePromptSubmitResolution = .tabManagerUnavailable
+    var promptSubmitCall: (workspaceID: UUID, message: String?)?
     var terminalSessionEndResolution: ControlWorkspaceRemoteTerminalSessionEndResolution = .notFound
     var terminalSessionEndCall: (
         workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
@@ -77,6 +79,15 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
             referenceWorkspaceID: referenceWorkspaceID
         )
         return addWorkspaceToGroupResolution
+    }
+
+    func controlSubmitWorkspacePrompt(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        message: String?
+    ) -> ControlWorkspacePromptSubmitResolution {
+        promptSubmitCall = (workspaceID, message)
+        return promptSubmitResolution
     }
 
     func controlWorkspaceRemoteTerminalSessionEnd(

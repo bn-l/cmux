@@ -7,9 +7,9 @@ import Testing
 // cannot link).
 
 /// Coverage for the raw agent hook event → wire `hook_event_name` mapping that
-/// `cmux hooks feed` forwards. The wire name drives Jump to Last Prompt
-/// (`UserPromptSubmit`), iMessage mode (`UserPromptSubmit` / `Stop`) and the
-/// `agent.hook.<name>` events stream, so a wrong mapping silently breaks those.
+/// `cmux hooks feed` forwards. The wire name drives the workspace prompt record
+/// and Jump to Last Prompt (`UserPromptSubmit`) and the `agent.hook.<name>`
+/// events stream, so a wrong mapping silently breaks those.
 ///
 /// The mapping no longer depends on the tool name: cmux never turns a tool
 /// start into an approval it holds (https://github.com/manaflow-ai/cmux/issues/4985

@@ -261,17 +261,6 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: FilePreviewWordWrapSettings.key
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "iMessageMode",
-                settingsKey: "app.iMessageMode",
-                title: {
-                    String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode")
-                },
-                sectionTitle: app,
-                keywords: ["app.iMessageMode", "imessage", "message", "chat", "prompt", "agent", "workspace", "reorder"],
-                defaultValue: IMessageModeSettings.defaultValue,
-                defaultsKey: IMessageModeSettings.key
-            ),
-            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "reorderOnNotification",
                 settingsKey: "app.reorderOnNotification",
                 title: {

@@ -44,7 +44,6 @@ struct SettingsRowAnchorResolutionTests {
         "app.paneResizeStepPixels",
         "app.globalFontMagnification",
         "app.hideTabCloseButton",
-        "app.iMessageMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.language",
         "app.menuBarOnly",

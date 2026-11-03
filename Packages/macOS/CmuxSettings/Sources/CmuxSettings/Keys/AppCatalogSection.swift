@@ -122,12 +122,6 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: GlobalFontMagnification.percentKey
     )
 
-    public let iMessageMode = DefaultsKey<Bool>(
-        id: "app.iMessageMode",
-        defaultValue: false,
-        userDefaultsKey: "app.iMessageMode"
-    )
-
     public let reorderOnNotification = DefaultsKey<Bool>(
         id: "app.reorderOnNotification",
         defaultValue: true,

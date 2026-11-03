@@ -5448,9 +5448,10 @@ class TerminalController {
 
     /// Receives one forwarded agent hook event (`cmux hooks feed`, the agent
     /// hook subcommands, the Pi extension). The event is published on the
-    /// events stream and drives Jump to Last Prompt and iMessage mode. cmux
-    /// never holds the agent or answers for it, so this always returns at
-    /// once; `wait_timeout_seconds` from older CLIs is ignored.
+    /// events stream; a UserPromptSubmit also records the prompt on its
+    /// workspace and feeds Jump to Last Prompt. cmux never holds the agent or
+    /// answers for it, so this always returns at once; `wait_timeout_seconds`
+    /// from older CLIs is ignored.
     private nonisolated func v2FeedPush(params: [String: Any]) -> V2CallResult {
         let eventDict: [String: Any]
         if let nested = params["event"] as? [String: Any] {
@@ -5480,7 +5481,7 @@ class TerminalController {
         }
 
         CmuxEventBus.shared.publishWorkstreamEvent(event)
-        v2ApplyIMessageModeSideEffects(for: event)
+        v2ApplyPromptSubmitSideEffects(for: event)
         return .ok(["status": "acknowledged"])
     }
 
@@ -5491,52 +5492,31 @@ class TerminalController {
     func applyPromptSubmit(
         workspaceId: UUID,
         surfaceId: String?,
-        message: String?,
-        iMessageModeEnabled: Bool
+        message: String?
     ) {
         guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
-        _ = tabManager.handlePromptSubmit(
-            workspaceId: workspaceId,
-            message: message,
-            iMessageModeEnabled: iMessageModeEnabled
-        )
+        _ = tabManager.handlePromptSubmit(workspaceId: workspaceId, message: message)
         if let panelId = surfaceId.flatMap({ v2UUIDAny($0) }) {
             AppDelegate.shared?.recordPromptSubmitted(panelId: panelId)
         }
     }
 
-    private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
-        guard event.hookEventName == .userPromptSubmit || event.hookEventName == .stop,
+    /// Applies ``applyPromptSubmit(workspaceId:surfaceId:message:)`` for a
+    /// forwarded UserPromptSubmit that names its workspace. Every other hook
+    /// event only goes to the events stream.
+    private nonisolated func v2ApplyPromptSubmitSideEffects(for event: WorkstreamEvent) {
+        guard event.hookEventName == .userPromptSubmit,
               let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawWorkspaceId.isEmpty
         else { return }
 
-        let iMessageModeEnabled = IMessageModeSettings.isEnabled()
-        switch event.hookEventName {
-        case .userPromptSubmit:
-            v2MainSync {
-                guard let workspaceId = v2UUIDAny(rawWorkspaceId) else { return }
-                applyPromptSubmit(
-                    workspaceId: workspaceId,
-                    surfaceId: event.surfaceId,
-                    message: event.submittedPromptMessage,
-                    iMessageModeEnabled: iMessageModeEnabled
-                )
-            }
-        case .stop:
-            let assistantFinalMessage = event.assistantFinalMessage
-            Task { @MainActor [weak self, rawWorkspaceId, assistantFinalMessage, iMessageModeEnabled] in
-                guard let self,
-                      let workspaceId = self.v2UUIDAny(rawWorkspaceId) else { return }
-                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
-                _ = tabManager.handleAssistantFinalMessage(
-                    workspaceId: workspaceId,
-                    message: assistantFinalMessage,
-                    iMessageModeEnabled: iMessageModeEnabled
-                )
-            }
-        default:
-            break
+        v2MainSync {
+            guard let workspaceId = v2UUIDAny(rawWorkspaceId) else { return }
+            applyPromptSubmit(
+                workspaceId: workspaceId,
+                surfaceId: event.surfaceId,
+                message: event.submittedPromptMessage
+            )
         }
     }
 

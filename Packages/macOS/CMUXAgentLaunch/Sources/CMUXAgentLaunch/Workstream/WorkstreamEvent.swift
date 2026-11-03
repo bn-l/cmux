@@ -1,8 +1,9 @@
 import Foundation
 
 /// Wire frame `cmux hooks feed` and the agent hook subcommands send to the
-/// cmux socket (`feed.push`). The app publishes it on the events stream and
-/// derives Jump to Last Prompt and iMessage mode from it; nothing is stored.
+/// cmux socket (`feed.push`). The app publishes it on the events stream and,
+/// for UserPromptSubmit, records the prompt on its workspace and feeds Jump to
+/// Last Prompt; the event itself is not stored.
 ///
 /// Field names mirror Vibe Island's hook payload format exactly so existing
 /// agent payloads pass through untouched: `session_id`, `hook_event_name`,

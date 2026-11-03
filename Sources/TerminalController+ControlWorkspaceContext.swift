@@ -260,11 +260,9 @@ extension TerminalController: ControlWorkspaceContext {
             ?? resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        let iMessageModeEnabled = IMessageModeSettings.isEnabled()
         guard let outcome = tabManager.handlePromptSubmit(
             workspaceId: workspaceID,
-            message: message,
-            iMessageModeEnabled: iMessageModeEnabled
+            message: message
         ) else {
             return .notFound
         }
@@ -272,9 +270,7 @@ extension TerminalController: ControlWorkspaceContext {
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
         return .resolved(
             windowID: windowId,
-            iMessageModeEnabled: iMessageModeEnabled,
             messageRecorded: outcome.messageRecorded,
-            reordered: outcome.reordered,
             index: outcome.index,
             messagePreview: preview
         )

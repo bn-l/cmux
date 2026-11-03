@@ -1,8 +1,8 @@
 import Foundation
 
 /// Maps a raw agent hook event to the wire `hook_event_name` that
-/// `cmux hooks feed` forwards to the app, where it feeds Jump to Last Prompt,
-/// iMessage mode and the `agent.hook.*` events stream.
+/// `cmux hooks feed` forwards to the app, where it feeds the workspace prompt
+/// record, Jump to Last Prompt and the `agent.hook.*` events stream.
 ///
 /// cmux never holds an agent or answers for it, so the mapping carries no
 /// "actionable" flag: every event is fire-and-forget telemetry.

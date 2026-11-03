@@ -3383,27 +3383,30 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertEqual(insertedIndex, baselineCount)
     }
 
-    func testAddWorkspaceInIMessageModeInsertsAtTopOfUnpinnedSegment() {
+    /// iMessage Mode (removed) pinned new workspaces to the top. A user who
+    /// had it on still has `app.iMessageMode` in their defaults; the stored
+    /// placement setting must win over it.
+    func testAddWorkspaceIgnoresLegacyIMessageModeDefault() {
         let defaults = UserDefaults.standard
         let placementKey = SettingCatalog().app.newWorkspacePlacement.userDefaultsKey
-        let iMessageModeKey = IMessageModeSettings.key
+        let legacyIMessageModeKey = "app.iMessageMode"
         let previousPlacement = defaults.object(forKey: placementKey)
-        let previousIMessageMode = defaults.object(forKey: iMessageModeKey)
+        let previousLegacyValue = defaults.object(forKey: legacyIMessageModeKey)
         defer {
             if let previousPlacement {
                 defaults.set(previousPlacement, forKey: placementKey)
             } else {
                 defaults.removeObject(forKey: placementKey)
             }
-            if let previousIMessageMode {
-                defaults.set(previousIMessageMode, forKey: iMessageModeKey)
+            if let previousLegacyValue {
+                defaults.set(previousLegacyValue, forKey: legacyIMessageModeKey)
             } else {
-                defaults.removeObject(forKey: iMessageModeKey)
+                defaults.removeObject(forKey: legacyIMessageModeKey)
             }
         }
 
         defaults.set(WorkspacePlacement.end.rawValue, forKey: placementKey)
-        defaults.set(true, forKey: iMessageModeKey)
+        defaults.set(true, forKey: legacyIMessageModeKey)
 
         let manager = TabManager()
         guard let pinned = manager.tabs.first else {
@@ -3413,11 +3416,12 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         manager.setPinned(pinned, pinned: true)
         let second = manager.addWorkspace(select: false, placementOverride: .end)
         let third = manager.addWorkspace(select: false, placementOverride: .end)
-        manager.selectWorkspace(third)
+        // Second selected: .top would insert at 1, .afterCurrent at 2, .end at 3.
+        manager.selectWorkspace(second)
 
         let inserted = manager.addWorkspace()
 
-        XCTAssertEqual(manager.tabs.map(\.id), [pinned.id, inserted.id, second.id, third.id])
+        XCTAssertEqual(manager.tabs.map(\.id), [pinned.id, second.id, third.id, inserted.id])
         XCTAssertEqual(manager.selectedTabId, inserted.id)
     }
 

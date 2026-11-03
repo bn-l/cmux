@@ -5,7 +5,7 @@ import XCTest
 /// The App section is a single `SettingsCard` with ~30 rows. Most rows
 /// drive runtime behavior that lives inside the main-app / Ghostty
 /// terminal / Metal surface (dock badge, pane ring/flash, reorder,
-/// iMessage, file drops, etc.) which a freshly launched UI-test app
+/// file drops, etc.) which a freshly launched UI-test app
 /// cannot exercise without a runtime seam — those are documented as
 /// TIER 2 / TIER 3 below.
 ///
@@ -55,9 +55,6 @@ import XCTest
 ///     openMarkdownInCmuxViewer): effect triggers on Cmd-click of a file
 ///     in a terminal surface, opening a preview/markdown window; needs a
 ///     live terminal with clickable file text.
-///   - iMessage Mode (app.iMessageMode): reorders a workspace to top and
-///     shows the submitted message when an agent prompt is sent; needs an
-///     agent surface and a send action.
 ///   - Reorder on Notification (workspaceAutoReorderOnNotification): needs
 ///     ≥2 workspaces and an injected notification to observe reordering.
 ///   - Dock Badge (notificationDockBadgeEnabled): sets the Dock tile

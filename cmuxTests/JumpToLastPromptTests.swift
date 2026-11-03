@@ -93,8 +93,7 @@ struct JumpToLastPromptTests {
                 TerminalController.shared.applyPromptSubmit(
                     workspaceId: workspaceId,
                     surfaceId: event.surfaceId,
-                    message: "hello",
-                    iMessageModeEnabled: false
+                    message: "hello"
                 )
             }
 

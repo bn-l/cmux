@@ -9055,7 +9055,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let unselectedFillOpacity: Double
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
-    let iMessageModeEnabled: Bool
 
     init(
         defaults: UserDefaults = .standard,
@@ -9114,7 +9113,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         brightenInDarkMode = settings.value(for: catalog.workspaceColors.brightenInDarkMode)
         unselectedFillOpacity = settings.value(for: catalog.workspaceColors.unselectedFillOpacity)
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
-        iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
     }
 
     private static func bool(
@@ -13297,7 +13295,6 @@ struct SidebarWorkspaceSnapshotBuilder {
         let remoteStateHelpText: String
         let showsRemoteReconnectAffordance: Bool
         let copyableSidebarSSHError: String?
-        let latestConversationMessage: String?
         let metadataEntries: [SidebarStatusEntry]
         let metadataBlocks: [SidebarMetadataBlock]
         let latestLog: SidebarLogEntry?
@@ -13640,13 +13637,6 @@ struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let latestNotificationSubtitle = latestNotificationText
-        let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
-            ? workspaceSnapshot.latestConversationMessage?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .nilIfEmpty
-            : nil
-        let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
         let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
@@ -13751,7 +13741,7 @@ struct TabItemView: View, Equatable {
                 )
             }
 
-            if let subtitle = effectiveSubtitle {
+            if let subtitle = latestNotificationText {
                 Text(subtitle)
                     .font(magnifiedFont(scaledFontSize(10)))
                     .foregroundColor(activeSecondaryColor(0.8))

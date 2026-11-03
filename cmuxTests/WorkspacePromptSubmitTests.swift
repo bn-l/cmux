@@ -11,145 +11,63 @@ import CMUXAgentLaunch
 @MainActor
 @Suite(.serialized)
 struct WorkspacePromptSubmitTests {
-    @Test func testPromptSubmitRecordsMessageAndMovesWorkspaceToTopWhenIMessageModeEnabled() throws {
-        let manager = TabManager()
-        let first = manager.tabs[0]
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
-        let third = manager.addWorkspace(select: false, placementOverride: .end)
-        manager.selectWorkspace(second)
-
-        let outcome = try #require(
-            manager.handlePromptSubmit(
-                workspaceId: third.id,
-                message: "  implement this\n\nnow  ",
-                iMessageModeEnabled: true
-            )
-        )
-
-        #expect(outcome.messageRecorded)
-        #expect(outcome.reordered)
-        #expect(outcome.index == 0)
-        #expect(manager.tabs.map(\.id) == [third.id, first.id, second.id])
-        #expect(manager.selectedTabId == second.id)
-        #expect(third.latestConversationMessage == "implement this now")
-        #expect(third.latestSubmittedAt != nil)
-    }
-
-    @Test func testPromptSubmitReorderPublishesWorkspaceOrderEvent() throws {
+    @Test func testPromptSubmitRecordsMessageAndPublishesEventWithoutReordering() throws {
+        // Arrange: three workspaces, the second selected. A user who once
+        // enabled the removed iMessage Mode still has `app.iMessageMode` set in
+        // their defaults; it must not bring the reorder back.
+        let defaults = UserDefaults.standard
+        let legacyIMessageModeKey = "app.iMessageMode"
+        let previousLegacyValue = defaults.object(forKey: legacyIMessageModeKey)
+        defaults.set(true, forKey: legacyIMessageModeKey)
+        defer {
+            if let previousLegacyValue {
+                defaults.set(previousLegacyValue, forKey: legacyIMessageModeKey)
+            } else {
+                defaults.removeObject(forKey: legacyIMessageModeKey)
+            }
+        }
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
-
         let manager = TabManager()
         let first = manager.tabs[0]
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
-        let third = manager.addWorkspace(select: false, placementOverride: .end)
-        CmuxEventBus.shared.resetForTesting()
-
-        let outcome = try #require(
-            manager.handlePromptSubmit(
-                workspaceId: third.id,
-                message: "ship it",
-                iMessageModeEnabled: true
-            )
-        )
-
-        #expect(outcome.reordered)
-        let events = CmuxEventBus.shared.retainedSnapshot()
-        #expect(events.compactMap { $0["name"] as? String } == ["workspace.prompt.submitted", "workspace.reordered"])
-        let reorder = try #require(events.last)
-        #expect(reorder["workspace_id"] as? String == third.id.uuidString)
-        let payload = try #require(reorder["payload"] as? [String: Any])
-        #expect(payload["workspace_ids"] as? [String] == [third.id.uuidString, first.id.uuidString, second.id.uuidString])
-        #expect(payload["moved_workspace_ids"] as? [String] == [third.id.uuidString])
-    }
-
-    @Test func testPromptSubmitRecordsMessageWithoutReorderingWhenIMessageModeDisabled() throws {
-        let manager = TabManager()
-        let first = manager.tabs[0]
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
-        let third = manager.addWorkspace(select: false, placementOverride: .end)
-
-        let outcome = try #require(
-            manager.handlePromptSubmit(
-                workspaceId: third.id,
-                message: "do not show",
-                iMessageModeEnabled: false
-            )
-        )
-
-        #expect(outcome.messageRecorded)
-        #expect(!outcome.reordered)
-        #expect(outcome.index == 2)
-        #expect(manager.tabs.map(\.id) == [first.id, second.id, third.id])
-        #expect(third.latestConversationMessage == "do not show")
-        #expect(third.latestSubmittedAt != nil)
-    }
-
-    @Test func testAssistantFinalMessageRecordsMessageAndMovesWorkspaceToTopWhenIMessageModeEnabled() throws {
-        let manager = TabManager()
-        let pinned = manager.tabs[0]
-        manager.setPinned(pinned, pinned: true)
         let second = manager.addWorkspace(select: false, placementOverride: .end)
         let third = manager.addWorkspace(select: false, placementOverride: .end)
         manager.selectWorkspace(second)
+        CmuxEventBus.shared.resetForTesting()
 
+        // Act
         let outcome = try #require(
-            manager.handleAssistantFinalMessage(
+            manager.handlePromptSubmit(
                 workspaceId: third.id,
-                message: "  final\n\nresponse  ",
-                iMessageModeEnabled: true
+                message: "  implement this\n\nnow  "
             )
         )
 
+        // Assert: recorded in place, one prompt event, no reorder event.
         #expect(outcome.messageRecorded)
-        #expect(outcome.reordered)
-        #expect(outcome.index == 1)
-        #expect(manager.tabs.map(\.id) == [pinned.id, third.id, second.id])
+        #expect(outcome.index == 2)
+        #expect(manager.tabs.map(\.id) == [first.id, second.id, third.id])
         #expect(manager.selectedTabId == second.id)
-        #expect(third.latestConversationMessage == "final response")
+        #expect(third.latestSubmittedMessage == "implement this now")
+        #expect(third.latestConversationMessage == "implement this now")
+        #expect(third.latestSubmittedAt != nil)
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        #expect(events.compactMap { $0["name"] as? String } == ["workspace.prompt.submitted"])
+        let submitted = try #require(events.first)
+        #expect(submitted["workspace_id"] as? String == third.id.uuidString)
+        let payload = try #require(submitted["payload"] as? [String: Any])
+        #expect(payload["message_preview"] as? String == "implement this now")
+        #expect(payload["message"] is NSNull, "the raw prompt text stays redacted")
     }
 
-    @Test func testAssistantFinalMessageMovesWorkspaceWhenPreviewMatchesExistingMessage() throws {
+    @Test func testPromptSubmitForWorkspaceOutsideManagerReturnsNil() {
         let manager = TabManager()
-        let pinned = manager.tabs[0]
-        manager.setPinned(pinned, pinned: true)
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
-        let third = manager.addWorkspace(select: false, placementOverride: .end)
-        #expect(third.recordConversationMessage("Done."))
+        let orderBefore = manager.tabs.map(\.id)
 
-        let outcome = try #require(
-            manager.handleAssistantFinalMessage(
-                workspaceId: third.id,
-                message: "Done.",
-                iMessageModeEnabled: true
-            )
-        )
+        let outcome = manager.handlePromptSubmit(workspaceId: UUID(), message: "lost")
 
-        #expect(!outcome.messageRecorded)
-        #expect(outcome.reordered)
-        #expect(outcome.index == 1)
-        #expect(manager.tabs.map(\.id) == [pinned.id, third.id, second.id])
-        #expect(third.latestConversationMessage == "Done.")
-    }
-
-    @Test func testBlankAssistantFinalMessageDoesNotMoveWorkspace() throws {
-        let manager = TabManager()
-        let first = manager.tabs[0]
-        let second = manager.addWorkspace(select: false, placementOverride: .end)
-
-        let outcome = try #require(
-            manager.handleAssistantFinalMessage(
-                workspaceId: second.id,
-                message: " \n ",
-                iMessageModeEnabled: true
-            )
-        )
-
-        #expect(!outcome.messageRecorded)
-        #expect(!outcome.reordered)
-        #expect(outcome.index == 1)
-        #expect(manager.tabs.map(\.id) == [first.id, second.id])
-        #expect(second.latestConversationMessage == nil)
+        #expect(outcome == nil)
+        #expect(manager.tabs.map(\.id) == orderBefore)
     }
 
     @Test func testBlankPromptSubmitDoesNotRecordTimestampOrPublishEvent() throws {
@@ -160,13 +78,12 @@ struct WorkspacePromptSubmitTests {
         let outcome = try #require(
             manager.handlePromptSubmit(
                 workspaceId: second.id,
-                message: " \n ",
-                iMessageModeEnabled: false
+                message: " \n "
             )
         )
 
         #expect(!outcome.messageRecorded)
-        #expect(!outcome.reordered)
+        #expect(outcome.index == 1)
         #expect(second.latestConversationMessage == nil)
         #expect(second.latestSubmittedAt == nil)
         #expect(CmuxEventBus.shared.latestSequence == sequenceBeforeSubmit)
@@ -189,14 +106,13 @@ struct WorkspacePromptSubmitTests {
         let outcome = try #require(
             manager.handlePromptSubmit(
                 workspaceId: second.id,
-                message: event.submittedPromptMessage,
-                iMessageModeEnabled: true
+                message: event.submittedPromptMessage
             )
         )
 
         #expect(outcome.messageRecorded)
-        #expect(outcome.reordered)
-        #expect(manager.tabs.map(\.id) == [second.id, first.id])
+        #expect(outcome.index == 1)
+        #expect(manager.tabs.map(\.id) == [first.id, second.id])
         #expect(second.latestConversationMessage == "shipped from feed path")
     }
 
@@ -225,42 +141,6 @@ struct WorkspacePromptSubmitTests {
         #expect(event.submittedPromptMessage == "from extra fields")
     }
 
-    @Test func testFeedStopEventExtractsAssistantFinalMessageFromContext() {
-        let event = WorkstreamEvent(
-            sessionId: "agent-session",
-            hookEventName: .stop,
-            source: "codex",
-            workspaceId: UUID().uuidString,
-            context: WorkstreamContext(assistantPreamble: "  finished\n\nthis  ")
-        )
-
-        #expect(event.assistantFinalMessage == "finished this")
-    }
-
-    @Test func testFeedStopEventExtractsAssistantFinalMessageFromExtraFields() {
-        let event = WorkstreamEvent(
-            sessionId: "agent-session",
-            hookEventName: .stop,
-            source: "codex",
-            workspaceId: UUID().uuidString,
-            extraFieldsJSON: #"{"last_assistant_message":"  done\nfrom extra fields  "}"#
-        )
-
-        #expect(event.assistantFinalMessage == "done from extra fields")
-    }
-
-    @Test func testFeedSubagentStopDoesNotExtractParentAssistantFinalMessage() {
-        let event = WorkstreamEvent(
-            sessionId: "agent-session",
-            hookEventName: .subagentStop,
-            source: "codex",
-            workspaceId: UUID().uuidString,
-            context: WorkstreamContext(assistantPreamble: "subagent finished")
-        )
-
-        #expect(event.assistantFinalMessage == nil)
-    }
-
     @Test func testBlankSubmittedMessageDoesNotClearRecordedPreview() {
         let workspace = Workspace()
 
@@ -268,16 +148,5 @@ struct WorkspacePromptSubmitTests {
         #expect(!workspace.recordSubmittedMessage(" \n "))
         #expect(workspace.latestConversationMessage == "keep this preview")
         #expect(workspace.latestSubmittedAt != nil)
-    }
-
-    @Test func testIMessageModeUsesManagedSettingsKey() throws {
-        let suiteName = "cmux.iMessageMode.test.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        #expect(IMessageModeSettings.key == "app.iMessageMode")
-        #expect(!IMessageModeSettings.isEnabled(defaults: defaults))
-        defaults.set(true, forKey: IMessageModeSettings.key)
-        #expect(IMessageModeSettings.isEnabled(defaults: defaults))
     }
 }

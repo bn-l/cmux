@@ -186,6 +186,41 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(context.addWorkspaceToGroupCall == nil)
     }
 
+    @Test func promptSubmitReportsRecordedMessageAndIndexOnly() throws {
+        // Arrange
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        let windowID = UUID()
+        context.promptSubmitResolution = .resolved(
+            windowID: windowID,
+            messageRecorded: true,
+            index: 2,
+            messagePreview: "ship it"
+        )
+
+        // Act
+        guard case .ok(.object(let payload)) = coordinator.handle(request("workspace.prompt_submit", [
+            "workspace_id": .string(workspaceID.uuidString),
+            "prompt": .string("ship it"),
+        ])) else {
+            Issue.record("unexpected workspace.prompt_submit result")
+            return
+        }
+
+        // Assert
+        #expect(context.promptSubmitCall?.workspaceID == workspaceID)
+        #expect(context.promptSubmitCall?.message == "ship it")
+        #expect(Set(payload.keys) == [
+            "workspace_id", "workspace_ref", "window_id", "window_ref",
+            "message_recorded", "message_preview", "index",
+        ])
+        #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
+        #expect(payload["window_id"] == .string(windowID.uuidString))
+        #expect(payload["message_recorded"] == .bool(true))
+        #expect(payload["message_preview"] == .string("ship it"))
+        #expect(payload["index"] == .int(2))
+    }
+
     @Test func terminalSessionEndForwardsLifecycleRetirementIntent() throws {
         let (coordinator, context) = coordinator()
         let workspaceID = UUID()

@@ -1,8 +1,10 @@
 import Foundation
 
 /// Conversation text attached to a forwarded agent hook event: the prompt
-/// the user just submitted and the agent's final message. iMessage mode reads
-/// both; unknown keys from older senders are ignored.
+/// the user just submitted and the agent's final message. The app reads
+/// `lastUserMessage` for the workspace prompt record; the events stream
+/// reports the context only as a byte length. Unknown keys from older senders
+/// are ignored.
 public struct WorkstreamContext: Codable, Sendable, Equatable {
     public let lastUserMessage: String?
     public let assistantPreamble: String?

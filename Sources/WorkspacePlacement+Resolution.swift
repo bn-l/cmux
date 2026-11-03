@@ -12,20 +12,14 @@ import Foundation
 /// creation coordinator.
 extension WorkspacePlacement {
     /// The placement to apply for a new workspace: an explicit call-site
-    /// override wins, then iMessage mode pins `.top`, then the stored
-    /// `app.newWorkspacePlacement` setting (default `.afterCurrent`).
+    /// override wins, otherwise the stored `app.newWorkspacePlacement`
+    /// setting (default `.afterCurrent`).
     static func effectivePlacement(
         placementOverride: WorkspacePlacement?,
         settings: any SettingsReading,
         catalog: SettingCatalog
     ) -> WorkspacePlacement {
-        if let placementOverride {
-            return placementOverride
-        }
-        if settings.value(for: catalog.app.iMessageMode) {
-            return .top
-        }
-        return settings.value(for: catalog.app.newWorkspacePlacement)
+        placementOverride ?? settings.value(for: catalog.app.newWorkspacePlacement)
     }
 
     /// The insertion index for a new workspace under this placement, given

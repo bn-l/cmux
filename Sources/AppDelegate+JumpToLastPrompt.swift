@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 /// When the user last submitted an agent prompt in each panel. Fed by
-/// UserPromptSubmit feed events (`TerminalController.v2ApplyIMessageModeSideEffects`),
+/// UserPromptSubmit feed events (`TerminalController.v2ApplyPromptSubmitSideEffects`),
 /// which carry the hook's surface id for every agent in the hook catalog.
 /// Keyed by panel so a panel moved to another workspace keeps its entry; in
 /// memory only, so right after a relaunch there is nothing to jump to.

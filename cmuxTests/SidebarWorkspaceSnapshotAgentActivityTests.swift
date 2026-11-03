@@ -27,11 +27,11 @@ extension SidebarWorkspaceSnapshotRefreshPolicyTests {
 
     @Test func contextMenuAgentActivityChangeUpdatesDisplayedSpinnerImmediately() {
         let current = Self.snapshot(
-            latestConversationMessage: "old message",
+            listeningPorts: [3000],
             activeCodingAgentCount: 0
         )
         let next = Self.snapshot(
-            latestConversationMessage: "new message",
+            listeningPorts: [3000, 4000],
             activeCodingAgentCount: 1
         )
 
@@ -43,7 +43,7 @@ extension SidebarWorkspaceSnapshotRefreshPolicyTests {
         )
 
         #expect(decision.workspaceSnapshotStorage?.activeCodingAgentCount == 1)
-        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
+        #expect(decision.workspaceSnapshotStorage?.listeningPorts == [3000])
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
