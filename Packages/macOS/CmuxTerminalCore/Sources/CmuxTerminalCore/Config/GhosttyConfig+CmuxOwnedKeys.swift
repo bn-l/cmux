@@ -10,12 +10,14 @@ extension GhosttyConfig {
     public static let cmuxOwnedKeys: Set<String> = [
         sidebarFontSizeKey,
         surfaceTabBarFontSizeKey,
+        titlebarFontSizeKey,
         sidebarBackgroundKey,
         sidebarTintOpacityKey,
     ]
 
     static let sidebarFontSizeKey = CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey
     static let surfaceTabBarFontSizeKey = CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey
+    static let titlebarFontSizeKey = CmuxGhosttyConfigSettingEditor.titlebarFontSizeKey
     static let sidebarBackgroundKey = "sidebar-background"
     static let sidebarTintOpacityKey = "sidebar-tint-opacity"
 }

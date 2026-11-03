@@ -530,7 +530,7 @@ public struct GhosttyConfig {
                     if let size = Double(value), size.isFinite {
                         sidebarFontSize = Self.clampedSidebarFontSize(CGFloat(size))
                     }
-                case "titlebar-font-size":
+                case Self.titlebarFontSizeKey:
                     if let size = Double(value), size.isFinite {
                         titlebarFontSize = Self.clampedTitlebarFontSize(CGFloat(size))
                     }
