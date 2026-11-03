@@ -35,6 +35,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case sendFeedback
     case showNotifications
     case jumpToUnread
+    /// Focuses the surface where the user last submitted an agent prompt.
+    case jumpToLastPrompt
     case toggleUnread
     case markOldestUnreadAndJumpNext
     case focusRightSidebar
@@ -179,7 +181,7 @@ extension ShortcutAction {
             return .app
         case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
-             .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
+             .showNotifications, .jumpToUnread, .jumpToLastPrompt, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToFeed,
              .switchRightSidebarToDock, .triggerFlash:
@@ -353,6 +355,7 @@ extension ShortcutAction {
         case .sendFeedback: return "Send Feedback"
         case .showNotifications: return "Show Notifications"
         case .jumpToUnread: return "Jump to Latest Unread"
+        case .jumpToLastPrompt: return "Jump to Last Prompt"
         case .toggleUnread: return "Toggle Unread"
         case .markOldestUnreadAndJumpNext: return "Mark as Oldest Unread and Jump to Next Latest Unread"
         case .focusRightSidebar: return "Toggle Right Sidebar Focus"

@@ -106,6 +106,7 @@ extension CMUXCLI {
         "identify",
         "is-webview-focused",
         "join-pane",
+        "jump-to-last-prompt",
         "jump-to-unread",
         "last-pane",
         "last-window",

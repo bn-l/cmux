@@ -533,6 +533,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// clears it before jumping and compares it with the workspace focused
     /// before the jump, to flash the workspace name when the jump changed workspace.
     var lastNotificationOpenLanding: NotificationOpenLanding?
+    /// Per-panel agent prompt submit times for Jump to Last Prompt.
+    let lastPromptSubmissions = LastPromptSubmissionLog()
 
     /// OS notification delivery/response coordination, extracted into
     /// `CmuxNotifications`. The app target injects the concrete
@@ -13205,6 +13207,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 #endif
             jumpToLatestUnread()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .jumpToLastPrompt) {
+            jumpToLastPromptFromUserCommand()
             return true
         }
 

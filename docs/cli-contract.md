@@ -145,6 +145,7 @@ Environment:
 | `mark-notification-read` | Mark one notification, a workspace/surface scope, or all notifications read. |
 | `open-notification` | Focus the notification's workspace/surface and mark it read. |
 | `jump-to-unread` | Focus the latest unread notification. |
+| `jump-to-last-prompt` | Focus the surface where you last submitted an agent prompt. |
 | `clear-notifications` | Clear queued notifications. |
 | `right-sidebar` | Control right sidebar visibility, mode, focus, and state reads. |
 | `set-status` | Set a sidebar status pill. |
@@ -569,6 +570,7 @@ the expected text without connecting to a cmux socket.
 - `cmux mark-notification-read --help` -> `Usage: cmux mark-notification-read`
 - `cmux open-notification --help` -> `Usage: cmux open-notification`
 - `cmux jump-to-unread --help` -> `Usage: cmux jump-to-unread`
+- `cmux jump-to-last-prompt --help` -> `Usage: cmux jump-to-last-prompt`
 - `cmux clear-notifications --help` -> `Usage: cmux clear-notifications`
 - `cmux right-sidebar --help` -> `Usage: cmux right-sidebar <command> [flags]`
 - `cmux set-status --help` -> `Usage: cmux set-status`

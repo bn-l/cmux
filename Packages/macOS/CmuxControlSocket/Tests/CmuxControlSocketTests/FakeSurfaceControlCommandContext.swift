@@ -7,6 +7,8 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
+    var focusResolution: ControlSurfaceFocusResolution = .tabManagerUnavailable
+    var jumpToLastPromptResolution: ControlSurfaceFocusResolution?
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
     func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {
@@ -43,5 +45,16 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     ) -> ControlSurfaceReportPWDResolution {
         reportedPWD = (workspaceID, requestedSurfaceID, path)
         return reportPWDResolution
+    }
+
+    func controlSurfaceFocus(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlSurfaceFocusResolution {
+        focusResolution
+    }
+
+    func controlSurfaceJumpToLastPrompt() -> ControlSurfaceFocusResolution? {
+        jumpToLastPromptResolution
     }
 }

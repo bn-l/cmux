@@ -256,7 +256,7 @@ class TerminalController {
         "workspace.previous",
         "workspace.last",
         "workspace.group.focus",
-        "surface.focus",
+        "surface.focus", "surface.jump_to_last_prompt",
         "pane.focus",
         "pane.last",
         "file.open",
@@ -5654,6 +5654,27 @@ class TerminalController {
         return .ok(FeedSocketEncoding.payload(for: result))
     }
 
+    /// UserPromptSubmit side effects: the workspace's prompt record and, when
+    /// the hook named its surface (the panel the prompt was typed in), that
+    /// panel's Jump to Last Prompt entry.
+    @MainActor
+    func applyPromptSubmit(
+        workspaceId: UUID,
+        surfaceId: String?,
+        message: String?,
+        iMessageModeEnabled: Bool
+    ) {
+        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+        _ = tabManager.handlePromptSubmit(
+            workspaceId: workspaceId,
+            message: message,
+            iMessageModeEnabled: iMessageModeEnabled
+        )
+        if let panelId = surfaceId.flatMap({ v2UUIDAny($0) }) {
+            AppDelegate.shared?.recordPromptSubmitted(panelId: panelId)
+        }
+    }
+
     private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
         guard event.hookEventName == .userPromptSubmit || event.hookEventName == .stop,
               let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -5665,9 +5686,9 @@ class TerminalController {
         case .userPromptSubmit:
             v2MainSync {
                 guard let workspaceId = v2UUIDAny(rawWorkspaceId) else { return }
-                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
-                _ = tabManager.handlePromptSubmit(
+                applyPromptSubmit(
                     workspaceId: workspaceId,
+                    surfaceId: event.surfaceId,
                     message: event.submittedPromptMessage,
                     iMessageModeEnabled: iMessageModeEnabled
                 )
