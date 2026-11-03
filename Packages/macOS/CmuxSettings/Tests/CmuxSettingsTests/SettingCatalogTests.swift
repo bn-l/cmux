@@ -4,6 +4,10 @@ import Testing
 
 @Suite("SettingCatalog")
 struct SettingCatalogTests {
+    @Test func equalizeSplitsOnCreateDefaultsOff() {
+        #expect(!SettingCatalog().app.equalizeSplitsOnCreate.defaultValue)
+    }
+
     @Test func eachKeyHasUniqueId() {
         let ids = SettingCatalog().all.map(\.id)
         #expect(ids.count == Set(ids).count)

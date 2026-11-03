@@ -12616,6 +12616,7 @@ extension Workspace: BonsplitDelegate {
 
         bindSurface(newTabId, toPanelId: newPanel.id)
         normalizePinnedTabs(in: newPane)
+        equalizeSplitsAfterCreatingSplitIfEnabled(newPaneId: newPane)
         publishCmuxSplitCreated(newPane, sourcePaneId: originalPane, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "ui_split", focused: true)
 #if DEBUG
         cmuxDebugLog(

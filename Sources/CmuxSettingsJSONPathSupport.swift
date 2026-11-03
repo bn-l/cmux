@@ -99,6 +99,7 @@ enum AppSettingsFileMapping {
             invalidPath: "app.workspaceInheritWorkingDirectory"
         ),
         .init(jsonKey: "focusPaneOnFirstClick", defaultsKey: PaneFirstClickFocusSettings.enabledKey),
+        .init(jsonKey: "equalizeSplitsOnCreate", defaultsKey: SettingCatalog().app.equalizeSplitsOnCreate.userDefaultsKey),
         .init(
             jsonKey: "openSupportedFilesInCmux",
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
@@ -385,6 +386,7 @@ extension CmuxSettingsFileStore {
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",
+        "app.equalizeSplitsOnCreate",
         "app.preferredEditor",
         "app.openSupportedFilesInCmux",
         "app.openMarkdownInCmuxViewer",
