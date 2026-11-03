@@ -330,12 +330,16 @@ final class CmuxSettingsFileStore {
         guard let data = fileManager.contents(atPath: path), !data.isEmpty else {
             return .invalid
         }
-
         do {
             let sanitized = try JSONCParser.preprocess(data: data)
             let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
             guard let root = object as? [String: Any] else {
                 return .invalid
+            }
+            for issue in CmuxConfigSemanticValidator(scope: .global).validate(jsonObject: root) {
+                cmuxSettingsFileStoreLogger.warning(
+                    "semantic config issue at \(issue.path, privacy: .public) in \(path, privacy: .private(mask: .hash)): \(issue.message, privacy: .public)"
+                )
             }
             return .parsed(parseSettingsFile(root: root, sourcePath: path))
         } catch {

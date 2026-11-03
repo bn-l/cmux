@@ -370,8 +370,8 @@ enum BrowserSettingsFileMapping {
 }
 
 extension CmuxSettingsFileStore {
-    // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
-    // validate against this set so new persisted settings need an explicit cmux.json review.
+    // Every settings path cmux reads from cmux.json. CmuxConfigSchemaDriftTests holds
+    // docs/cmux.schema.json to exactly this set, so a new key needs both.
     static let supportedSettingsJSONPaths: Set<String> = [
         PaneChromeSettings.paneBorderColorKey,
         PaneChromeSettings.activePaneBorderColorKey,
@@ -400,6 +400,9 @@ extension CmuxSettingsFileStore {
         "app.hideTabCloseButton",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
+        "app.globalFontMagnification",
+        "app.forkConversationDefaultDestination",
+        "app.devWindowDisplay",
         "workspaceGroups.newWorkspacePlacement",
         "terminal.showScrollBar",
         "terminal.smoothScrolling",
@@ -500,9 +503,11 @@ extension CmuxSettingsFileStore {
         "markdown.fontSize",
         "markdown.fontFamily",
         "markdown.maxWidth",
-        "canvas.paneGap",
-        "canvas.snappingEnabled",
         "fileEditor.wordWrap",
+        "diffViewer.defaultLayout",
+        "customSidebars.renderer",
+        "shortcuts.showModifierHoldHints",
         "shortcuts.bindings",
+        "shortcuts.when",
     ]
 }

@@ -47,7 +47,7 @@ extension CmuxSettingsFileStore {
             }
     }
 
-    private static func defaultTemplateSections() -> [[String: Any]] {
+    static func defaultTemplateSections() -> [[String: Any]] {
         let shortcutsBindings = Dictionary(
             uniqueKeysWithValues: KeyboardShortcutSettings.Action.allCases.map { action in
                 (action.rawValue, shortcutTemplateValue(action.defaultShortcut, usesNumberedDigits: action.usesNumberedDigitMatching))

@@ -2,6 +2,17 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## Validation
+
+`docs/cmux.schema.json` lists every key this fork reads, with its type, allowed values, and whether a project-level `.cmux/cmux.json` may set it. `cmux config validate` (also `doctor` and `check`) checks your files against it offline and prints the JSON path and the broken rule for each problem:
+
+```bash
+cmux config validate
+cmux config validate --path ./.cmux/cmux.json --scope project
+```
+
+The `cmux-settings` skill script runs the same check on the whole file before every `set` or `unset`, and refuses to write if it fails. Keys that cmux ignores, such as settings for features this fork removed, are reported as `unknown configuration key`. cmux also logs these problems when it loads the file. After editing the schema, run `scripts/generate-cmux-config-schema.py` to refresh the embedded copy and `skills/cmux-settings/references/all-keys.md`.
+
 ## `paneBorderColor` and `activePaneBorderColor`
 
 Customize split-workspace pane boundaries controlled by cmux.

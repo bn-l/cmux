@@ -1,12 +1,13 @@
 # Keyboard shortcut action ids
 
-Auto-generated from `web/data/cmux.schema.json` (`shortcuts.bindings.propertyNames.enum`).
+Every id in `docs/cmux.schema.json` (`$defs.shortcutActionId`), grouped by area. `CmuxConfigSchemaDriftTests` keeps that list equal to the app's shortcut actions.
 
 Values for `shortcuts.bindings.<action>`:
 
 - A string like `"cmd+b"` for a single shortcut.
 - A two-element array like `["ctrl+b","c"]` for a chord.
-- `null` or an empty string (`""`, `"none"`, `"clear"`, `"unbound"`, `"disabled"`) to unbind.
+- `null`, `[]`, or an empty string (`""`, `"none"`, `"clear"`, `"unbound"`, `"disabled"`) to unbind.
+- An object `{ "first": {...}, "second": {...} }`, the form the Settings window writes.
 
 ## App
 
@@ -40,6 +41,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.newWorkspaceGroup`
 - `shortcuts.bindings.groupSelectedWorkspaces`
 - `shortcuts.bindings.toggleFocusedWorkspaceGroupCollapsed`
+- `shortcuts.bindings.saveLayoutTemplate`
 - `shortcuts.bindings.reopenClosedWorkspace`
 - `shortcuts.bindings.focusHistoryBack`
 - `shortcuts.bindings.focusHistoryForward`
@@ -53,6 +55,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.newSurface`
 - `shortcuts.bindings.toggleTerminalCopyMode`
 - `shortcuts.bindings.clearScreenKeepScrollback`
+- `shortcuts.bindings.sendCtrlFToTerminal`
 - `shortcuts.bindings.focusLeft`
 - `shortcuts.bindings.focusRight`
 - `shortcuts.bindings.focusUp`
@@ -65,6 +68,12 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.resize-pane-right` (default Ctrl+Shift+L)
 - `shortcuts.bindings.resize-pane-up` (default Ctrl+Shift+K)
 - `shortcuts.bindings.resize-pane-down` (default Ctrl+Shift+J)
+
+## Text box
+
+- `shortcuts.bindings.focusTextBoxInput`
+- `shortcuts.bindings.cycleTextBoxSubmitAction` (single stroke only, no chords)
+- `shortcuts.bindings.attachTextBoxFile`
 
 ## Canvas
 
@@ -115,11 +124,13 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.browserBack`
 - `shortcuts.bindings.browserForward`
 - `shortcuts.bindings.browserReload`
+- `shortcuts.bindings.browserHardReload`
 - `shortcuts.bindings.browserZoomIn`
 - `shortcuts.bindings.browserZoomOut`
 - `shortcuts.bindings.browserZoomReset`
 - `shortcuts.bindings.toggleBrowserDeveloperTools`
 - `shortcuts.bindings.showBrowserJavaScriptConsole`
+- `shortcuts.bindings.toggleBrowserFocusMode`
 
 ## Find
 
@@ -133,3 +144,20 @@ Values for `shortcuts.bindings.<action>`:
 
 - `shortcuts.bindings.saveFilePreview`
 - `shortcuts.bindings.toggleReactGrab`
+
+## Markdown viewer
+
+- `shortcuts.bindings.markdownZoomIn`
+- `shortcuts.bindings.markdownZoomOut`
+- `shortcuts.bindings.markdownZoomReset`
+
+## Diff viewer
+
+The five diff-viewer scroll and search actions may be bound to a bare key with no modifier.
+
+- `shortcuts.bindings.openDiffViewer`
+- `shortcuts.bindings.diffViewerScrollDown`
+- `shortcuts.bindings.diffViewerScrollUp`
+- `shortcuts.bindings.diffViewerScrollToBottom`
+- `shortcuts.bindings.diffViewerScrollToTop`
+- `shortcuts.bindings.diffViewerOpenFileSearch`
