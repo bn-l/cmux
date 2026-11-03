@@ -20827,6 +20827,21 @@ struct CMUXCLI {
         }
     }
 
+    /// Points fd 1 at /dev/null, so `print`, `FileHandle.standardOutput` and child
+    /// processes all write nowhere for the rest of this process.
+    private func discardStandardOutput() {
+        fflush(stdout)
+        let devNull = open("/dev/null", O_WRONLY)
+        guard devNull >= 0 else {
+            cliWriteStderr("cmux: could not open /dev/null to silence hook stdout: \(String(cString: strerror(errno)))\n")
+            return
+        }
+        if dup2(devNull, STDOUT_FILENO) < 0 {
+            cliWriteStderr("cmux: could not silence hook stdout: \(String(cString: strerror(errno)))\n")
+        }
+        close(devNull)
+    }
+
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,
@@ -20834,6 +20849,13 @@ struct CMUXCLI {
         socketPassword: String? = nil
     ) throws {
         let subcommand = commandArgs.first?.lowercased() ?? "help"
+        // Claude Code adds a hook's plain stdout to the model's context for SessionStart
+        // and UserPromptSubmit, and nothing reads these handlers' "OK", so discard it.
+        // Usage text is for a person; the retired cron-create-guard's `{}` is its
+        // PreToolUse answer.
+        if !["help", "--help", "-h", "cron-create-guard"].contains(subcommand) {
+            discardStandardOutput()
+        }
         let hookArgs = Array(commandArgs.dropFirst())
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]

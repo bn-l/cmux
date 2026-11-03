@@ -165,8 +165,8 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
-        if proc.stdout.strip() != "OK":
-            print("FAIL: expected claude-hook stop to print OK")
+        if proc.stdout != "":
+            print("FAIL: expected claude-hook stop to keep stdout empty (Claude Code reads hook stdout)")
             print(f"stdout={proc.stdout!r}")
             print(f"stderr={proc.stderr!r}")
             print(f"commands={server.commands!r}")
