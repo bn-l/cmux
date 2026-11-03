@@ -21056,7 +21056,9 @@ struct CMUXCLI {
                 )
             }
             if isClearSessionStart, !suppressVisibleMutations {
-                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                // Pane-scoped: other panes in the workspace run their own agents,
+                // and their notifications are not this session's to clear.
+                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
@@ -21323,7 +21325,7 @@ struct CMUXCLI {
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand
                 )
             }
-            _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            _ = try sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,
@@ -21690,7 +21692,10 @@ struct CMUXCLI {
                         workspaceId: workspaceId,
                         surfaceId: consumedSession.surfaceId
                     )
-                    _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                    _ = try? sendV1Command(
+                        "clear_notifications --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId))",
+                        client: client
+                    )
                 } else {
                     telemetry.breadcrumb("claude-hook.session-end.stale")
                 }
@@ -21876,7 +21881,7 @@ struct CMUXCLI {
                     agentLifecycle: .running
                 )
             }
-            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,

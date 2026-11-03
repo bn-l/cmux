@@ -23,10 +23,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "")
-        XCTAssertTrue(
-            context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId)" },
-            "Expected clear SessionStart to clear stale notifications, saw \(context.state.commands)"
-        )
+        assertClearsOnlyItsPane(context)
         XCTAssertTrue(
             context.state.commands.contains {
                 $0.hasPrefix("set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab=\(context.workspaceId)")
@@ -1551,7 +1548,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Expected stale SessionEnd not to clear the consumed workspace PID, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0 == "clear_notifications --tab=\(staleWorkspaceId)" },
+            context.state.commands.contains { $0.hasPrefix("clear_notifications --tab=\(staleWorkspaceId)") },
             "Expected stale SessionEnd not to clear the consumed workspace notifications, saw \(context.state.commands)"
         )
     }
@@ -1599,7 +1596,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Expected stale same-session turn not to clear current PID, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId)" },
+            context.state.commands.contains { $0.hasPrefix("clear_notifications --tab=\(context.workspaceId)") },
             "Expected stale same-session turn not to clear current notifications, saw \(context.state.commands)"
         )
 
@@ -1657,6 +1654,90 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(request["source"] as? String, "agent-hook")
+    }
+
+    // MARK: - Pane-scoped notification clears
+    //
+    // A workspace can run one agent per pane. A Claude hook clears its own pane's
+    // notifications; a workspace-wide clear also deletes the unread alerts of
+    // every other agent in that workspace.
+
+    func testClaudePromptSubmitClearsOnlyItsPanesNotifications() throws {
+        let context = try makeClaudeHookContext(name: "claude-prompt-pane-clear")
+        defer { context.cleanup() }
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"prompt-pane-clear","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"next step"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        assertClearsOnlyItsPane(context)
+    }
+
+    func testClaudePreToolUseClearsOnlyItsPanesNotifications() throws {
+        let context = try makeClaudeHookContext(name: "claude-tool-pane-clear")
+        defer { context.cleanup() }
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"tool-pane-clear","cwd":"\#(context.root.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        assertClearsOnlyItsPane(context)
+    }
+
+    func testClaudeSessionEndClearsOnlyItsPanesNotifications() throws {
+        let context = try makeClaudeHookContext(name: "claude-end-pane-clear")
+        defer { context.cleanup() }
+        let sessionId = "ending-pane-clear"
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: context.root.appendingPathComponent("claude-hook-sessions.json"), options: .atomic)
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        assertClearsOnlyItsPane(context)
+    }
+
+    /// The hook sent exactly one notification clear, scoped to its own pane.
+    private func assertClearsOnlyItsPane(
+        _ context: ClaudeHookContext,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let clears = context.state.commands.filter { $0.hasPrefix("clear_notifications ") }
+        XCTAssertEqual(
+            clears,
+            ["clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)"],
+            "Expected one pane-scoped clear, saw \(context.state.commands)",
+            file: file,
+            line: line
+        )
     }
 
     func testNestedCodexPromptAndStopDoNotReplaceParentResumeBinding() throws {
