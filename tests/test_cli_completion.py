@@ -212,6 +212,38 @@ def main() -> int:
                 out = subprocess.run([zsh, "-f", "-c", driver], env=live_env, text=True, capture_output=True, check=False)
                 if out.stdout.splitlines() != ["validate", "FILES", "workspace:7", "workspace:8"]:
                     failures.append(f"zsh completion: {out.stdout.splitlines()} (stderr {out.stderr!r})")
+            if fish is not None:
+                (root / "marker-file.txt").write_text("x")
+                driver = (
+                    f'source {root / "cmux.fish"}\n'
+                    'for line in "cmux conf" "cmux send --workspace " "cmux no-such-command marker"\n'
+                    '  echo "== $line"\n'
+                    '  complete -C "$line"\n'
+                    'end\n'
+                )
+                out = subprocess.run(
+                    [fish, "--no-config", "-c", driver],
+                    env=live_env,
+                    cwd=root,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                sections: dict[str, list[str]] = {}
+                current_line = ""
+                for raw in out.stdout.splitlines():
+                    if raw.startswith("== "):
+                        current_line = raw[3:]
+                        sections[current_line] = []
+                    elif current_line:
+                        sections[current_line].append(raw.split("\t", 1)[0])
+                expected_fish = {
+                    "cmux conf": ["config"],
+                    "cmux send --workspace ": ["workspace:7", "workspace:8"],
+                    "cmux no-such-command marker": ["marker-file.txt"],
+                }
+                if sections != expected_fish:
+                    failures.append(f"fish completion: {sections} (stderr {out.stderr!r}), expected {expected_fish}")
         finally:
             live.close()
 
