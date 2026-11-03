@@ -77,7 +77,9 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
 
     /// Notify when an agent has been idle-waiting for input (~60s after a turn
     /// ends). Suppressed while background work from the last turn is still
-    /// pending, so a running build or watcher does not trigger a false "waiting".
+    /// pending, so a running build or watcher does not trigger a false "waiting",
+    /// and skipped when that turn's finish notification already showed (read,
+    /// unread or dismissed), so it never replaces it.
     public let agentIdleReminder = DefaultsKey<Bool>(
         id: "notifications.agentIdleReminder",
         defaultValue: true,

@@ -217,6 +217,13 @@ final class TerminalNotificationStore: ObservableObject {
     }
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
+    /// The finish alert each pane's agent showed for its current turn. An agent's
+    /// idle reminder ("waiting for your input", ~60 s after the turn ends) for a
+    /// pane listed here repeats what the user was already shown, so it is dropped
+    /// instead of replacing that alert. Cleared when the pane's agent starts a new
+    /// turn, and when a socket clear removes the alert before it was read.
+    /// Memory only: after a relaunch a reminder notifies as before.
+    private var finishAlertIdByPane: [TabSurfaceKey: UUID] = [:]
 
     let userNotificationCenter: UserNotificationCenterService
     private var hasRequestedAutomaticAuthorization = false
@@ -666,13 +673,34 @@ final class TerminalNotificationStore: ObservableObject {
         body: String,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: TerminalNotificationClickAction? = nil,
+        agentCategory: AgentNotifyCategory? = nil
     ) {
 #if DEBUG
         cmuxDebugLog(
             "notification.store.add workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1)"
         )
 #endif
+        if agentCategory == .idleReminder,
+           let finishAlertId = finishAlertIdByPane[TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)] {
+            CmuxEventBus.shared.publish(
+                name: "notification.suppressed",
+                category: "notification",
+                source: "notification.store",
+                workspaceId: tabId.uuidString,
+                surfaceId: surfaceId?.uuidString,
+                payload: [
+                    "reason": "idle_reminder_after_finish_alert",
+                    "finish_notification_id": finishAlertId.uuidString,
+                ]
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "notification.store.add.skip workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") reason=idleReminderAfterFinishAlert"
+            )
+#endif
+            return
+        }
         let now = Date()
         let resolvedCooldownInterval: TimeInterval?
         if let cooldownInterval, cooldownInterval.isFinite, cooldownInterval > 0 {
@@ -713,7 +741,8 @@ final class TerminalNotificationStore: ObservableObject {
                 now: now,
                 cooldownReservation: cooldownReservation,
                 scrollPosition: policyContext.scrollPosition,
-                clickAction: clickAction
+                clickAction: clickAction,
+                agentCategory: agentCategory
             )
             return
         }
@@ -731,7 +760,8 @@ final class TerminalNotificationStore: ObservableObject {
                     now: Date(),
                     cooldownReservation: cooldownReservation,
                     scrollPosition: policyContext.scrollPosition,
-                    clickAction: clickAction
+                    clickAction: clickAction,
+                    agentCategory: agentCategory
                 )
                 return
             }
@@ -748,7 +778,8 @@ final class TerminalNotificationStore: ObservableObject {
                     now: Date(),
                     cooldownReservation: cooldownReservation,
                     scrollPosition: policyContext.scrollPosition,
-                    clickAction: clickAction
+                    clickAction: clickAction,
+                    agentCategory: agentCategory
                 )
             case .failure(let failure):
                 self.applyNotification(
@@ -757,7 +788,8 @@ final class TerminalNotificationStore: ObservableObject {
                     now: Date(),
                     cooldownReservation: cooldownReservation,
                     scrollPosition: policyContext.scrollPosition,
-                    clickAction: clickAction
+                    clickAction: clickAction,
+                    agentCategory: agentCategory
                 )
                 self.reportNotificationHookFailure(failure)
             }
@@ -865,7 +897,8 @@ final class TerminalNotificationStore: ObservableObject {
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
         scrollPosition: TerminalNotificationScrollPosition?,
-        clickAction: TerminalNotificationClickAction?
+        clickAction: TerminalNotificationClickAction?,
+        agentCategory: AgentNotifyCategory?
     ) {
         let payload = envelope.notification
         applyNotification(
@@ -884,7 +917,8 @@ final class TerminalNotificationStore: ObservableObject {
             now: now,
             cooldownReservation: cooldownReservation,
             scrollPosition: scrollPosition,
-            clickAction: clickAction
+            clickAction: clickAction,
+            agentCategory: agentCategory
         )
     }
 
@@ -894,7 +928,8 @@ final class TerminalNotificationStore: ObservableObject {
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
         scrollPosition: TerminalNotificationScrollPosition?,
-        clickAction: TerminalNotificationClickAction?
+        clickAction: TerminalNotificationClickAction?,
+        agentCategory: AgentNotifyCategory?
     ) {
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
@@ -923,6 +958,11 @@ final class TerminalNotificationStore: ObservableObject {
                 now: now,
                 cooldownReservation: cooldownReservation
             )
+            // A finish alert counts as shown once it is recorded; one a policy
+            // hook kept out of the store leaves the turn's reminder in place.
+            if agentCategory == .turnComplete {
+                finishAlertIdByPane[TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)] = notification.id
+            }
             return
         }
 
@@ -1190,6 +1230,30 @@ final class TerminalNotificationStore: ObservableObject {
             return workspaceIndex
         }
         return notifications.firstIndex(where: { $0.tabId == tabId })
+    }
+
+    /// The pane's agent started a new turn, so a later reminder belongs to a turn
+    /// whose finish alert has not been shown yet.
+    func noteAgentTurnStarted(tabId: UUID, surfaceId: UUID) {
+        finishAlertIdByPane.removeValue(forKey: TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
+    }
+
+    /// Call before a socket clear (agent hooks, `cmux clear-notifications`)
+    /// removes notifications. A finish alert removed that way while still unread
+    /// was never seen, so its turn counts as having no finish alert and the
+    /// reminder may still notify. The user dismissing an alert does not come
+    /// through here: that alert was seen. Scope matches the clear about to run:
+    /// no `tabId` = everything, no `surfaceId` = the whole workspace.
+    func forgetFinishAlertsClearedUnread(tabId: UUID?, surfaceId: UUID?) {
+        guard !finishAlertIdByPane.isEmpty else { return }
+        let clearedUnreadIds = Set(notifications.lazy.filter { notification in
+            guard !notification.isRead else { return false }
+            guard let tabId else { return true }
+            guard let surfaceId else { return notification.tabId == tabId }
+            return notification.matches(tabId: tabId, surfaceId: surfaceId)
+        }.map(\.id))
+        guard !clearedUnreadIds.isEmpty else { return }
+        finishAlertIdByPane = finishAlertIdByPane.filter { !clearedUnreadIds.contains($0.value) }
     }
 
     func setFocusedReadIndicator(forTabId tabId: UUID, surfaceId: UUID?) {

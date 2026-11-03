@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CmuxSettings
 import Darwin
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -535,6 +536,274 @@ final class TerminalNotificationQueueTests: XCTestCase {
         // keyA coalesces to its newest closure at its latest enqueue position;
         // keyB, keyC, and the plain mutation are untouched in enqueue order.
         XCTAssertEqual(applied, ["b1", "c1", "plain", "a3"])
+    }
+
+    // MARK: - Agent idle reminder after the turn's finish alert
+    //
+    // Claude Code sends an idle reminder ("waiting for your input") about 60 s
+    // after a turn ends. When that turn's finish alert already showed up it
+    // repeats what the user was shown, so it must not replace the finish alert.
+    // When it never showed up the reminder is the only signal and must notify.
+    // Each test plays the exact socket commands the Claude hooks send against a
+    // real controller, with drains held so mutations apply in arrival order.
+
+    func testReminderAfterReadFinishAlertIsDropped() async throws {
+        let fixture = try AgentReminderFixture(test: self, name: "rmd-read")
+        defer { fixture.tearDown() }
+        let finish = try await fixture.finishTurn(fixture.paneA)
+        TerminalNotificationStore.shared.markRead(forTabId: fixture.workspaceId, surfaceId: fixture.paneA)
+
+        try await fixture.send([fixture.reminder(fixture.paneA)])
+
+        let pane = fixture.notifications(fixture.paneA)
+        XCTAssertEqual(pane.map(\.id), [finish.id], "The read finish alert stays; no new entry")
+        XCTAssertEqual(pane.first?.isRead, true)
+        XCTAssertEqual(fixture.bannerSubtitles, [AgentReminderFixture.finishSubtitle], "No second banner")
+    }
+
+    func testReminderAfterUnreadFinishAlertLeavesItUntouched() async throws {
+        let fixture = try AgentReminderFixture(test: self, name: "rmd-unread")
+        defer { fixture.tearDown() }
+        let finish = try await fixture.finishTurn(fixture.paneA)
+
+        try await fixture.send([fixture.reminder(fixture.paneA)])
+
+        let pane = fixture.notifications(fixture.paneA)
+        XCTAssertEqual(pane.map(\.id), [finish.id], "Not replaced")
+        XCTAssertEqual(pane.first?.isRead, false)
+        XCTAssertEqual(pane.first?.subtitle, AgentReminderFixture.finishSubtitle, "Claude's summary is kept")
+        XCTAssertEqual(pane.first?.body, AgentReminderFixture.finishBody)
+        XCTAssertEqual(pane.first?.createdAt, finish.createdAt, "Its place in the attention queue is kept")
+        XCTAssertEqual(fixture.bannerSubtitles, [AgentReminderFixture.finishSubtitle])
+    }
+
+    func testReminderAfterDismissedFinishAlertStaysDropped() async throws {
+        let fixture = try AgentReminderFixture(test: self, name: "rmd-dism")
+        defer { fixture.tearDown() }
+        let finish = try await fixture.finishTurn(fixture.paneA)
+        // The notifications list's dismiss button.
+        TerminalNotificationStore.shared.remove(id: finish.id)
+
+        try await fixture.send([fixture.reminder(fixture.paneA)])
+
+        XCTAssertTrue(fixture.notifications(fixture.paneA).isEmpty, "A dismissed finish alert is not brought back")
+        XCTAssertEqual(fixture.bannerSubtitles, [AgentReminderFixture.finishSubtitle])
+    }
+
+    func testReminderNotifiesWhenFinishAlertsAreTurnedOff() async throws {
+        let fixture = try AgentReminderFixture(test: self, name: "rmd-off")
+        defer { fixture.tearDown() }
+        UserDefaults.standard.set("never", forKey: AgentReminderFixture.turnCompleteKey)
+        try await fixture.sendStop(fixture.paneA)
+        XCTAssertTrue(fixture.notifications(fixture.paneA).isEmpty, "Precondition: the finish alert is turned off")
+
+        try await fixture.send([fixture.reminder(fixture.paneA)])
+
+        let pane = fixture.notifications(fixture.paneA)
+        XCTAssertEqual(pane.map(\.subtitle), [AgentReminderFixture.reminderSubtitle], "The reminder is the only signal")
+        XCTAssertEqual(pane.first?.isRead, false)
+        XCTAssertEqual(fixture.bannerSubtitles, [AgentReminderFixture.reminderSubtitle])
+    }
+
+    func testReminderNotifiesWhenTheNewTurnShowedNoFinishAlert() async throws {
+        let fixture = try AgentReminderFixture(test: self, name: "rmd-turn")
+        defer { fixture.tearDown() }
+        try await fixture.finishTurn(fixture.paneA)
+        TerminalNotificationStore.shared.markRead(forTabId: fixture.workspaceId, surfaceId: fixture.paneA)
+        // The next prompt starts a new turn, which ends with no finish alert
+        // (a Stop whose summary was empty sends only the lifecycle).
+        try await fixture.send(fixture.turnStart(fixture.paneA) + [fixture.lifecycle(fixture.paneA, "idle")])
+
+        try await fixture.send([fixture.reminder(fixture.paneA)])
+
+        let pane = fixture.notifications(fixture.paneA)
+        XCTAssertEqual(pane.map(\.subtitle), [AgentReminderFixture.reminderSubtitle], "The old turn's alert does not silence the new turn")
+        XCTAssertEqual(pane.first?.isRead, false)
+    }
+
+    func testAnotherPanesToolUseKeepsThisPanesFinishAlertAndItsClaim() async throws {
+        let fixture = try AgentReminderFixture(test: self, name: "rmd-othr")
+        defer { fixture.tearDown() }
+        let finish = try await fixture.finishTurn(fixture.paneA)
+        TerminalNotificationStore.shared.markRead(forTabId: fixture.workspaceId, surfaceId: fixture.paneA)
+        // Pane B's agent uses a tool: its hook clears pane B and reports B
+        // running. Neither touches pane A or starts a turn there.
+        try await fixture.send(fixture.turnStart(fixture.paneB))
+
+        try await fixture.send([fixture.reminder(fixture.paneA)])
+
+        let pane = fixture.notifications(fixture.paneA)
+        XCTAssertEqual(pane.map(\.id), [finish.id], "Pane A's finish alert survives pane B's tool use and is not replaced")
+        XCTAssertEqual(pane.first?.isRead, true)
+        XCTAssertEqual(fixture.bannerSubtitles, [AgentReminderFixture.finishSubtitle])
+    }
+
+    func testFinishAlertWipedUnreadByAWorkspaceWideClearLetsTheReminderThrough() async throws {
+        let fixture = try AgentReminderFixture(test: self, name: "rmd-wipe")
+        defer { fixture.tearDown() }
+        try await fixture.finishTurn(fixture.paneA)
+        // Another client clears the whole workspace before pane A's alert was read.
+        try await fixture.send([fixture.workspaceWideClear])
+        XCTAssertTrue(fixture.notifications(fixture.paneA).isEmpty, "Precondition: pane A's unread alert was wiped")
+
+        try await fixture.send([fixture.reminder(fixture.paneA)])
+
+        let pane = fixture.notifications(fixture.paneA)
+        XCTAssertEqual(pane.map(\.subtitle), [AgentReminderFixture.reminderSubtitle], "The user never saw the finish alert")
+        XCTAssertEqual(pane.first?.isRead, false)
+    }
+
+    func testUntaggedNotificationAfterFinishAlertStillReplacesIt() async throws {
+        let fixture = try AgentReminderFixture(test: self, name: "rmd-plain")
+        defer { fixture.tearDown() }
+        try await fixture.finishTurn(fixture.paneA)
+
+        try await fixture.send([
+            "notify_target_async \(fixture.workspaceId.uuidString) \(fixture.paneA.uuidString) Build|Deployed|staging is up",
+        ])
+
+        let pane = fixture.notifications(fixture.paneA)
+        XCTAssertEqual(pane.map(\.subtitle), ["Deployed"], "Only agent idle reminders are held back")
+        XCTAssertEqual(pane.first?.isRead, false)
+    }
+
+    /// A workspace with two terminal panes, a real control socket, held drains,
+    /// and explicit agent notification settings, all restored on tear down.
+    @MainActor
+    private final class AgentReminderFixture {
+        static let finishSubtitle = "Completed in proj"
+        static let finishBody = "Refactored the parser and added tests."
+        static let reminderSubtitle = "Waiting"
+        static let turnCompleteKey = NotificationsCatalogSection().agentTurnComplete.userDefaultsKey
+        static let idleReminderKey = NotificationsCatalogSection().agentIdleReminder.userDefaultsKey
+
+        let workspaceId: UUID
+        let paneA: UUID
+        let paneB: UUID
+        private(set) var bannerSubtitles: [String] = []
+        private let test: TerminalNotificationQueueTests
+        private let socketPath: String
+        private let store = TerminalNotificationStore.shared
+        private let appDelegate: AppDelegate
+        private let manager: TabManager
+        private let workspace: Workspace
+        private let originalTabManager: TabManager?
+        private let originalNotificationStore: TerminalNotificationStore?
+        private let originalAppFocusOverride: Bool?
+        private let originalTurnComplete: Any?
+        private let originalIdleReminder: Any?
+
+        init(test: TerminalNotificationQueueTests, name: String) throws {
+            self.test = test
+            socketPath = test.makeSocketPath(name)
+            appDelegate = AppDelegate.shared ?? AppDelegate()
+            manager = appDelegate.tabManager ?? TabManager()
+            originalTabManager = appDelegate.tabManager
+            originalNotificationStore = appDelegate.notificationStore
+            originalAppFocusOverride = AppFocusState.overrideIsFocused
+            originalTurnComplete = UserDefaults.standard.object(forKey: Self.turnCompleteKey)
+            originalIdleReminder = UserDefaults.standard.object(forKey: Self.idleReminderKey)
+
+            UserDefaults.standard.set("whenIdle", forKey: Self.turnCompleteKey)
+            UserDefaults.standard.set(true, forKey: Self.idleReminderKey)
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = manager
+            appDelegate.notificationStore = store
+            // Not focused, so every recorded alert also reaches the banner handler.
+            AppFocusState.overrideIsFocused = false
+
+            workspace = manager.addWorkspace(select: true)
+            workspaceId = workspace.id
+            paneA = try XCTUnwrap(workspace.focusedPanelId)
+            paneB = try XCTUnwrap(workspace.newTerminalSplit(from: paneA, orientation: .horizontal)?.id)
+            store.configureNotificationDeliveryHandlerForTesting { [weak self] _, notification in
+                self?.bannerSubtitles.append(notification.subtitle)
+            }
+
+            TerminalController.shared.start(tabManager: manager, socketPath: socketPath, accessMode: .allowAll)
+            try test.waitForSocket(at: socketPath)
+            TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
+        }
+
+        func tearDown() {
+            TerminalMutationBus.shared.setDrainsSuspendedForTesting(false)
+            TerminalController.shared.stop()
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            Self.restore(originalTurnComplete, forKey: Self.turnCompleteKey)
+            Self.restore(originalIdleReminder, forKey: Self.idleReminderKey)
+        }
+
+        /// Sends the commands over the socket in order, asserts each was
+        /// accepted, then applies everything they queued.
+        func send(_ commands: [String]) async throws {
+            let socketPath = socketPath
+            let test = test
+            let responses = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        continuation.resume(returning: try test.sendCommands(commands, to: socketPath))
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+            XCTAssertEqual(responses, Array(repeating: "OK", count: commands.count), "Commands: \(commands)")
+            TerminalMutationBus.shared.drainForTesting()
+        }
+
+        /// What the Claude Stop hook sends: the lifecycle, then the finish alert.
+        func sendStop(_ pane: UUID) async throws {
+            try await send([
+                lifecycle(pane, "idle"),
+                "notify_target_async \(workspaceId.uuidString) \(pane.uuidString) Claude Code|\(Self.finishSubtitle)|\(Self.finishBody)|c=turn-complete;p=0",
+            ])
+        }
+
+        /// Ends the pane's turn and returns its finish alert as recorded.
+        @discardableResult
+        func finishTurn(_ pane: UUID) async throws -> TerminalNotification {
+            try await sendStop(pane)
+            return try XCTUnwrap(notifications(pane).first, "Precondition: the finish alert was recorded")
+        }
+
+        /// What the Claude Notification hook sends for `idle_prompt`.
+        func reminder(_ pane: UUID) -> String {
+            "notify_target_async \(workspaceId.uuidString) \(pane.uuidString) Claude Code|\(Self.reminderSubtitle)|Claude is waiting for your input|c=idle-reminder;p=0"
+        }
+
+        /// What the prompt-submit and pre-tool-use hooks send for a pane.
+        func turnStart(_ pane: UUID) -> [String] {
+            ["clear_notifications --tab=\(workspaceId.uuidString) --panel=\(pane.uuidString)", lifecycle(pane, "running")]
+        }
+
+        /// A clear of every pane in the workspace from another socket client
+        /// (`cmux clear-notifications --workspace`, or an older CLI's hook).
+        var workspaceWideClear: String {
+            "clear_notifications --tab=\(workspaceId.uuidString)"
+        }
+
+        func lifecycle(_ pane: UUID, _ state: String) -> String {
+            "set_agent_lifecycle claude_code \(state) --tab=\(workspaceId.uuidString) --panel=\(pane.uuidString)"
+        }
+
+        func notifications(_ pane: UUID) -> [TerminalNotification] {
+            store.notifications.filter { $0.tabId == workspaceId && $0.surfaceId == pane }
+        }
+
+        private static func restore(_ value: Any?, forKey key: String) {
+            if let value {
+                UserDefaults.standard.set(value, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
     }
 
     private func makeSocketPath(_ name: String) -> String {

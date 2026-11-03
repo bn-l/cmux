@@ -11,6 +11,8 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let title: String
     let subtitle: String
     let body: String
+    /// The agent hook's category, when the payload carried one.
+    let agentCategory: AgentNotifyCategory?
 }
 
 fileprivate enum TerminalSocketMutation {
@@ -67,13 +69,15 @@ final class TerminalMutationBus: @unchecked Sendable {
         title: String,
         subtitle: String,
         body: String,
-        coalesces: Bool = true
+        coalesces: Bool = true,
+        agentCategory: AgentNotifyCategory? = nil
     ) {
         enqueueNotification(QueuedTerminalNotification(
             key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            agentCategory: agentCategory
         ), coalesces: coalesces)
     }
 
@@ -383,13 +387,16 @@ final class TerminalMutationBus: @unchecked Sendable {
 #endif
                 TerminalNotificationStore.shared.deliverQueuedNotification(notification)
             case .clearAllNotifications:
+                TerminalNotificationStore.shared.forgetFinishAlertsClearedUnread(tabId: nil, surfaceId: nil)
                 TerminalNotificationStore.shared.clearAll(discardQueuedNotifications: false)
             case .clearNotificationsForTab(let tabId):
+                TerminalNotificationStore.shared.forgetFinishAlertsClearedUnread(tabId: tabId, surfaceId: nil)
                 TerminalNotificationStore.shared.clearNotifications(
                     forTabId: tabId,
                     discardQueuedNotifications: false
                 )
             case .clearNotificationsForSurface(let tabId, let surfaceId):
+                TerminalNotificationStore.shared.forgetFinishAlertsClearedUnread(tabId: tabId, surfaceId: surfaceId)
                 TerminalNotificationStore.shared.clearNotifications(
                     forTabId: tabId,
                     surfaceId: surfaceId,
@@ -408,7 +415,8 @@ extension TerminalController {
         surfaceId: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        agentCategory: AgentNotifyCategory? = nil
     ) {
         TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId)
 #if DEBUG
@@ -421,7 +429,8 @@ extension TerminalController {
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            agentCategory: agentCategory
         )
     }
 }
@@ -446,7 +455,8 @@ extension TerminalNotificationStore {
             surfaceId: notification.key.surfaceId,
             title: notification.title,
             subtitle: notification.subtitle,
-            body: notification.body
+            body: notification.body,
+            agentCategory: notification.agentCategory
         )
     }
 

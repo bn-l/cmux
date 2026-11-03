@@ -11655,7 +11655,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                agentCategory: meta?.category
             )
             return "OK"
         }
@@ -11691,7 +11692,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                agentCategory: meta?.category
             )
             return "OK"
         }
@@ -11738,7 +11740,8 @@ class TerminalController {
                     surfaceId: fastPath.panelId,
                     title: title,
                     subtitle: subtitle,
-                    body: body
+                    body: body,
+                    agentCategory: meta?.category
                 )
                 return "OK"
             }
@@ -11761,7 +11764,8 @@ class TerminalController {
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                agentCategory: meta?.category
             )
             return "OK"
         }
@@ -11819,7 +11823,8 @@ class TerminalController {
             title: title,
             subtitle: subtitle,
             body: body,
-            coalesces: false
+            coalesces: false,
+            agentCategory: meta?.category
         )
         return "OK"
     }
@@ -11893,6 +11898,7 @@ class TerminalController {
                         surfaceId: panelId,
                         through: clearBoundary
                     )
+                    TerminalNotificationStore.shared.forgetFinishAlertsClearedUnread(tabId: tab.id, surfaceId: panelId)
                     TerminalNotificationStore.shared.clearNotifications(
                         forTabId: tab.id,
                         surfaceId: panelId,
@@ -11903,6 +11909,7 @@ class TerminalController {
                         forTabId: tab.id,
                         through: clearBoundary
                     )
+                    TerminalNotificationStore.shared.forgetFinishAlertsClearedUnread(tabId: tab.id, surfaceId: nil)
                     TerminalNotificationStore.shared.clearNotifications(
                         forTabId: tab.id,
                         discardQueuedNotifications: false

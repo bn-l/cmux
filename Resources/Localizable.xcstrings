@@ -150366,13 +150366,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notify when an agent has been idle waiting for your input. Suppressed while background work is still running."
+            "value": "Notify when an agent has been idle waiting for your input. Skipped when that turn's finish notification already showed, and while background work is still running."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントがあなたの入力を待って待機しているときに通知します。バックグラウンド作業の実行中は抑制されます。"
+            "value": "エージェントがあなたの入力を待って待機しているときに通知します。そのターンの完了通知がすでに表示された場合と、バックグラウンド作業の実行中は通知しません。"
           }
         },
         "ko": {

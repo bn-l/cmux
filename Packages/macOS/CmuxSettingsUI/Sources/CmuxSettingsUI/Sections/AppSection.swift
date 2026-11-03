@@ -679,7 +679,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("notifications.agentIdleReminder"),
                 String(localized: "settings.notifications.agentIdleReminder.title", defaultValue: "Agent Waiting for Input"),
-                subtitle: String(localized: "settings.notifications.agentIdleReminder.subtitle", defaultValue: "Notify when an agent has been idle waiting for your input. Suppressed while background work is still running.")
+                subtitle: String(localized: "settings.notifications.agentIdleReminder.subtitle", defaultValue: "Notify when an agent has been idle waiting for your input. Skipped when that turn's finish notification already showed, and while background work is still running.")
             ) {
                 Toggle("", isOn: Binding(get: { agentIdleReminder.current }, set: { agentIdleReminder.set($0) }))
                     .labelsHidden()

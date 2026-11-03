@@ -185,6 +185,11 @@ extension Workspace {
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
+            // Agent hooks report running when a turn starts (prompt submit, tool
+            // use), which ends the previous turn's claim on its finish alert.
+            if lifecycle == .running {
+                AppDelegate.shared?.notificationStore?.noteAgentTurnStarted(tabId: id, surfaceId: targetPanelId)
+            }
         }
     }
 
