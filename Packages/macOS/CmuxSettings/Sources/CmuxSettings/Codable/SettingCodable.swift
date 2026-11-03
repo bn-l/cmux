@@ -44,8 +44,27 @@ public protocol SettingCodable: Sendable, Equatable {
     ///   unexpected shape.
     static func decodeFromJSON(_ raw: Any?) -> Self?
 
+    /// Decodes the value stored under `entryKey` in a string-keyed JSON object.
+    ///
+    /// String-keyed dictionaries decode every entry through this requirement.
+    /// The default ignores `entryKey` and calls ``decodeFromJSON(_:)``.
+    /// ``StoredShortcut`` implements it because a `shortcuts.bindings` entry's
+    /// key is an action id, and which bindings are valid depends on the action.
+    ///
+    /// - Parameters:
+    ///   - raw: The entry's value, as produced by `JSONSerialization`.
+    ///   - entryKey: The entry's key in the enclosing object.
+    /// - Returns: The decoded value, or `nil` when `raw` has an unexpected shape.
+    static func decodeFromJSON(_ raw: Any?, entryKey: String) -> Self?
+
     /// Encodes a value for storage in the cmux JSON config file.
     ///
     /// - Returns: A `JSONSerialization`-compatible value.
     func encodeForJSON() -> Any
+}
+
+extension SettingCodable {
+    public static func decodeFromJSON(_ raw: Any?, entryKey: String) -> Self? {
+        decodeFromJSON(raw)
+    }
 }

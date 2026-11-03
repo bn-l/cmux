@@ -24,7 +24,7 @@ extension Dictionary: SettingCodable where Key == String, Value: SettingCodable 
         var result: [String: Value] = [:]
         result.reserveCapacity(dictionary.count)
         for (key, value) in dictionary {
-            guard let decoded = Value.decodeFromJSON(value) else { return nil }
+            guard let decoded = Value.decodeFromJSON(value, entryKey: key) else { return nil }
             result[key] = decoded
         }
         return result

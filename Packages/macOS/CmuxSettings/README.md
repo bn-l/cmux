@@ -131,10 +131,18 @@ A dictionary-valued `JSONKey` decodes all-or-nothing: one entry the value
 type cannot decode makes `value(for:)` return the key's default, and a
 read-modify-write through `set(_:for:)` then deletes every entry the read
 skipped. `shortcuts.bindings` is the real case: users write `"cmd+t"`,
-`["ctrl+b", "%"]` and `null` bindings that only the app target parses.
+`["ctrl+b", "%"]` and `null` bindings, and can write ones the app rejects.
 For such objects, read with `value(forDecodableEntriesOf:)` /
 `values(forDecodableEntriesOf:)` and write with `merge(_:into:)`, which
-writes only the named entries and leaves the rest of the object untouched.
+writes only the named entries and leaves the rest of the object untouched,
+so a hand-written entry keeps its form until the user edits it in Settings.
+
+Dictionary entries decode through `SettingCodable.decodeFromJSON(_:entryKey:)`.
+`StoredShortcut` uses the entry key (the action id) to apply the
+bare-first-stroke rule, and parses the string and array forms with
+`StoredShortcut.parseConfig` / `ShortcutStroke.parseConfig`. The app target's
+settings-file store calls the same functions, so Settings shows the bindings
+the app applies.
 
 ## Adding a new setting
 

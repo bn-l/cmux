@@ -2268,45 +2268,23 @@ struct StoredShortcut: Codable, Equatable, Hashable {
     }
 }
 
+// The cmux.json binding grammar lives in CmuxSettings, which the Settings
+// window also reads bindings through. These wrappers convert its values.
 extension ShortcutStroke {
-    static func parseConfig(_ rawValue: String) -> ShortcutStroke? {
-        guard !rawValue.isEmpty else { return nil }
-
-        let rawParts = rawValue.split(separator: "+", omittingEmptySubsequences: false)
-            .map(String.init)
-        let parts = rawParts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard !parts.isEmpty, let lastRawPart = rawParts.last, !lastRawPart.isEmpty else {
-            return nil
-        }
-
-        var command = false
-        var shift = false
-        var option = false
-        var control = false
-
-        for modifier in parts.dropLast() {
-            switch modifier.lowercased() {
-            case "cmd", "command", "⌘":
-                command = true
-            case "shift", "⇧":
-                shift = true
-            case "opt", "option", "alt", "⌥":
-                option = true
-            case "ctrl", "control", "ctl", "⌃":
-                control = true
-            default:
-                return nil
-            }
-        }
-
-        guard let key = parseConfigKeyToken(lastRawPart) else { return nil }
-        return ShortcutStroke(
-            key: key,
-            command: command,
-            shift: shift,
-            option: option,
-            control: control
+    init(_ stroke: CmuxSettings.ShortcutStroke) {
+        self.init(
+            key: stroke.key,
+            command: stroke.command,
+            shift: stroke.shift,
+            option: stroke.option,
+            control: stroke.control,
+            keyCode: stroke.keyCode
         )
+    }
+
+    /// Parses one cmux.json stroke; see ``CmuxSettings/ShortcutStroke/parseConfig(_:)``.
+    static func parseConfig(_ rawValue: String) -> ShortcutStroke? {
+        CmuxSettings.ShortcutStroke.parseConfig(rawValue).map { ShortcutStroke($0) }
     }
 
     func configString(preserveDigit: Bool = true) -> String {
@@ -2327,99 +2305,25 @@ extension ShortcutStroke {
         if key == "\t" { return "tab" }
         return key
     }
-
-    private static func parseConfigKeyToken(_ rawValue: String) -> String? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return rawValue == " " ? "space" : nil
-        }
-
-        let lowered = trimmed.lowercased()
-        switch lowered {
-        case "left", "arrowleft", "leftarrow", "←":
-            return "←"
-        case "right", "arrowright", "rightarrow", "→":
-            return "→"
-        case "up", "arrowup", "uparrow", "↑":
-            return "↑"
-        case "down", "arrowdown", "downarrow", "↓":
-            return "↓"
-        case "tab":
-            return "\t"
-        case "return", "enter", "↩":
-            return "\r"
-        case "space", "spacebar", "<space>":
-            return "space"
-        case "comma":
-            return ","
-        case "period", "dot":
-            return "."
-        case "slash":
-            return "/"
-        case "backslash":
-            return "\\"
-        case "semicolon":
-            return ";"
-        case "quote", "apostrophe":
-            return "'"
-        case "backtick", "grave":
-            return "`"
-        case "minus", "hyphen":
-            return "-"
-        case "plus", "equals":
-            return "="
-        case "leftbracket", "openbracket":
-            return "["
-        case "rightbracket", "closebracket":
-            return "]"
-        case "volumeup", "mediavolumeup", "media.volumeup":
-            return "media.volumeUp"
-        case "volumedown", "mediavolumedown", "media.volumedown":
-            return "media.volumeDown"
-        case "brightnessup", "mediabrightnessup", "media.brightnessup":
-            return "media.brightnessUp"
-        case "brightnessdown", "mediabrightnessdown", "media.brightnessdown":
-            return "media.brightnessDown"
-        case "mute", "mediamute", "media.mute":
-            return "media.mute"
-        case "playpause", "mediaplaypause", "media.playpause":
-            return "media.playPause"
-        case "nexttrack", "medianext", "media.next", "media.nexttrack":
-            return "media.next"
-        case "previoustrack", "mediaprevious", "media.previous", "media.previoustrack":
-            return "media.previous"
-        default:
-            if lowered.hasPrefix("f"),
-               let number = Int(lowered.dropFirst()),
-               (1...20).contains(number) {
-                return "f\(number)"
-            }
-            guard lowered.count == 1 else { return nil }
-            return lowered
-        }
-    }
 }
 
 extension StoredShortcut {
-    static func parseConfig(_ rawValue: String, allowBareFirstStroke: Bool = false) -> StoredShortcut? {
-        if isUnboundConfigToken(rawValue) {
-            return .unbound
-        }
-        return parseConfig(strokes: [rawValue], allowBareFirstStroke: allowBareFirstStroke)
+    init(_ shortcut: CmuxSettings.StoredShortcut) {
+        self.init(first: ShortcutStroke(shortcut.first), second: shortcut.second.map { ShortcutStroke($0) })
     }
 
+    /// Parses a one-string cmux.json binding; see
+    /// ``CmuxSettings/StoredShortcut/parseConfig(_:allowBareFirstStroke:)``.
+    static func parseConfig(_ rawValue: String, allowBareFirstStroke: Bool = false) -> StoredShortcut? {
+        CmuxSettings.StoredShortcut.parseConfig(rawValue, allowBareFirstStroke: allowBareFirstStroke)
+            .map { StoredShortcut($0) }
+    }
+
+    /// Parses a one- or two-stroke cmux.json binding; see
+    /// ``CmuxSettings/StoredShortcut/parseConfig(strokes:allowBareFirstStroke:)``.
     static func parseConfig(strokes: [String], allowBareFirstStroke: Bool = false) -> StoredShortcut? {
-        guard !strokes.isEmpty, strokes.count <= 2 else { return nil }
-        if strokes.count == 1, let rawValue = strokes.first, isUnboundConfigToken(rawValue) {
-            return .unbound
-        }
-        let parsedStrokes = strokes.compactMap(ShortcutStroke.parseConfig(_:))
-        guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
-            return nil
-        }
-        guard allowBareFirstStroke || !firstStroke.modifierFlags.isEmpty || firstStroke.key == "space" else { return nil }
-        let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
-        return StoredShortcut(first: firstStroke, second: secondStroke)
+        CmuxSettings.StoredShortcut.parseConfig(strokes: strokes, allowBareFirstStroke: allowBareFirstStroke)
+            .map { StoredShortcut($0) }
     }
 
     var configIdentifier: String {
@@ -2428,14 +2332,6 @@ extension StoredShortcut {
             return "\(firstStroke.configString()) \(secondStroke.configString())"
         }
         return firstStroke.configString()
-    }
-
-    private static func isUnboundConfigToken(_ rawValue: String) -> Bool {
-        if rawValue.isEmpty { return true }
-        if rawValue == " " { return false }
-        let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty else { return true }
-        return normalized == "none" || normalized == "clear" || normalized == "unbound" || normalized == "disabled"
     }
 }
 

@@ -96,18 +96,20 @@ public actor JSONConfigStore {
     /// Returns the entries of the dictionary-valued `key` that `Element` can
     /// decode, skipping the rest.
     ///
-    /// ``value(for:)`` decodes a dictionary all-or-nothing, so one entry in a
-    /// form `Element` does not understand (for example a hand-written
-    /// `"cmd+t"` shortcut binding, which only the app target parses) makes the
-    /// whole object read as the key's default. Use this read for objects whose
-    /// entries users may write in other valid forms, together with
-    /// ``merge(_:into:)`` for writes. Returns the key's default when the path
-    /// is absent or does not hold an object.
+    /// ``value(for:)`` decodes a dictionary all-or-nothing, so one entry
+    /// `Element` rejects (for example a hand-written shortcut binding with an
+    /// unknown key name, which the app also ignores) makes the whole object
+    /// read as the key's default. Use this read for objects users edit by
+    /// hand, together with ``merge(_:into:)`` for writes. Each entry decodes
+    /// through ``SettingCodable/decodeFromJSON(_:entryKey:)``. Returns the
+    /// key's default when the path is absent or does not hold an object.
     public func value<Element>(forDecodableEntriesOf key: JSONKey<[String: Element]>) -> [String: Element] {
         guard let object = key.path.lookup(in: loadedRoot()) as? [String: Any] else {
             return key.defaultValue
         }
-        return object.compactMapValues { Element.decodeFromJSON($0) }
+        return object.reduce(into: [:]) { entries, entry in
+            entries[entry.key] = Element.decodeFromJSON(entry.value, entryKey: entry.key)
+        }
     }
 
     /// Synchronously returns the current value for `key`, read directly from the

@@ -5,7 +5,9 @@ import Testing
 /// Per-entry reads and writes of a dictionary-valued JSON key whose object
 /// also holds entries the element type cannot decode. `shortcuts.bindings` is
 /// the real case: users hand-write `"cmd+t"`, `["ctrl+b", "%"]` and `null`
-/// bindings that only the app target parses.
+/// bindings next to the object form Settings writes, and can also write
+/// bindings the app rejects (an unknown key name, a number, a bare first
+/// stroke for an action that needs a modifier).
 @Suite("JSONConfigStore dictionary entries")
 struct JSONConfigStoreDictionaryEntryTests {
     private static let settingsWritten = StoredShortcut(first: ShortcutStroke(key: ",", command: true))
@@ -13,8 +15,17 @@ struct JSONConfigStoreDictionaryEntryTests {
         first: ShortcutStroke(key: "j", command: true, shift: true, option: true, control: true)
     )
 
-    /// A cmux.json whose `shortcuts.bindings` mixes hand-written forms with one
-    /// object-form entry, next to an unrelated setting.
+    /// What the hand-written and object-form entries of ``mixedConfigJSON`` decode to.
+    private static let decodableEntries: [String: StoredShortcut] = [
+        "newTab": StoredShortcut(first: ShortcutStroke(key: "t", command: true)),
+        "splitRight": StoredShortcut(first: ShortcutStroke(key: "b", control: true), second: ShortcutStroke(key: "%")),
+        "closeWindow": .unbound,
+        "openSettings": settingsWritten,
+    ]
+
+    /// A cmux.json whose `shortcuts.bindings` mixes hand-written forms, one
+    /// object-form entry and three entries the app rejects, next to an
+    /// unrelated setting.
     private static let mixedConfigJSON = #"""
     {
       "app": {"appearance": "dark"},
@@ -23,6 +34,9 @@ struct JSONConfigStoreDictionaryEntryTests {
           "newTab": "cmd+t",
           "splitRight": ["ctrl+b", "%"],
           "closeWindow": null,
+          "newWindow": "cmd+bogus",
+          "quit": 42,
+          "toggleSidebar": "n",
           "openSettings": {"first": {"key": ",", "command": true, "shift": false, "option": false, "control": false}}
         }
       }
@@ -62,7 +76,7 @@ struct JSONConfigStoreDictionaryEntryTests {
         let after = try bindingsOnDisk(fileURL)
         #expect(StoredShortcut.decodeFromJSON(after["toggleFullScreen"]) == Self.recorded)
         #expect(StoredShortcut.decodeFromJSON(after["newTab"]) == .unbound)
-        let untouched = ["splitRight", "closeWindow", "openSettings"]
+        let untouched = ["splitRight", "closeWindow", "newWindow", "quit", "toggleSidebar", "openSettings"]
         #expect(Set(after.keys) == Set(untouched + ["toggleFullScreen", "newTab"]))
         for key in untouched {
             #expect(
@@ -95,7 +109,7 @@ struct JSONConfigStoreDictionaryEntryTests {
         let entries = await store.value(forDecodableEntriesOf: catalog.shortcuts.bindings)
 
         // Assert
-        #expect(entries == ["openSettings": Self.settingsWritten])
+        #expect(entries == Self.decodableEntries)
     }
 
     @Test(arguments: [
@@ -145,7 +159,7 @@ struct JSONConfigStoreDictionaryEntryTests {
         writer.cancel()
 
         // Assert
-        #expect(collected.first == ["openSettings": Self.settingsWritten])
-        #expect(collected.last == ["openSettings": Self.settingsWritten, "toggleFullScreen": Self.recorded])
+        #expect(collected.first == Self.decodableEntries)
+        #expect(collected.last == Self.decodableEntries.merging(["toggleFullScreen": Self.recorded]) { $1 })
     }
 }

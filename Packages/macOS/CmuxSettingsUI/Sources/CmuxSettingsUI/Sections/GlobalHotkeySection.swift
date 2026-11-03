@@ -123,8 +123,8 @@ public struct GlobalHotkeySection: View {
         .padding(.vertical, 9)
     }
 
-    /// Writes only the hotkey's own `shortcuts.bindings` entry, so hand-written
-    /// bindings this package cannot decode stay in cmux.json.
+    /// Writes only the hotkey's own `shortcuts.bindings` entry, so the other
+    /// hand-written bindings stay in cmux.json as written.
     private func write(updating shortcut: StoredShortcut) async {
         do {
             try await jsonStore.merge([hotkeyAction.rawValue: shortcut], into: catalog.shortcuts.bindings)

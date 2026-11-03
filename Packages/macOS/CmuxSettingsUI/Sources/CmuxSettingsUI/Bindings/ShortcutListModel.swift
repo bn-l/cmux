@@ -49,8 +49,9 @@ final class ShortcutListModel {
     func startObserving() {
         let bindingsKey = catalog.shortcuts.bindings
         let whenKey = catalog.shortcuts.when
-        // cmux.json may also hold hand-written string/array/null bindings that
-        // only the app target parses; read the object-form entries around them.
+        // cmux.json mixes hand-written string/array/null bindings with the
+        // object form Settings writes. Read per entry, so an entry the app also
+        // rejects falls back to its default without hiding the rest.
         bindingsDriver.activate(
             { [jsonStore, bindingsKey] in jsonStore.values(forDecodableEntriesOf: bindingsKey) },
             sink: { [weak self] dictionary in self?.ingestBindings(dictionary) }
@@ -403,9 +404,9 @@ final class ShortcutListModel {
     }
 
     /// Persists `shortcut` as `action`'s own `shortcuts.bindings.<actionId>`
-    /// entry. Other entries stay on disk as they are, including hand-written
-    /// string/array/null bindings this package cannot decode; writing the
-    /// whole decoded dictionary would delete them.
+    /// entry. Other entries stay on disk as they are: hand-written
+    /// string/array/null bindings keep their form, and entries the package
+    /// rejects are not deleted, as writing the whole decoded dictionary would.
     private func write(_ shortcut: StoredShortcut, for action: ShortcutAction) async {
         var updated = latestBindings
         updated[action.rawValue] = shortcut

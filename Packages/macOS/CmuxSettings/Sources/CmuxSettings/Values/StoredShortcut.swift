@@ -41,12 +41,19 @@ public struct StoredShortcut: Sendable, Equatable, Hashable, Codable, SettingCod
         (try? JSONEncoder().encode(self)) ?? Data()
     }
 
+    /// Decodes a binding in any cmux.json form (see
+    /// ``decodeFromJSON(_:allowBareFirstStroke:)``) without knowing its action,
+    /// so a string or array binding needs a modifier on its first stroke.
     public static func decodeFromJSON(_ raw: Any?) -> StoredShortcut? {
-        guard let raw, !(raw is NSNull) else { return nil }
-        guard let data = try? JSONSerialization.data(withJSONObject: raw, options: .fragmentsAllowed) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(StoredShortcut.self, from: data)
+        decodeFromJSON(raw, allowBareFirstStroke: false)
+    }
+
+    /// Decodes the `shortcuts.bindings` entry whose key is `entryKey`, an
+    /// action id. String and array bindings may start with a bare stroke only
+    /// for actions whose ``ShortcutAction/allowsBareFirstStroke`` is `true`;
+    /// an unknown id gets the strict rule.
+    public static func decodeFromJSON(_ raw: Any?, entryKey: String) -> StoredShortcut? {
+        decodeFromJSON(raw, allowBareFirstStroke: ShortcutAction(rawValue: entryKey)?.allowsBareFirstStroke ?? false)
     }
 
     public func encodeForJSON() -> Any {

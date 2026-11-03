@@ -226,6 +226,94 @@ final class KeyboardShortcutContextTests: XCTestCase {
         }
     }
 
+    // Settings decodes cmux.json bindings with the package's per-action
+    // bare-first-stroke policy; the app parses them with its own. They must agree.
+    func testSettingsPackageBareFirstStrokePolicyMatchesRuntime() {
+        for action in KeyboardShortcutSettings.Action.allCases {
+            guard let settingsAction = ShortcutAction(rawValue: action.rawValue) else {
+                continue
+            }
+            XCTAssertEqual(settingsAction.allowsBareFirstStroke, action.allowsBareFirstStroke, action.rawValue)
+        }
+    }
+
+    // Settings reads shortcuts.bindings through CmuxSettings; the app applies it
+    // through KeyboardShortcutSettingsFileStore. For every hand-written form the
+    // two must agree, or the Settings row shows a binding the app does not run.
+    func testSettingsPackageReadsHandWrittenBindingsAsTheAppApplies() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            #"""
+            {
+              "shortcuts": {
+                "bindings": {
+                  "newTab": "cmd+t",
+                  "splitRight": ["ctrl+b", "%"],
+                  "closeWindow": null,
+                  "jumpToUnread": [],
+                  "toggleSidebar": " Disabled ",
+                  "find": "cmd + shift + f5",
+                  "openFolder": "Ctrl+Opt+Left",
+                  "reopenPreviousSession": ["cmd+k", " "],
+                  "triggerFlash": "cmd+playPause",
+                  "diffViewerScrollDown": "n",
+                  "diffViewerScrollToTop": ["g", "g"],
+                  "newWindow": "n",
+                  "quit": ["cmd+k", "cmd+q", "cmd+x"],
+                  "openSettings": "cmd+bogus",
+                  "commandPalette": 42
+                }
+              }
+            }
+            """#,
+            to: settingsFileURL
+        )
+        let appStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        let settingsEntries = await JSONConfigStore(fileURL: settingsFileURL)
+            .value(forDecodableEntriesOf: SettingCatalog().shortcuts.bindings)
+
+        let ids = [
+            "newTab", "splitRight", "closeWindow", "jumpToUnread", "toggleSidebar", "find", "openFolder",
+            "reopenPreviousSession", "triggerFlash", "diffViewerScrollDown", "diffViewerScrollToTop",
+            "newWindow", "quit", "openSettings", "commandPalette",
+        ]
+        for id in ids {
+            let action = try XCTUnwrap(KeyboardShortcutSettings.Action(rawValue: id), id)
+            XCTAssertEqual(
+                settingsEntries[id].map(appShortcut(_:)),
+                appStore.override(for: action),
+                "Settings and the app read shortcuts.bindings.\(id) differently"
+            )
+        }
+        // The app rejects the last four entries; the other eleven must be bound,
+        // so the comparison above is not two empty reads agreeing.
+        XCTAssertEqual(Set(settingsEntries.keys), Set(ids.dropLast(4)))
+    }
+
+    /// Converts a CmuxSettings binding to the app type field by field.
+    private func appShortcut(_ shortcut: CmuxSettings.StoredShortcut) -> StoredShortcut {
+        StoredShortcut(
+            key: shortcut.first.key,
+            command: shortcut.first.command,
+            shift: shortcut.first.shift,
+            option: shortcut.first.option,
+            control: shortcut.first.control,
+            keyCode: shortcut.first.keyCode,
+            chordKey: shortcut.second?.key,
+            chordCommand: shortcut.second?.command ?? false,
+            chordShift: shortcut.second?.shift ?? false,
+            chordOption: shortcut.second?.option ?? false,
+            chordControl: shortcut.second?.control ?? false,
+            chordKeyCode: shortcut.second?.keyCode
+        )
+    }
+
     // Regression: on European layouts (German QWERTZ, French AZERTY, Nordic, ...)
     // "+" and "-" are dedicated keys typed WITHOUT Shift, so the event reports
     // character "+"/"-" with no Shift flag and a keyCode that is not the US

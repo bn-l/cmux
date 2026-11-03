@@ -19,7 +19,9 @@ public struct KeyboardShortcutsCatalogSection: SettingCatalogSection {
     /// The persisted user bindings: `[actionID: StoredShortcut]`.
     /// Actions absent from this dictionary fall back to the layer's
     /// declared default. ``StoredShortcut/unbound`` for an action
-    /// represents an explicit "no shortcut" override.
+    /// represents an explicit "no shortcut" override. Entries may be
+    /// hand-written strings, arrays or `null` as well as the object form
+    /// Settings writes; see ``StoredShortcut/decodeFromJSON(_:entryKey:)``.
     public let bindings = JSONKey<[String: StoredShortcut]>(
         id: "shortcuts.bindings",
         defaultValue: [:]

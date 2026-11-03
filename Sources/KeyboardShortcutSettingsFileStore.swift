@@ -1025,17 +1025,7 @@ final class CmuxSettingsFileStore {
         _ rawValue: Any,
         action: KeyboardShortcutSettings.Action
     ) -> StoredShortcut? {
-        let shortcut: StoredShortcut? = {
-            if rawValue is NSNull { return .unbound }
-            if let stroke = jsonString(rawValue) {
-                return StoredShortcut.parseConfig(stroke, allowBareFirstStroke: action.allowsBareFirstStroke)
-            }
-            if let strokes = jsonStringArray(rawValue) {
-                return strokes.isEmpty ? .unbound : StoredShortcut.parseConfig(
-                    strokes: strokes,
-                    allowBareFirstStroke: action.allowsBareFirstStroke
-                )
-            }
+        let shortcut: StoredShortcut? = if let object = rawValue as? [String: Any] {
             // Object form written by the CmuxSettings package recorder (the
             // in-app Settings UI): { "first": { key, command, ... }, "second": { ... }? }.
             // The package serializes StoredShortcut as nested stroke objects, so
@@ -1044,11 +1034,15 @@ final class CmuxSettingsFileStore {
             // visibly the system-wide Carbon hotkeys (globalSearch,
             // showHideAllWindows) — honors the rebinding instead of silently
             // dropping it and falling back to the built-in default.
-            if let object = rawValue as? [String: Any] {
-                return parseShortcutObjectForm(object, action: action)
-            }
-            return nil
-        }()
+            parseShortcutObjectForm(object, action: action)
+        } else {
+            // null, a string or an array of strings. The Settings window reads
+            // these through the same CmuxSettings decoder, so it shows them as applied.
+            CmuxSettings.StoredShortcut.decodeFromJSON(
+                rawValue,
+                allowBareFirstStroke: action.allowsBareFirstStroke
+            ).map { StoredShortcut($0) }
+        }
 
         guard let shortcut else { return nil }
         // Settings-file parsing runs while the shared store may still be initializing.

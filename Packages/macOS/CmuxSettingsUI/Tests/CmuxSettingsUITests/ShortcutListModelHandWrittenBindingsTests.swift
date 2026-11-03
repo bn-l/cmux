@@ -57,17 +57,39 @@ enum SettingsShortcutEdit: String, CaseIterable, Sendable, CustomTestStringConve
     }
 }
 
-/// Settings edits must not delete shortcut bindings the user wrote by hand in
-/// cmux.json. The app accepts string (`"cmd+t"`), array (`["ctrl+b", "%"]`) and
-/// `null` bindings, but the package's ``StoredShortcut`` decodes only the object
-/// form, so the package cannot read those entries back.
+/// Shortcut bindings the user wrote by hand in cmux.json. The app accepts
+/// string (`"cmd+t"`), array (`["ctrl+b", "%"]`) and `null` bindings next to the
+/// object form Settings writes. Settings must show them as the app applies them,
+/// use them for conflict detection and the X/restore button, and never rewrite
+/// an entry the user did not edit in Settings.
 @MainActor
 @Suite struct ShortcutListModelHandWrittenBindingsTests {
 
-    /// Hand-written `shortcuts.bindings` entries in forms only the app target parses.
+    /// Hand-written `shortcuts.bindings` entries. `newWindow` (a bare first
+    /// stroke on an action that needs a modifier) and `quit` (three strokes)
+    /// are invalid, so the app ignores them and keeps the defaults.
     private static let handWrittenBindingsJSON = #"""
-    {"newTab": "cmd+t", "splitRight": ["ctrl+b", "%"], "closeWindow": null}
+    {
+      "newTab": "cmd+t",
+      "splitRight": ["ctrl+b", "%"],
+      "closeWindow": null,
+      "toggleSidebar": " Disabled ",
+      "find": "cmd + shift + f5",
+      "diffViewerScrollDown": "n",
+      "newWindow": "n",
+      "quit": ["cmd+k", "cmd+q", "cmd+x"]
+    }
     """#
+
+    /// The bindings the app applies for ``handWrittenBindingsJSON``.
+    private static let handWrittenAsApplied: [String: StoredShortcut] = [
+        "newTab": StoredShortcut(first: ShortcutStroke(key: "t", command: true)),
+        "splitRight": StoredShortcut(first: ShortcutStroke(key: "b", control: true), second: ShortcutStroke(key: "%")),
+        "closeWindow": .unbound,
+        "toggleSidebar": .unbound,
+        "find": StoredShortcut(first: ShortcutStroke(key: "f5", command: true, shift: true)),
+        "diffViewerScrollDown": StoredShortcut(first: ShortcutStroke(key: "n")),
+    ]
 
     /// A binding recorded in Settings earlier, stored in the object form the package decodes.
     private static let settingsWritten = StoredShortcut(
@@ -133,9 +155,8 @@ enum SettingsShortcutEdit: String, CaseIterable, Sendable, CustomTestStringConve
         let store = JSONConfigStore(fileURL: fileURL)
         let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: SettingsErrorLog())
         model.startObserving()
-        // No wait for the first stream delivery: the package decodes this file
-        // to [:] both before and after it arrives, so the write must not
-        // depend on the model's decoded view.
+        // No wait for the first stream delivery: the write must not depend on
+        // whether the model has decoded the hand-written entries yet.
 
         // Act
         await edit.perform(on: model)
@@ -171,8 +192,145 @@ enum SettingsShortcutEdit: String, CaseIterable, Sendable, CustomTestStringConve
         await spin(until: { model.bindings[action.rawValue] != nil })
 
         // Assert
-        #expect(model.bindings == [action.rawValue: Self.settingsWritten])
+        #expect(model.bindings == Self.handWrittenAsApplied.merging([action.rawValue: Self.settingsWritten]) { $1 })
         #expect(model.effective(for: action) == Self.settingsWritten)
+    }
+
+    @Test func modelShowsHandWrittenBindingsAsTheAppAppliesThem() async throws {
+        // WHY: the package used to decode only the object form, so every
+        // string, array and null binding showed as its default in Settings
+        // while the app ran the hand-written one.
+
+        // Arrange: the Settings-written entry is decoded both before and after
+        // the fix, so waiting for it waits for the first stream delivery.
+        let syncAction = ShortcutAction.openSettings
+        let fileURL = try makeConfigFile(settingsWritten: [syncAction.rawValue: Self.settingsWritten])
+        let store = JSONConfigStore(fileURL: fileURL)
+        let model = ShortcutListModel(jsonStore: store, catalog: SettingCatalog(), errorLog: SettingsErrorLog())
+
+        // Act
+        model.startObserving()
+        await spin(until: { model.bindings[syncAction.rawValue] != nil })
+
+        // Assert
+        let expected = Self.handWrittenAsApplied.merging([syncAction.rawValue: Self.settingsWritten]) { $1 }
+        #expect(model.bindings == expected, "Settings bindings differ from what the app applies")
+        let rows: [(ShortcutAction, String)] = [
+            (.newTab, "⌘T"),
+            (.splitRight, "⌃B %"),
+            (.closeWindow, "None"),
+            (.toggleSidebar, "None"),
+            (.find, "⇧⌘F5"),
+            (.diffViewerScrollDown, "N"),
+            // The app rejects these two entries and keeps the defaults.
+            (.newWindow, "⇧⌘N"),
+            (.quit, "⌘Q"),
+        ]
+        for (action, shown) in rows {
+            let placeholder = model.formatPlaceholder(
+                effective: model.effective(for: action),
+                numbered: action.usesNumberedDigitMatching
+            )
+            #expect(placeholder == shown, "\(action.rawValue) row shows \(placeholder)")
+        }
+    }
+
+    /// One recording that conflict detection must judge against the
+    /// hand-written bindings rather than the defaults.
+    struct ConflictCase: Sendable, CustomTestStringConvertible {
+        let stroke: ShortcutStroke
+        let conflict: ShortcutAction?
+        let testDescription: String
+    }
+
+    @Test(arguments: [
+        // newTab's default; the hand-written "cmd+t" moved newTab off it.
+        ConflictCase(stroke: ShortcutStroke(key: "n", command: true), conflict: nil, testDescription: "cmd+n is free"),
+        // closeWindow's default; the hand-written null unbound closeWindow.
+        ConflictCase(stroke: ShortcutStroke(key: "w", command: true, control: true), conflict: nil, testDescription: "ctrl+cmd+w is free"),
+        // The first stroke of splitRight's hand-written chord.
+        ConflictCase(stroke: ShortcutStroke(key: "b", control: true), conflict: .splitRight, testDescription: "ctrl+b is taken"),
+    ])
+    func conflictDetectionUsesHandWrittenBindings(_ conflictCase: ConflictCase) async throws {
+        // Arrange
+        let action = ShortcutAction.openSettings
+        let fileURL = try makeConfigFile(settingsWritten: [action.rawValue: Self.settingsWritten])
+        let store = JSONConfigStore(fileURL: fileURL)
+        let model = ShortcutListModel(jsonStore: store, catalog: SettingCatalog(), errorLog: SettingsErrorLog())
+        model.startObserving()
+        await spin(until: { model.bindings[action.rawValue] != nil })
+
+        // Act
+        await model.assign(stroke: conflictCase.stroke, to: action)
+
+        // Assert
+        let onDisk = try bindingsOnDisk(fileURL)
+        #expect(model.conflictRejections[action.rawValue] == conflictCase.conflict)
+        let expectedOnDisk = conflictCase.conflict == nil ? StoredShortcut(first: conflictCase.stroke) : Self.settingsWritten
+        #expect(
+            StoredShortcut.decodeFromJSON(onDisk[action.rawValue]) == expectedOnDisk,
+            "openSettings on disk: \(String(describing: onDisk[action.rawValue]))"
+        )
+        try expectHandWrittenBindingsUnchanged(onDisk)
+    }
+
+    @Test func xButtonClearsAndRestoresAHandWrittenBinding() async throws {
+        // WHY: the X button caches the effective stroke before clearing, and
+        // restore writes that cache. Read as its default, the hand-written
+        // "cmd+t" came back as ⌘N.
+
+        // Arrange
+        let action = ShortcutAction.newTab
+        let syncAction = ShortcutAction.openSettings
+        let fileURL = try makeConfigFile(settingsWritten: [syncAction.rawValue: Self.settingsWritten])
+        let store = JSONConfigStore(fileURL: fileURL)
+        let model = ShortcutListModel(jsonStore: store, catalog: SettingCatalog(), errorLog: SettingsErrorLog())
+        model.startObserving()
+        await spin(until: { model.bindings[syncAction.rawValue] != nil })
+        let handWritten = try #require(Self.handWrittenAsApplied[action.rawValue])
+
+        // Act
+        await model.clearOrRestore(for: action)
+        let clearedOnDisk = try bindingsOnDisk(fileURL)
+        let canRestoreAfterClear = model.canRestore(for: action)
+        await model.clearOrRestore(for: action)
+
+        // Assert
+        #expect(StoredShortcut.decodeFromJSON(clearedOnDisk[action.rawValue]) == .unbound)
+        #expect(canRestoreAfterClear, "the X button lost its cached stroke after clearing")
+        let restoredOnDisk = try bindingsOnDisk(fileURL)
+        #expect(
+            StoredShortcut.decodeFromJSON(restoredOnDisk[action.rawValue]) == handWritten,
+            "restore wrote \(String(describing: restoredOnDisk[action.rawValue])), not the hand-written ⌘T"
+        )
+        await spin(until: { model.effective(for: action) == handWritten })
+    }
+
+    @Test func xButtonIsInertForAHandWrittenNull() async throws {
+        // WHY: a hand-written null already unbinds the action. Read as the
+        // default ⌃⌘W, the X button "cleared" it and replaced the null with an
+        // object-form entry the user never asked for.
+
+        // Arrange
+        let action = ShortcutAction.closeWindow
+        let syncAction = ShortcutAction.openSettings
+        let fileURL = try makeConfigFile(settingsWritten: [syncAction.rawValue: Self.settingsWritten])
+        let store = JSONConfigStore(fileURL: fileURL)
+        let model = ShortcutListModel(jsonStore: store, catalog: SettingCatalog(), errorLog: SettingsErrorLog())
+        model.startObserving()
+        await spin(until: { model.bindings[syncAction.rawValue] != nil })
+
+        // Act
+        let effectiveBeforeClick = model.effective(for: action)
+        let canRestoreBeforeClick = model.canRestore(for: action)
+        await model.clearOrRestore(for: action)
+
+        // Assert
+        #expect(effectiveBeforeClick == .unbound, "closeWindow shows \(String(describing: effectiveBeforeClick))")
+        #expect(!canRestoreBeforeClick)
+        let onDisk = try bindingsOnDisk(fileURL)
+        #expect(onDisk[action.rawValue] is NSNull, "closeWindow on disk: \(String(describing: onDisk[action.rawValue]))")
+        try expectHandWrittenBindingsUnchanged(onDisk)
     }
 
     @Test func clearThenRestoreWithTheXButtonKeepsHandWrittenBindings() async throws {
