@@ -13,42 +13,21 @@ enum BrowserPaneFileDropRouting {
         case previewInWorkspace
     }
 
-    /// `isDockHosted` is an autoclosure so callers can defer the app-wide dock
-    /// ownership lookup until a file-URL payload is actually present; drag
-    /// callbacks fire for every payload type and must not pay for it otherwise.
     static func disposition(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        modifierFlags: NSEvent.ModifierFlags,
-        isDockHosted: @autoclosure () -> Bool
+        modifierFlags: NSEvent.ModifierFlags
     ) -> Disposition? {
         guard DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes) else { return nil }
-
-        // A Dock-hosted browser pane has no workspace-tree file-preview destination, so a
-        // file URL dropped over its page content always forwards to the hosted WKWebView
-        // (normal page upload) regardless of the text/preview file-drop setting. This
-        // preserves the pre-Dock-drop behavior, where the pane target did not claim the drop
-        // and it fell through to the web view; without it, preview-mode (or Shift-inverted)
-        // file drops on Dock browsers would be claimed by the pane target and rejected by the
-        // Dock guard instead of reaching the page.
-        if isDockHosted() {
-            return .forwardToPage
-        }
-
         return modifierFlags.contains(.shift) ? .previewInWorkspace : .forwardToPage
     }
 }
 
 @MainActor
 extension BrowserPaneDropTargetView {
-    var isDockHostedPane: Bool {
-        dropContext.map { AppDelegate.shared?.dockForPane($0.paneId) != nil } ?? false
-    }
-
     func fileDropDisposition(_ sender: any NSDraggingInfo) -> BrowserPaneFileDropRouting.Disposition? {
         BrowserPaneFileDropRouting.disposition(
             pasteboardTypes: sender.draggingPasteboard.types,
-            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
-            isDockHosted: isDockHostedPane
+            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags
         )
     }
 

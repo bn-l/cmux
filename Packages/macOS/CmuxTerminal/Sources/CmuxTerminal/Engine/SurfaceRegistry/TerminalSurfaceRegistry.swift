@@ -19,11 +19,10 @@ public import GhosttyKit
 /// to the main actor, as it always did.
 public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable {
     private let lock = NSLock()
-    // SAFETY: all four are guarded by `lock`; callers arrive on the main
+    // SAFETY: all three are guarded by `lock`; callers arrive on the main
     // actor and from nonisolated `deinit` paths.
     nonisolated(unsafe) private let surfaces = NSHashTable<AnyObject>.weakObjects()
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
-    nonisolated(unsafe) private var surfaceFocusPlacements: [UUID: TerminalSurfaceFocusPlacement] = [:]
     nonisolated(unsafe) private weak var routeRetirer: (any MainWindowRouteRetiring)?
 
     /// Creates an empty registry.
@@ -37,12 +36,11 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         lock.unlock()
     }
 
-    /// Registers a live surface and records its focus placement.
+    /// Registers a live surface.
     public func register(_ surface: any TerminalSurfacing) {
         lock.lock()
         defer { lock.unlock() }
         surfaces.add(surface)
-        surfaceFocusPlacements[surface.id] = surface.focusPlacement
     }
 
     /// Removes a surface; drops its focus placement when no other surface
@@ -50,14 +48,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     /// main-window routes.
     public func unregister(_ surface: any TerminalSurfacing) {
         lock.lock()
-        let surfaceId = surface.id
         surfaces.remove(surface)
-        let stillRegistered = surfaces.allObjects
-            .compactMap { $0 as? any TerminalSurfacing }
-            .contains { $0 !== surface && $0.id == surfaceId }
-        if !stillRegistered {
-            surfaceFocusPlacements.removeValue(forKey: surfaceId)
-        }
         let routeRetirer = routeRetirer
         lock.unlock()
 
@@ -101,47 +92,15 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         return object
     }
 
-    /// Whether the surface with the given id is placed in the right-sidebar
-    /// dock.
-    public func isRightSidebarDockSurface(id: UUID) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return surfaceFocusPlacements[id] == .rightSidebarDock
-    }
-
-    /// Re-records the focus placement for a live surface that moved between the
-    /// workspace area and the right-sidebar dock. No-op when the id is not
-    /// currently registered, so a stale move cannot resurrect a dropped entry.
-    public func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard surfaceFocusPlacements[id] != nil else { return }
-        surfaceFocusPlacements[id] = placement
-    }
-
     /// A bounded count snapshot for leak diagnostics and crash/app-hang telemetry.
     public func diagnosticSnapshot() -> TerminalSurfaceRegistryDiagnosticSnapshot {
         lock.lock()
         let objects = surfaces.allObjects.compactMap { $0 as? any TerminalSurfacing }
         let runtimeSurfaceCount = runtimeSurfaceOwners.count
-        var workspaceSurfaceCount = 0
-        var rightSidebarDockSurfaceCount = 0
-        for object in objects {
-            switch surfaceFocusPlacements[object.id] {
-            case .workspace:
-                workspaceSurfaceCount += 1
-            case .rightSidebarDock:
-                rightSidebarDockSurfaceCount += 1
-            case .none:
-                break
-            }
-        }
         lock.unlock()
 
         return TerminalSurfaceRegistryDiagnosticSnapshot(
             registeredSurfaceCount: objects.count,
-            workspaceSurfaceCount: workspaceSurfaceCount,
-            rightSidebarDockSurfaceCount: rightSidebarDockSurfaceCount,
             runtimeSurfaceCount: runtimeSurfaceCount
         )
     }

@@ -6,7 +6,6 @@ struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
     let markdownPanel: MarkdownPanel?
     let filePreviewTextEditorFocused: Bool
-    let rightSidebarFocused: Bool
     /// The full context snapshot a ``ShortcutWhenClause`` evaluates against.
     let shortcutContext: ShortcutContext
 
@@ -16,7 +15,6 @@ struct ShortcutEventFocusContext {
         ShortcutFocusState(
             browser: browserPanel != nil,
             markdown: markdownPanel != nil,
-            sidebar: rightSidebarFocused,
             filePreviewTextEditor: filePreviewTextEditorFocused
         )
     }
@@ -68,18 +66,15 @@ extension AppDelegate {
         let filePreviewTextEditorFocused = browserPanel == nil && markdownPanel == nil
             ? shortcutFocusedFilePreviewTextEditor(in: shortcutWindow)
             : false
-        let rightSidebarFocused = shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false
         let focusState = ShortcutFocusState(
             browser: browserPanel != nil,
             markdown: markdownPanel != nil,
-            sidebar: rightSidebarFocused,
             filePreviewTextEditor: filePreviewTextEditorFocused
         )
         let context = ShortcutEventFocusContext(
             browserPanel: browserPanel,
             markdownPanel: markdownPanel,
             filePreviewTextEditorFocused: filePreviewTextEditorFocused,
-            rightSidebarFocused: rightSidebarFocused,
             shortcutContext: buildShortcutContext(focusState: focusState, window: shortcutWindow)
         )
         shortcutEventFocusContextCache = ShortcutEventFocusContextCache(event: event, context: context)
@@ -106,9 +101,6 @@ extension AppDelegate {
                     workspace.focusedTerminalPanel?.searchState != nil
                 )
             }
-        }
-        if let mode = window.flatMap({ keyboardFocusCoordinator(for: $0)?.activeRightSidebarMode }) {
-            context.setString(ShortcutContextKnownKey.sidebarMode.rawValue, mode.rawValue)
         }
         return context
     }
@@ -170,59 +162,6 @@ extension AppDelegate {
         return nil
     }
 
-    @discardableResult
-    func handleFocusedFileExplorerOpenSelectionShortcut(_ event: NSEvent, preferredWindow: NSWindow? = nil) -> Bool {
-        let window = preferredWindow ?? shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-        guard let window,
-              let responder = window.firstResponder,
-              let focusView = shortcutFileExplorerFocusView(for: responder),
-              focusView.window === window || focusView.window?.windowNumber == window.windowNumber else {
-            return false
-        }
-
-        if let outlineView = focusView as? FileExplorerNSOutlineView {
-            return outlineView.handleOpenSelectionShortcut(event)
-        }
-        if let resultsView = focusView as? FileExplorerSearchResultsTableView {
-            return resultsView.handleOpenSelectionShortcut(event)
-        }
-        if let searchField = focusView as? FileExplorerSearchField {
-            return searchField.handleOpenSelectionShortcut(event)
-        }
-        return false
-    }
-
-    private func shortcutFileExplorerFocusView(for responder: NSResponder) -> NSView? {
-        if let textView = responder as? NSTextView,
-           textView.isFieldEditor,
-           let ownerView = cmuxFieldEditorOwnerView(textView) {
-            return fileExplorerShortcutFocusRoot(containing: ownerView)
-        }
-
-        if let view = responder as? NSView {
-            return fileExplorerShortcutFocusRoot(containing: view)
-        }
-
-        return nil
-    }
-
-    private func fileExplorerShortcutFocusRoot(containing view: NSView) -> NSView? {
-        var current: NSView? = view
-        while let candidate = current {
-            if isFileExplorerShortcutFocusRoot(candidate) {
-                return candidate
-            }
-            current = candidate.superview
-        }
-        return nil
-    }
-
-    private func isFileExplorerShortcutFocusRoot(_ view: NSView) -> Bool {
-        view is FileExplorerNSOutlineView ||
-            view is FileExplorerSearchResultsTableView ||
-            view is FileExplorerSearchField
-    }
-
     func clearShortcutEventFocusContextCache(for event: NSEvent) {
         if shortcutEventFocusContextCache?.event === event {
             shortcutEventFocusContextCache = nil
@@ -264,7 +203,7 @@ extension AppDelegate {
     /// Whether the keystroke's first responder is owned by a browser panel's web
     /// view (the page itself or an editable element / field editor inside it), as
     /// opposed to a browser panel merely being the selected pane while chrome — the
-    /// right sidebar, address bar, or find bar — holds keyboard focus. Scoped to
+    /// address bar or find bar — holds keyboard focus. Scoped to
     /// browser-panel web views (not the diff viewer / markdown renderer) so the
     /// browser document-editing bypass only fires on genuine browser web-content
     /// focus and the default Cmd+I (Show Notifications) keeps working otherwise
@@ -282,20 +221,6 @@ extension AppDelegate {
         if let window {
             guard let context = shortcutMainWindowContext(in: window) else {
                 return nil
-            }
-            if let windowDock = existingWindowDock(forWindowId: context.windowId) {
-                if let panel = windowDock.browserPanel(owning: window.firstResponder, in: window) {
-                    return panel
-                }
-                if context.keyboardFocusCoordinator.activeRightSidebarMode == .dock,
-                   let focusedPanelId = windowDock.focusedPanelId,
-                   let panel = windowDock.browserPanel(for: focusedPanelId) {
-                    return panel
-                }
-            }
-            if let panel = context.tabManager.selectedWorkspace?
-                .dockBrowserPanel(owning: window.firstResponder, in: window) {
-                return panel
             }
             return context.tabManager.focusedBrowserPanel
         }
@@ -325,47 +250,25 @@ extension AppDelegate {
     }
 
     private func shortcutBrowserPanel(panelId: UUID, in window: NSWindow?) -> BrowserPanel? {
-        if let context = shortcutMainWindowContext(in: window),
-           let panel = existingWindowDock(forWindowId: context.windowId)?.browserPanel(for: panelId) {
-            return panel
-        }
-        if let panel = windowDockContainingPanel(panelId)?.browserPanel(for: panelId) {
-            return panel
-        }
-        guard let workspace = shortcutContextTabManager(in: window)?.selectedWorkspace else {
-            return nil
-        }
-        return workspace.browserPanelIncludingDock(for: panelId)
+        shortcutContextTabManager(in: window)?.selectedWorkspace?.browserPanel(for: panelId)
     }
 
     private func shortcutBrowserPanel(webView: WKWebView) -> BrowserPanel? {
         // Fast path: the portal registry maps the webView to its owning pane id
-        // in O(1). Resolve that id against the candidate workspaces (main area +
-        // Dock) instead of comparing every panel's webView on each keystroke. A
-        // focused browser webView delivering a shortcut is always portal-hosted,
-        // so this covers the common case without the full panel scan.
+        // in O(1). Resolve that id against the candidate workspaces instead of
+        // comparing every panel's webView on each keystroke. A focused browser
+        // webView delivering a shortcut is always portal-hosted, so this covers
+        // the common case without the full panel scan.
         if let context = BrowserWindowPortalRegistry.paneDropContext(for: webView) {
-            if let panel = windowDockContainingPanel(context.panelId)?.browserPanel(for: context.panelId) {
-                return panel
-            }
             for manager in shortcutCandidateTabManagers() {
                 for workspace in manager.tabs {
-                    if let panel = workspace.browserPanelIncludingDock(for: context.panelId) {
+                    if let panel = workspace.browserPanel(for: context.panelId) {
                         return panel
                     }
                 }
             }
         }
         // Fallback for webViews not registered in a portal: scan candidate panels.
-        for dock in existingWindowDocks {
-            for panel in dock.panels.values {
-                guard let browserPanel = panel as? BrowserPanel,
-                      browserPanel.webView === webView else {
-                    continue
-                }
-                return browserPanel
-            }
-        }
         for manager in shortcutCandidateTabManagers() {
             for workspace in manager.tabs {
                 for panel in workspace.panels.values {

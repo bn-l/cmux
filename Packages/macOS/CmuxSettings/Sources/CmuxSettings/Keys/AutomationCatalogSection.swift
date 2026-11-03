@@ -46,12 +46,6 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "autoNamingAgent"
     )
 
-    public let ripgrepBinaryPath = DefaultsKey<String>(
-        id: "automation.ripgrepBinaryPath",
-        defaultValue: "",
-        userDefaultsKey: "ripgrepCustomBinaryPath"
-    )
-
     public let suppressSubagentNotifications = DefaultsKey<Bool>(
         id: "automation.suppressSubagentNotifications",
         defaultValue: true,
@@ -63,7 +57,7 @@ public struct AutomationCatalogSection: SettingCatalogSection {
     // with the same `userDefaultsKey`, so writes through either namespace land
     // on the same persisted value. The shared keys are claudeCode*, cursor*,
     // gemini*, kiro* (including kiroNotificationLevel), amp*,
-    // ripgrepCustomBinaryPath, and suppressSubagentNotifications. There is no
+    // and suppressSubagentNotifications. There is no
     // precedence ambiguity because both DefaultsKey wrappers read/write the
     // same `UserDefaults` slot — the dual namespace exists to keep the JSON
     // config UX (`automation.*`) and the Settings-catalog UX

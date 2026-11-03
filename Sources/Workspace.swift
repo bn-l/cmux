@@ -508,7 +508,7 @@ extension Workspace {
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
-        let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?; var customSidebarSnapshot: SessionCustomSidebarPanelSnapshot? = nil
+        var customSidebarSnapshot: SessionCustomSidebarPanelSnapshot? = nil
         let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?
         switch panel.panelType {
@@ -590,7 +590,6 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = nil
             agentSessionSnapshot = nil
             projectSnapshot = nil
         case .browser:
@@ -615,7 +614,6 @@ extension Workspace {
             )
             markdownSnapshot = nil
             filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = nil
             agentSessionSnapshot = nil
             projectSnapshot = nil
         case .markdown:
@@ -624,7 +622,6 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
             filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = nil
             agentSessionSnapshot = nil
             projectSnapshot = nil
         case .filePreview:
@@ -633,21 +630,11 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
-            rightSidebarToolSnapshot = nil
-            agentSessionSnapshot = nil
-            projectSnapshot = nil
-        case .rightSidebarTool:
-            guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
-            terminalSnapshot = nil
-            browserSnapshot = nil
-            markdownSnapshot = nil
-            filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
             agentSessionSnapshot = nil
             projectSnapshot = nil
         case .customSidebar:
             guard let snapshot = customSidebarSessionSnapshot(for: panel) else { return nil }
-            terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil; rightSidebarToolSnapshot = nil
+            terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             customSidebarSnapshot = snapshot; agentSessionSnapshot = nil; projectSnapshot = nil
         case .agentSession:
             guard let agentPanel = panel as? AgentSessionPanel else { return nil }
@@ -655,7 +642,6 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = nil
             agentSessionSnapshot = SessionAgentSessionPanelSnapshot(
                 rendererKind: agentPanel.rendererKind,
                 providerID: agentPanel.currentProviderID,
@@ -668,7 +654,6 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = nil
             projectSnapshot = SessionProjectPanelSnapshot(
                 projectPath: projectPanel.projectURL.path,
                 selectedNodePath: projectPanel.selectedFilePath,
@@ -702,7 +687,6 @@ extension Workspace {
             browser: browserSnapshot,
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot,
-            rightSidebarTool: rightSidebarToolSnapshot,
             customSidebar: customSidebarSnapshot,
             agentSession: agentSessionSnapshot,
             project: projectSnapshot
@@ -1652,18 +1636,6 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: filePreviewPanel.id)
             return filePreviewPanel.id
-        case .rightSidebarTool:
-            guard let mode = snapshot.rightSidebarTool?.mode,
-                  mode.canOpenAsPane,
-                  let toolPanel = newRightSidebarToolSurface(
-                    inPane: paneId,
-                    mode: mode,
-                    focus: false
-                  ) else {
-                return nil
-            }
-            applySessionPanelMetadata(snapshot, toPanelId: toolPanel.id)
-            return toolPanel.id
         case .customSidebar: return restoreCustomSidebarPanel(from: snapshot, inPane: paneId)
         case .agentSession:
             guard let agentSession = snapshot.agentSession,
@@ -2044,34 +2016,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
-
-    /// Backing store for `dockSplit`, created on first access. Kept optional so
-    /// workspace teardown can tear down the Dock only when it was actually used
-    /// (and so reading it during teardown does not lazily create one).
-    private(set) var _dockSplit: DockSplitStore?
-
-    /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
-    /// terminal/browser panels, separate from the main-area `bonsplitController`.
-    /// Created on first access so workspaces that never open the Dock pay nothing.
-    var dockSplit: DockSplitStore {
-        if let existing = _dockSplit { return existing }
-        let store = DockSplitStore(
-            workspaceId: id,
-            baseDirectoryProvider: { [weak self] in self?.currentDirectory },
-            remoteBrowserSettingsProvider: { [weak self] in
-                guard let self else { return .local }
-                return DockRemoteBrowserSettings(
-                    proxyEndpoint: self.remoteProxyEndpoint,
-                    bypassRemoteProxy: false,
-                    isRemoteWorkspace: self.isRemoteWorkspace,
-                    remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
-                    remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
-                )
-            }
-        )
-        _dockSplit = store
-        return store
-    }
 
     /// How this workspace lays out its panels. Mutate through
     /// `setLayoutMode(_:)` (Workspace+CanvasLayout.swift) so canvas frames
@@ -3857,7 +3801,6 @@ final class Workspace: Identifiable, ObservableObject {
     private func applyBrowserRemoteWorkspaceStatusToPanels() {
         let snapshot = browserRemoteWorkspaceStatusSnapshot()
         for panel in panels.values { (panel as? BrowserPanel)?.setRemoteWorkspaceStatus(snapshot) }
-        _dockSplit?.applyRemoteWorkspaceStatus(snapshot)
     }
 
     // MARK: - Panel Access
@@ -6604,7 +6547,6 @@ final class Workspace: Identifiable, ObservableObject {
         for panel in panels.values {
             (panel as? BrowserPanel)?.setRemoteProxyEndpoint(endpoint)
         }
-        _dockSplit?.applyRemoteProxyEndpointUpdate(endpoint)
         applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
@@ -7711,7 +7653,6 @@ final class Workspace: Identifiable, ObservableObject {
         let wasPinned = pinnedPanelIds.contains(panelId)
         let startCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
-        let focusPlacement = oldPanel.surface.focusPlacement
         let launchContext = oldPanel.surface.launchContext
         // Drop env this surface inherited from its (possibly previous) workspace,
         // then re-fold the current workspace's env below, so a terminal moved
@@ -7758,8 +7699,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: trimmedCommand,
             tmuxStartCommand: replacementTmuxStartCommand,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
-            additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement
+            additionalEnvironment: additionalEnvironment
         )
         // Respawn replaces the panel object but keeps the logical tab identity.
         replacementPanel.adoptStableSurfaceId(oldPanel.stableSurfaceId)
@@ -8453,75 +8393,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func openOrFocusRightSidebarToolSurface(
-        inPane paneId: PaneID,
-        mode: RightSidebarMode,
-        focus: Bool = true
-    ) -> RightSidebarToolPanel? {
-        guard mode.canOpenAsPane else { return nil }
-        for (existingId, panel) in panels {
-            guard let toolPanel = panel as? RightSidebarToolPanel,
-                  toolPanel.mode == mode else {
-                continue
-            }
-            if focus {
-                focusPanel(existingId)
-            }
-            return toolPanel
-        }
-        return newRightSidebarToolSurface(inPane: paneId, mode: mode, focus: focus)
-    }
-
-    @discardableResult
-    func newRightSidebarToolSurface(
-        inPane paneId: PaneID,
-        mode: RightSidebarMode,
-        focus: Bool? = nil,
-        targetIndex: Int? = nil
-    ) -> RightSidebarToolPanel? {
-        guard mode.canOpenAsPane else { return nil }
-        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
-        let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
-
-        let toolPanel = RightSidebarToolPanel(workspace: self, mode: mode)
-        panels[toolPanel.id] = toolPanel
-        panelTitles[toolPanel.id] = toolPanel.displayTitle
-
-        guard let newTabId = bonsplitController.createTab(
-            title: toolPanel.displayTitle,
-            icon: toolPanel.displayIcon,
-            kind: SurfaceKind.rightSidebarTool.rawValue,
-            isDirty: false,
-            isLoading: false,
-            isPinned: false,
-            inPane: paneId
-        ) else {
-            panels.removeValue(forKey: toolPanel.id)
-            panelTitles.removeValue(forKey: toolPanel.id)
-            return nil
-        }
-
-        bindSurface(newTabId, toPanelId: toolPanel.id)
-        if let targetIndex {
-            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
-        }
-        publishCmuxSurfaceCreated(toolPanel.id, paneId: paneId, kind: "right_sidebar_tool", origin: "right_sidebar_tool_tab", focused: shouldFocusNewTab)
-
-        if shouldFocusNewTab {
-            focusPanel(toolPanel.id)
-        } else {
-            preserveFocusAfterNonFocusSplit(
-                preferredPanelId: previousFocusedPanelId,
-                splitPanelId: toolPanel.id,
-                previousHostedView: previousHostedView
-            )
-        }
-
-        return toolPanel
-    }
-
-    @discardableResult
     func newAgentSessionSurface(
         inPane paneId: PaneID,
         providerID: AgentSessionProviderID = .codex,
@@ -8670,9 +8541,6 @@ final class Workspace: Identifiable, ObservableObject {
         terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontPoints = nil
-        // Tear down the right-sidebar Dock's own panels (terminals/browsers) too,
-        // but only if the Dock was ever opened for this workspace.
-        _dockSplit?.closeAllPanels()
     }
 
     /// Close a panel.
@@ -9263,8 +9131,6 @@ final class Workspace: Identifiable, ObservableObject {
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
-        } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
-            rightSidebarToolPanel.reattach(to: self)
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {
             customSidebarPanel.reattach(to: self)
         }
@@ -9958,7 +9824,6 @@ final class Workspace: Identifiable, ObservableObject {
                 return true
             }
         }
-        if _dockSplit?.needsConfirmClose() == true { return true }
         return false
     }
 
@@ -10590,11 +10455,6 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
-        // Focus-exclusivity: when the right sidebar (Dock) owns input focus in this
-        // window, no main terminal should be (re)marked active even if it is still
-        // this workspace's focused panel — mirroring the SwiftUI `isFocused` gate so
-        // a layout reconcile cannot steal focus back from the sidebar.
-        let rightSidebarOwnsFocus = AppDelegate.shared?.rightSidebarOwnsInputFocus(for: self) ?? false
         var didChange = agentHibernationAutoResumePresentationVisible
             ? resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
             : false
@@ -10610,7 +10470,7 @@ final class Workspace: Identifiable, ObservableObject {
                 terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
                 didChange = true
             }
-            let shouldBeActive = shouldBeVisible && focusedPanelId == terminalPanel.id && !rightSidebarOwnsFocus
+            let shouldBeActive = shouldBeVisible && focusedPanelId == terminalPanel.id
             if terminalPanel.hostedView.debugPortalActive != shouldBeActive {
                 terminalPanel.hostedView.setActive(shouldBeActive)
                 didChange = true

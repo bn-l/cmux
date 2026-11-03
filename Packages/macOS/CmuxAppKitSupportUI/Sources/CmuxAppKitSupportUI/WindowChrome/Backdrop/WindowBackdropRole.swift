@@ -15,9 +15,6 @@ public enum WindowBackdropRole: Sendable {
     /// Left workspace sidebar.
     case leftSidebar
 
-    /// Right tools sidebar.
-    case rightSidebar
-
     /// Browser surface background.
     case browserSurface
 }

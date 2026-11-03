@@ -12,23 +12,9 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
     var setShortcutArguments: String?
     var setShortcutResponse = "OK"
 
-    var rightSidebarMode: String??
-    var rightSidebarFocusFirstItem: Bool?
-    var rightSidebarResolution: ControlDebugRightSidebarFocusResolution = .windowNotFound
-
     func controlDebugSetShortcut(arguments: String) -> String {
         setShortcutArguments = arguments
         return setShortcutResponse
-    }
-
-    func controlDebugRightSidebarFocus(
-        modeName: String?,
-        windowID: UUID?,
-        focusFirstItem: Bool
-    ) -> ControlDebugRightSidebarFocusResolution {
-        rightSidebarMode = modeName
-        rightSidebarFocusFirstItem = focusFirstItem
-        return rightSidebarResolution
     }
 }
 
@@ -59,49 +45,6 @@ struct ControlCommandCoordinatorDebugV1Tests {
         let (coordinator, _) = makeCoordinator()
         #expect(coordinator.handleDebugV1(command: "ping", args: "") == nil)
         #expect(coordinator.handleDebugV1(command: "simulate_type", args: "hi") == nil)
-    }
-
-    @Test func rightSidebarFocusInvalidModeReproducesLegacyString() {
-        let (coordinator, context) = makeCoordinator()
-        context.rightSidebarResolution = .invalidMode("bogus")
-        let reply = coordinator.handleDebugV1(command: "debug_right_sidebar_focus", args: "  bogus  ")
-        // The v1 body trims the mode argument before validating.
-        #expect(context.rightSidebarMode == .some("bogus"))
-        // The v1 body never focuses the first item.
-        #expect(context.rightSidebarFocusFirstItem == false)
-        #expect(reply == "ERROR: Invalid right sidebar mode: bogus")
-    }
-
-    @Test func rightSidebarFocusEmptyArgsPassesNilModeForDockDefault() {
-        let (coordinator, context) = makeCoordinator()
-        context.rightSidebarResolution = .revealed(ControlDebugRightSidebarFocusState(
-            revealed: true,
-            focusApplied: false,
-            contextFound: true,
-            stateFound: true,
-            visible: true,
-            activeMode: "dock",
-            mode: "dock"
-        ))
-        let reply = coordinator.handleDebugV1(command: "debug_right_sidebar_focus", args: "   ")
-        // Empty argument maps to nil so the app resolves its `dock` default.
-        #expect(context.rightSidebarMode == .some(nil))
-        #expect(reply == "OK: mode=dock active=dock visible=1 context=1 state=1 focus=0")
-    }
-
-    @Test func rightSidebarFocusUnrevealedReproducesLegacyErrorString() {
-        let (coordinator, context) = makeCoordinator()
-        context.rightSidebarResolution = .revealed(ControlDebugRightSidebarFocusState(
-            revealed: false,
-            focusApplied: false,
-            contextFound: false,
-            stateFound: false,
-            visible: false,
-            activeMode: nil,
-            mode: "split"
-        ))
-        let reply = coordinator.handleDebugV1(command: "debug_right_sidebar_focus", args: "split")
-        #expect(reply == "ERROR: mode=split active= visible=0 context=0 state=0 focus=0")
     }
 }
 #endif

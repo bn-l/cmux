@@ -149,11 +149,6 @@ final class ShortcutListModel {
         switch action.defaultFocusWhenClause {
         case .always:
             return nil
-        case .atom(.sidebarFocus):
-            return String(
-                localized: "shortcut.when.caption.sidebarFocus",
-                defaultValue: "Only while the right sidebar is focused"
-            )
         case .atom(.browserFocus):
             return String(
                 localized: "shortcut.when.caption.browserFocus",
@@ -198,17 +193,12 @@ final class ShortcutListModel {
     }
 
     /// Returns the action `stroke` would collide with under `action`'s effective
-    /// `when` clause, or `nil` when there is no conflict. Context-disjoint or
-    /// priority-routed clauses coexist, matching the app target's check.
+    /// `when` clause, or `nil` when there is no conflict. Context-disjoint
+    /// clauses coexist, matching the app target's check.
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         let proposedClause = effectiveWhenClause(for: action)
         for other in ShortcutAction.allCases where other != action {
-            guard ShortcutWhenClause.bindingsCollide(
-                proposedClause,
-                lhsHasPriority: action.hasPriorityShortcutRouting,
-                effectiveWhenClause(for: other),
-                rhsHasPriority: other.hasPriorityShortcutRouting
-            ) else { continue }
+            guard ShortcutWhenClause.canCoexist(proposedClause, effectiveWhenClause(for: other)) else { continue }
             let override = latestBindings[other.rawValue]
             let effective = override ?? other.defaultShortcut
             guard let effective, !effective.isUnbound else { continue }

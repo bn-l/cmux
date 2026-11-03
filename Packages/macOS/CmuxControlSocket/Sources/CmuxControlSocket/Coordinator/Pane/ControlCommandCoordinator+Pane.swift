@@ -294,6 +294,14 @@ extension ControlCommandCoordinator {
         guard context?.controlPaneRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        // The right-sidebar Dock was removed; `workspace` is the only target.
+        if let placement = string(params, "placement"), placement != "workspace" {
+            return .err(
+                code: "invalid_params",
+                message: "placement must be: workspace",
+                data: .object(["placement": .string(placement)])
+            )
+        }
 
         let inputs = ControlPaneCreateInputs(
             directionRaw: string(params, "direction"),
@@ -306,8 +314,7 @@ extension ControlCommandCoordinator {
             requestedSourceSurfaceID: string(params, "surface_id").flatMap(UUID.init(uuidString:)),
             requestedFocus: bool(params, "focus") ?? false,
             hasInitialDividerPosition: hasNonNull(params, "initial_divider_position"),
-            initialDividerPositionRaw: double(params, "initial_divider_position"),
-            placementRaw: string(params, "placement")
+            initialDividerPositionRaw: double(params, "initial_divider_position")
         )
 
         let resolution = context?.controlPaneCreate(routing: routing, inputs: inputs)
@@ -327,18 +334,8 @@ extension ControlCommandCoordinator {
                 message: "initial_divider_position must be numeric",
                 data: nil
             )
-        case .invalidPlacement(let rawValue):
-            return .err(
-                code: "invalid_params",
-                message: "placement must be one of: workspace, dock",
-                data: .object(["placement": .string(rawValue)])
-            )
         case .agentSessionRejected(let typeRawValue):
             return .err(code: "invalid_params", message: "agent-session is only supported by surface.create", data: .object(["type": .string(typeRawValue)]))
-        case .dockUnsupportedType(let typeRawValue, let message):
-            return .err(code: "invalid_params", message: message, data: .object(["type": .string(typeRawValue)]))
-        case .dockUnavailable(let message): return .err(code: "invalid_params", message: message, data: .object(["placement": .string("dock")]))
-        case .dockConflictingRoutingSelectors(let message): return .err(code: "invalid_params", message: message, data: nil)
         case .browserDisabledInvalidURL(let rawURL):
             return .err(code: "invalid_params", message: "Invalid URL", data: .object(["url": .string(rawURL)]))
         case .browserDisabledNoURL:
@@ -379,21 +376,6 @@ extension ControlCommandCoordinator {
                 workspaceID: workspaceID,
                 typeRawValue: typeRawValue
             )
-        case .createdDock(let windowID, let workspaceID, let dockPaneID, let dockSurfaceID, let typeRawValue):
-            return .ok(.object([
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-                "placement": .string("dock"),
-                "pane_id": .null,
-                "pane_ref": .null,
-                "surface_id": .null,
-                "surface_ref": .null,
-                "dock_pane_id": orNull(dockPaneID?.uuidString),
-                "dock_surface_id": .string(dockSurfaceID.uuidString),
-                "type": .string(typeRawValue),
-            ]))
         case .created(let windowID, let workspaceID, let paneID, let surfaceID, let typeRawValue):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),

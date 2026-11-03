@@ -10,14 +10,9 @@ internal import Foundation
 /// app's legacy v1 dispatcher falls through to its own `default:` exactly as
 /// the compiled-out cases produced.
 ///
-/// All but `debug_right_sidebar_focus` forward to the ``ControlDebugContext``
-/// v1-shared witnesses, which run the still-app-resident v1 string bodies and
-/// return their raw response verbatim — byte-identical to the legacy dispatch.
-/// `debug_right_sidebar_focus` is reconstructed from the typed
-/// ``ControlDebugRightSidebarFocusResolution`` (the same resolution the v2
-/// `debug.right_sidebar.focus` consumes), reproducing the legacy flat-string
-/// response with `focus_first_item` and the explicit window both unset, as the
-/// legacy v1 body hardcoded.
+/// Each forwards to the ``ControlDebugContext`` v1-shared witnesses, which run
+/// the still-app-resident v1 string bodies and return their raw response
+/// verbatim — byte-identical to the legacy dispatch.
 extension ControlCommandCoordinator {
     /// Dispatches the v1 debug/test commands this coordinator owns; returns
     /// `nil` for anything else (and unconditionally in release builds) so the
@@ -66,8 +61,6 @@ extension ControlCommandCoordinator {
         case "focus_notification":
             return debugContext?.controlDebugFocusNotification(arguments: args)
                 ?? Self.debugContextUnavailableResponse
-        case "debug_right_sidebar_focus":
-            return debugRightSidebarFocusV1(args)
         case "flash_count":
             return debugContext?.controlDebugFlashCount(surfaceArgument: args)
                 ?? Self.debugContextUnavailableResponse
@@ -91,40 +84,4 @@ extension ControlCommandCoordinator {
 #endif
     }
 
-#if DEBUG
-    /// The v1 `debug_right_sidebar_focus` body: trims the mode argument
-    /// (empty → the app's `dock` default), reveals the right sidebar through the
-    /// seam with `focusFirstItem: false` and no explicit window (both hardcoded
-    /// in the legacy body), and reconstructs the flat-string response.
-    ///
-    /// - Parameter args: The raw mode-name argument.
-    /// - Returns: `"OK: <details>"` on a successful reveal, or an `"ERROR:"`
-    ///   line (invalid mode or a reveal that did not take).
-    func debugRightSidebarFocusV1(_ args: String) -> String {
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        let modeName = trimmed.isEmpty ? nil : trimmed
-        // An unwired context reads as `windowNotFound` — unreachable in
-        // practice (the composition owner wires the context during init); the
-        // legacy v1 body never reached this path.
-        let resolution = debugContext?.controlDebugRightSidebarFocus(
-            modeName: modeName,
-            windowID: nil,
-            focusFirstItem: false
-        ) ?? .windowNotFound
-        switch resolution {
-        case .invalidMode(let name):
-            return "ERROR: Invalid right sidebar mode: \(name)"
-        case .windowNotFound:
-            // The legacy v1 body passed no explicit window, so this case never
-            // arose; surface it as a failed reveal to stay total.
-            return "ERROR: mode= active= visible=0 context=0 state=0 focus=0"
-        case .revealed(let state):
-            let details = "mode=\(state.mode) active=\(state.activeMode ?? "") " +
-                "visible=\(state.visible ? 1 : 0) " +
-                "context=\(state.contextFound ? 1 : 0) state=\(state.stateFound ? 1 : 0) " +
-                "focus=\(state.focusApplied ? 1 : 0)"
-            return state.revealed ? "OK: \(details)" : "ERROR: \(details)"
-        }
-    }
-#endif
 }

@@ -59,12 +59,6 @@ public struct IntegrationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "kiroNotificationLevel"
     )
 
-    public let ripgrepCustomBinaryPath = DefaultsKey<String>(
-        id: "integrations.ripgrep.customBinaryPath",
-        defaultValue: "",
-        userDefaultsKey: "ripgrepCustomBinaryPath"
-    )
-
     public let suppressSubagentNotifications = DefaultsKey<Bool>(
         id: "integrations.suppressSubagentNotifications",
         defaultValue: true,

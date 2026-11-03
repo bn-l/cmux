@@ -37,7 +37,6 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
             defaultShortcut,
             StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
         )
-        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.globalSearch))
         XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.globalSearch))
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .sendFeedback), .unbound)
         XCTAssertEqual(

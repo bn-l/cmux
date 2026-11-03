@@ -52,11 +52,6 @@ extension ControlDebugContext {
     func controlDebugBrowserFavicon(params: [String: JSONValue]) -> ControlCallResult {
         .err(code: "unavailable", message: "not implemented", data: nil)
     }
-    func controlDebugRightSidebarFocus(
-        modeName: String?,
-        windowID: UUID?,
-        focusFirstItem: Bool
-    ) -> ControlDebugRightSidebarFocusResolution { .windowNotFound }
     func controlDebugSidebarVisibility(windowID: UUID) -> Bool? { nil }
     func controlDebugSimulateTerminalFileDrop(
         surfaceArgument: String,

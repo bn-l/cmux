@@ -192,10 +192,6 @@ extension ControlSidebarContext {
     func controlSidebarStateSnapshot(tabArg: String?) -> ControlSidebarStateSnapshot? { nil }
     func controlSidebarReset(tabArg: String?) -> Bool { false }
 
-    func controlSidebarApplyRightSidebarRemoteCommand(tokens: [String]) -> ControlSidebarRightSidebarResolution {
-        .failure(message: "")
-    }
-
     func controlSidebarPaneList() -> ControlSidebarPaneListSnapshot? { nil }
 
     func controlSidebarPaneSurfaces(paneArg: String?) -> ControlSidebarPaneSurfacesResolution { .noTabSelected }

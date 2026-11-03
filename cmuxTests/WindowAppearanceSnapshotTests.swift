@@ -21,7 +21,6 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         assertClearBackdrop(snapshot.policy(for: .titlebar))
         assertClearBackdrop(snapshot.policy(for: .browserSurface))
         assertClearBackdrop(snapshot.policy(for: .leftSidebar))
-        assertClearBackdrop(snapshot.policy(for: .rightSidebar))
     }
 
     func testSeparateSurfaceBackdropsKeepRootBackdropAndSidebarMaterialsSeparate() {
@@ -39,13 +38,6 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         }
         XCTAssertEqual(leftPolicy.material, .sidebar)
         XCTAssertEqual(leftPolicy.blendingMode, .withinWindow)
-
-        guard case let .sidebarMaterial(rightPolicy) = snapshot.policy(for: .rightSidebar) else {
-            XCTFail("right sidebar should keep its own material policy")
-            return
-        }
-        XCTAssertEqual(rightPolicy.material, .sidebar)
-        XCTAssertEqual(rightPolicy.blendingMode, .withinWindow)
     }
 
     func testMacOSGlassClearForcesTransparentHostingAndClearGlassStyle() {
@@ -172,7 +164,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
     }
 
-    func testMatchedLeftAndRightSidebarBackdropsShareTerminalRootBackdrop() {
+    func testMatchedLeftSidebarBackdropSharesTerminalRootBackdrop() {
         let cases: [(backgroundHex: String, opacity: CGFloat)] = [
             ("#FFFFFF", 1),
             ("#000000", 1),
@@ -197,8 +189,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             assertClearBackdrop(snapshot.policy(for: .titlebar))
             assertClearBackdrop(snapshot.policy(for: .browserSurface))
             assertClearBackdrop(snapshot.policy(for: .leftSidebar))
-            assertClearBackdrop(snapshot.policy(for: .rightSidebar))
-            XCTAssertEqual(snapshot.sidebarContentColorScheme, snapshot.chromeColorScheme)
+                XCTAssertEqual(snapshot.sidebarContentColorScheme, snapshot.chromeColorScheme)
         }
     }
 
@@ -211,7 +202,6 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
 
         XCTAssertEqual(snapshot.compositedTerminalBackgroundColor.alphaComponent, 1, accuracy: 0.0001)
         assertClearBackdrop(snapshot.policy(for: .leftSidebar))
-        assertClearBackdrop(snapshot.policy(for: .rightSidebar))
     }
 
     func testSeparateSidebarBackdropsKeepCustomTintBehavior() {

@@ -1,6 +1,6 @@
 # Feed
 
-Feed is cmux's inline surface for AI agent decisions. It stays in the right sidebar on `Ctrl-4`. The keyboard-first OpenTUI Feed can also run in the separate right-sidebar [Dock](dock.md) after you add a Dock control that runs `cmux feed tui`. It shows three things that need a human response:
+Feed is cmux's surface for AI agent decisions. Pending decisions reach you as native notifications with inline action buttons, and in `cmux feed tui`, a keyboard-first terminal UI you can run in any pane. It covers three things that need a human response:
 
 - **Permission requests:** Agent wants to run a tool, edit a file, or execute a shell command. Pick Once / Always / All tools / Bypass / Deny.
 - **ExitPlanMode:** Agent finished planning and is ready to start editing. Pick Ultraplan / Manual / Auto.
@@ -38,14 +38,14 @@ Anything else the agent does, including tool uses, assistant messages, session s
                               └─────┬──────────────────┬─────┘
                                     │                  │
                          ┌──────────▼────┐   ┌─────────▼────────┐
-                         │ FeedPanelView │   │ UNUserNotification│
-                         │ (right sidebar)│   │ (inline actions)  │
+                         │ cmux feed tui │   │ UNUserNotification│
+                         │ (feed.list)   │   │ (inline actions)  │
                          └───────────────┘   └──────────────────┘
 ```
 
-Agents pipe their hook events into `cmux hooks feed --source <agent>`. The bridge forwards the event to the cmux socket as a `feed.push` V2 frame. The `FeedCoordinator` records it on the `@MainActor` `WorkstreamStore`, displays it in the sidebar (and posts a native notification if the window isn't focused), then blocks the hook on a semaphore keyed by the event's `request_id`.
+Agents pipe their hook events into `cmux hooks feed --source <agent>`. The bridge forwards the event to the cmux socket as a `feed.push` V2 frame. The `FeedCoordinator` records it on the `@MainActor` `WorkstreamStore`, marks the workspace as needing input in the sidebar, posts a native notification when cmux isn't the active app, then blocks the hook on a semaphore keyed by the event's `request_id`.
 
-When you click Allow / Deny / Submit (either in Feed or in the notification's inline action buttons), `feed.permission.reply` / `feed.question.reply` / `feed.exit_plan.reply` delivers the decision back through `FeedCoordinator`, which wakes the hook. The hook emits the agent's expected decision JSON on stdout and the agent proceeds.
+When you pick Allow / Deny / Submit (in `cmux feed tui` or in the notification's inline action buttons), `feed.permission.reply` / `feed.question.reply` / `feed.exit_plan.reply` delivers the decision back through `FeedCoordinator`, which wakes the hook. The hook emits the agent's expected decision JSON on stdout and the agent proceeds.
 
 All events (actionable and telemetry) are appended to `~/.cmuxterm/workstream.jsonl` for audit. Memory holds the most recent 2000 items in a ring; older items remain available in the JSONL audit log.
 
@@ -158,7 +158,7 @@ cmux feed clear --yes
 
 ## Jumping from Feed to the terminal
 
-Double-click a Feed row and cmux focuses the cmux workspace + surface where the agent is running, via `workspace.select` + `surface.focus` V2 verbs. If the agent isn't running in a cmux terminal (no matching entry in `<agent>-hook-sessions.json`), the jump is a no-op.
+The `feed.jump` V2 verb focuses the cmux workspace + surface where the agent is running. If the agent isn't running in a cmux terminal (no matching entry in `<agent>-hook-sessions.json`), the jump is a no-op.
 
 ## Troubleshooting
 
@@ -168,6 +168,6 @@ Double-click a Feed row and cmux focuses the cmux workspace + surface where the 
 
 **Agent hangs on a permission request.** Feed never blocks the agent longer than 120 seconds; if you see a longer hang, the hook failed to reach the socket. Verify `$CMUX_SOCKET_PATH` matches the running app (default is `~/.config/cmux/cmux.sock`).
 
-**Notifications aren't showing inline buttons.** The three Feed categories (`CMUXFeedPermission`, `CMUXFeedExitPlan`, `CMUXFeedQuestion`) are registered at app launch. On first Feed use, macOS may prompt for notification authorization; if authorization is denied, Feed rows still appear in the sidebar but no native banner is delivered.
+**Notifications aren't showing inline buttons.** The three Feed categories (`CMUXFeedPermission`, `CMUXFeedExitPlan`, `CMUXFeedQuestion`) are registered at app launch. On first Feed use, macOS may prompt for notification authorization; if authorization is denied, pending decisions still appear in `cmux feed tui` but no native banner is delivered.
 
 **OpenCode plugin doesn't fire.** Plugin is only installed if `opencode` is on `PATH` at `cmux hooks setup` time. Check `~/.config/opencode/plugins/cmux-feed.js` contains `// cmux-feed-plugin-marker v1`. If you added project-local plugins (`.opencode/plugins/…`), re-run `cmux hooks opencode install --project`.

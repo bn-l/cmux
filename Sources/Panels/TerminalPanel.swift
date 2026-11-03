@@ -198,7 +198,6 @@ final class TerminalPanel: Panel, ObservableObject {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         let surface = TerminalSurface(
@@ -213,7 +212,6 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement,
             runtimeSpawnPolicy: runtimeSpawnPolicy
         )
         self.init(workspaceId: workspaceId, surface: surface)
@@ -630,14 +628,6 @@ final class TerminalPanel: Panel, ObservableObject {
         hostedView.preparePanelFocusIntentForActivation(.surface)
         hostedView.setActive(true)
         guard let focusWindow = surface.uiWindow ?? hostedView.window else {
-            surface.setFocus(false)
-            return false
-        }
-        guard AppDelegate.shared?.allowsTerminalKeyboardFocus(
-            workspaceId: workspaceId,
-            panelId: id,
-            in: focusWindow
-        ) != false else {
             surface.setFocus(false)
             return false
         }

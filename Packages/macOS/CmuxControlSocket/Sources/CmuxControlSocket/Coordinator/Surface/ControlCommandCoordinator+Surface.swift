@@ -473,6 +473,15 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        // The right-sidebar Dock was removed; `workspace` is the only target.
+        if let placement = string(params, "placement"), placement != "workspace" {
+            return .err(
+                code: "invalid_params",
+                message: "placement must be: workspace",
+                data: .object(["placement": .string(placement)])
+            )
+        }
+
         let inputs = ControlSurfaceCreateInputs(
             typeRaw: string(params, "type"),
             providerRaw: string(params, "provider_id") ?? string(params, "provider"),
@@ -485,8 +494,7 @@ extension ControlCommandCoordinator {
             remoteContextRaw: optionalTrimmedRawString(params, "remote_context"),
             startupEnvironment: trimmedStringMap(params, keys: ["startup_environment", "initial_env"]),
             requestedPaneID: uuid(params, "pane_id"),
-            requestedFocus: bool(params, "focus") ?? false,
-            placementRaw: string(params, "placement")
+            requestedFocus: bool(params, "focus") ?? false
         )
 
         let resolution = context?.controlSurfaceCreate(routing: routing, inputs: inputs)
@@ -506,12 +514,6 @@ extension ControlCommandCoordinator {
                 message: "Invalid renderer (react|solid)",
                 data: .object(["renderer": .string(rawValue)])
             )
-        case .invalidPlacement(let rawValue):
-            return .err(code: "invalid_params", message: "placement must be one of: workspace, dock", data: .object(["placement": .string(rawValue)]))
-        case .dockUnsupportedType(let typeRawValue, let message):
-            return .err(code: "invalid_params", message: message, data: .object(["type": .string(typeRawValue)]))
-        case .dockUnavailable(let message): return .err(code: "invalid_params", message: message, data: .object(["placement": .string("dock")]))
-        case .dockConflictingRoutingSelectors(let message): return .err(code: "invalid_params", message: message, data: nil)
         case .browserDisabled(let outcome):
             return browserDisabledResult(outcome)
         case .workspaceNotFound:
@@ -528,21 +530,6 @@ extension ControlCommandCoordinator {
                 workspaceID: workspaceID,
                 typeRawValue: typeRawValue
             )
-        case .createdDock(let windowID, let workspaceID, let dockPaneID, let dockSurfaceID, let typeRawValue):
-            return .ok(.object([
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-                "placement": .string("dock"),
-                "pane_id": .null,
-                "pane_ref": .null,
-                "surface_id": .null,
-                "surface_ref": .null,
-                "dock_pane_id": .string(dockPaneID.uuidString),
-                "dock_surface_id": .string(dockSurfaceID.uuidString),
-                "type": .string(typeRawValue),
-            ]))
         case .created(let windowID, let workspaceID, let paneID, let surfaceID, let typeRawValue):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),

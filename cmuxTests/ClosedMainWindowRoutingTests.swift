@@ -50,16 +50,14 @@ final class ClosedMainWindowRoutingTests: XCTestCase {
             windowId: windowAId,
             tabManager: managerA,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
+            sidebarSelectionState: SidebarSelectionState()
         )
         app.registerMainWindow(
             windowB,
             windowId: windowBId,
             tabManager: managerB,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
+            sidebarSelectionState: SidebarSelectionState()
         )
         windowB.makeKeyAndOrderFront(nil)
         windowA.makeKeyAndOrderFront(nil)
@@ -111,16 +109,14 @@ final class ClosedMainWindowRoutingTests: XCTestCase {
             windowId: windowAId,
             tabManager: managerA,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
+            sidebarSelectionState: SidebarSelectionState()
         )
         app.registerMainWindow(
             windowC,
             windowId: windowCId,
             tabManager: managerC,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
+            sidebarSelectionState: SidebarSelectionState()
         )
         windowA.makeKeyAndOrderFront(nil)
         windowC.makeKeyAndOrderFront(nil)

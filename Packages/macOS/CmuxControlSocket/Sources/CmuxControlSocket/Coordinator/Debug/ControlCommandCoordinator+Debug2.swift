@@ -43,52 +43,7 @@ extension ControlCommandCoordinator {
             ?? .err(code: "internal_error", message: "Browser operation failed", data: nil)
     }
 
-    // MARK: - debug.right_sidebar.focus / debug.sidebar.visible
-
-    /// `debug.right_sidebar.focus` — reveal and focus the right sidebar.
-    func debugRightSidebarFocus(_ params: [String: JSONValue]) -> ControlCallResult {
-        let modeName = string(params, "mode")
-        let requestedWindowID = uuid(params, "window_id")
-        let focusFirstItem = bool(params, "focus_first_item") ?? true
-        // An unwired context reads as `windowNotFound` — unreachable in
-        // practice (the composition owner wires the context during init).
-        let resolution = debugContext?.controlDebugRightSidebarFocus(
-            modeName: modeName,
-            windowID: requestedWindowID,
-            focusFirstItem: focusFirstItem
-        ) ?? .windowNotFound
-        switch resolution {
-        case .invalidMode(let mode):
-            return .err(
-                code: "invalid_params",
-                message: "Invalid right sidebar mode",
-                data: .object(["mode": .string(mode)])
-            )
-        case .windowNotFound:
-            return .err(
-                code: "not_found",
-                message: "Window not found",
-                data: requestedWindowID.map {
-                    .object([
-                        "window_id": .string($0.uuidString),
-                        "window_ref": ref(.window, $0),
-                    ])
-                }
-            )
-        case .revealed(let state):
-            return .ok(.object([
-                "focused": .bool(state.revealed),
-                "focus_applied": .bool(state.focusApplied),
-                "context_found": .bool(state.contextFound),
-                "state_found": .bool(state.stateFound),
-                "visible": .bool(state.visible),
-                "active_mode": orNull(state.activeMode),
-                "mode": .string(state.mode),
-                "window_id": orNull(requestedWindowID?.uuidString),
-                "window_ref": ref(.window, requestedWindowID),
-            ]))
-        }
-    }
+    // MARK: - debug.sidebar.visible
 
     /// `debug.sidebar.visible` — a window's sidebar visibility.
     func debugSidebarVisible(_ params: [String: JSONValue]) -> ControlCallResult {

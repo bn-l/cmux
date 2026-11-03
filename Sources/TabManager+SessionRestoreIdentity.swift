@@ -13,11 +13,6 @@ extension TabManager {
                 identities.insert(panel.stableSurfaceId)
             }
         }
-        for dock in DockSplitStore.liveStores {
-            for panel in dock.panels.values {
-                identities.insert(panel.stableSurfaceId)
-            }
-        }
         return identities
     }
 }

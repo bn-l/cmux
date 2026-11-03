@@ -19,21 +19,12 @@ final class SidebarState: ObservableObject {
 }
 
 enum SidebarResizeInteraction {
+    /// The left sidebar's divider: the hit band leans into the sidebar.
     enum Edge {
         case leading
-        case trailing
-
-        private var hitWidthBeforeDivider: CGFloat {
-            switch self {
-            case .leading:
-                return SidebarResizeInteraction.sidebarSideHitWidth
-            case .trailing:
-                return SidebarResizeInteraction.contentSideHitWidth
-            }
-        }
 
         func handleX(dividerX: CGFloat) -> CGFloat {
-            dividerX - hitWidthBeforeDivider
+            dividerX - SidebarResizeInteraction.sidebarSideHitWidth
         }
 
         func hitRange(dividerX: CGFloat) -> ClosedRange<CGFloat> {

@@ -21,7 +21,6 @@ This is an internal planning note for cmux skills and customization surfaces. Ke
 - `ui.surfaceTabBar.buttons`: replaces the visible tab bar button list. Built-ins must be included explicitly if they should remain visible.
 - `commands`: reusable shell commands and workspace layouts for worktrees, multiple checkouts, local services, browser previews, and SSH setups.
 - Config precedence: project-local actions and commands override global entries with the same ID or name. Global app preferences stay in `~/.config/cmux/cmux.json`.
-- `.cmux/dock.json` and `~/.config/cmux/dock.json`: right-sidebar Dock controls for TUIs, logs, tests, queues, dev servers, and `cmux feed tui --opentui`.
 - `cmux-settings` paths: appearance, sidebar behavior, app icon, menu-bar mode, notifications, browser routing, automation, shortcuts, and new-workspace placement.
 - cmux CLI workspace metadata: workspace names, descriptions, colors, read/unread state, progress, status pills, and logs.
 - Notification hooks in `cmux.json`: filter, rewrite, suppress, or augment notification behavior.
@@ -29,8 +28,7 @@ This is an internal planning note for cmux skills and customization surfaces. Ke
 
 ## Skill Candidates
 
-- `cmux-dock`: create `.cmux/dock.json` or global Dock controls after inspecting project scripts, logs, services, and TUIs. This should become a separate skill if Dock setup gets enough schema, trust, and validation detail to make `cmux-customization` too broad.
-- `cmux-feed`: diagnose and configure Feed hooks, Feed TUI Dock controls, notification categories, and event stream checks. Keep it separate from diagnostics only if it gains repeatable setup/edit flows beyond read-only health checks.
+- `cmux-feed`: diagnose and configure Feed hooks, the Feed TUI, notification categories, and event stream checks. Keep it separate from diagnostics only if it gains repeatable setup/edit flows beyond read-only health checks.
 - `cmux-sidebar`: manage sidebar metadata, workspace descriptions, colors, pinned state, read state, and project conventions. This is useful when sidebar metadata becomes a common integration target for agents and scripts.
 - `cmux-ssh`: set up remote workspaces, SSH URL launches, remote browser routing, reconnect behavior, and remote agent notifications.
 - `cmux-cloud-vm`: operate Cloud VM create, attach, exec, SSH endpoint, billing, provider, and smoke-test workflows.

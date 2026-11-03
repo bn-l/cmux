@@ -21,7 +21,6 @@ final class FileDropOverlayViewTests: XCTestCase {
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
-            .environmentObject(FileExplorerState())
             .environmentObject(CmuxConfigStore())
 
         let window = NSWindow(

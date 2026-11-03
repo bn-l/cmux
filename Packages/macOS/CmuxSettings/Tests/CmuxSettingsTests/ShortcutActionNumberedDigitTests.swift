@@ -22,19 +22,6 @@ struct ShortcutActionNumberedDigitTests {
         )
     }
 
-    @Test func fileExplorerOpenSelectionDefaultsMatchKeyboardOpenPolicy() {
-        #expect(
-            ShortcutAction.fileExplorerOpenSelection.defaultShortcut == StoredShortcut(
-                first: ShortcutStroke(key: "\r")
-            )
-        )
-        #expect(
-            ShortcutAction.fileExplorerOpenSelectionFinderAlias.defaultShortcut == StoredShortcut(
-                first: ShortcutStroke(key: "↓", command: true)
-            )
-        )
-    }
-
     @Test func onlyFocusedContentActionsAllowBareFirstStrokes() {
         let bareFirstStrokeActions: Set<ShortcutAction> = [
             .diffViewerScrollDown,
@@ -42,8 +29,6 @@ struct ShortcutActionNumberedDigitTests {
             .diffViewerScrollToBottom,
             .diffViewerScrollToTop,
             .diffViewerOpenFileSearch,
-            .fileExplorerOpenSelection,
-            .fileExplorerOpenSelectionFinderAlias,
         ]
 
         for action in ShortcutAction.allCases {
@@ -52,10 +37,5 @@ struct ShortcutActionNumberedDigitTests {
                 "\(action) allowsBareFirstStroke should match focused content shortcut policy"
             )
         }
-    }
-
-    @Test func fileExplorerOpenSelectionShortcutsAreSingleStrokeOnly() {
-        #expect(!ShortcutAction.fileExplorerOpenSelection.allowsChordShortcut)
-        #expect(!ShortcutAction.fileExplorerOpenSelectionFinderAlias.allowsChordShortcut)
     }
 }

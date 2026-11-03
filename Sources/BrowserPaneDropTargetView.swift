@@ -40,17 +40,9 @@ final class BrowserPaneDropTargetView: NSView {
         guard WindowInputRoutingContext.allowsPaneDropHitTesting(eventType: eventType) else { return false }
 
         let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
-        // Dock-hosted status is deliberately not consulted here: it cannot change
-        // the capture result (a file-URL payload always yields a disposition, so
-        // `shouldCaptureFileDrop` is true either way; without a file URL the
-        // disposition is nil either way), and this runs from `hitTest` on
-        // pointer-hover events, where an app-wide dock ownership sweep per event
-        // is too expensive. Prepare/perform resolve the real dock-aware
-        // disposition via `fileDropDisposition(_:)`.
         let disposition = BrowserPaneFileDropRouting.disposition(
             pasteboardTypes: pasteboardTypes,
-            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
-            isDockHosted: false
+            modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags
         )
         let fileDropWantsPreview = disposition == .previewInWorkspace
         let shouldCaptureFileDrop = disposition != nil
@@ -119,24 +111,6 @@ final class BrowserPaneDropTargetView: NSView {
             return accepted
         }
 
-        // A Dock-hosted browser pane only supports live-surface tab drops (routed
-        // to the Dock in performDragOperation). Reject unsupported file-preview /
-        // file-URL payloads here so prepare doesn't accept a drop that perform
-        // would then fail — the window file-drop overlay can hold this pane as its
-        // target and call prepare before perform. Mirrors update/perform. (File
-        // URLs over page content already returned via the hosted-WebView branch
-        // above, so they are not rejected here.)
-        if let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
-           liveSurfaceTransfer(for: sender, destinationDock: dock) == nil {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.paneDrop.prepare.dock panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "allowed=0 reason=nonLiveDockDrop"
-            )
-#endif
-            return false
-        }
-
         return true
     }
 
@@ -179,44 +153,6 @@ final class BrowserPaneDropTargetView: NSView {
             cmuxDebugLog(
                 "browser.paneDrop.performAsWebView panel=\(dropContext.panelId.uuidString.prefix(5)) " +
                 "handled=\(handled ? 1 : 0)"
-            )
-#endif
-            return handled
-        }
-
-        // A Dock-hosted browser pane lives in a `DockSplitStore`, not the owning
-        // workspace's Bonsplit tree. Route a live-surface tab drop to the Dock
-        // (mirroring `PaneDropTargetView`) and reject anything else; a main-area
-        // pane (`dockForPane` is nil) falls through to the workspace handlers
-        // below. Unsupported payloads are rejected here rather than mis-routed
-        // (and, for file previews, consumed) through the workspace handlers, which
-        // target a pane the workspace does not own.
-        if let dock = AppDelegate.shared?.dockForPane(dropContext.paneId) {
-            guard let transfer = liveSurfaceTransfer(for: sender, destinationDock: dock) else {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.paneDrop.perform.dock panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                    "allowed=0 reason=nonLiveDockDrop"
-                )
-#endif
-                return false
-            }
-            let dockZone = dock.portalPaneDropZone(
-                tabId: transfer.tabId,
-                sourcePaneId: transfer.sourcePaneId,
-                targetPane: dropContext.paneId,
-                proposedZone: zone
-            )
-            let handled = dock.performPortalPaneDrop(
-                tabId: transfer.tabId,
-                sourcePaneId: transfer.sourcePaneId,
-                targetPane: dropContext.paneId,
-                zone: dockZone
-            )
-#if DEBUG
-            cmuxDebugLog(
-                "browser.paneDrop.perform.dock panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(dockZone) handled=\(handled ? 1 : 0)"
             )
 #endif
             return handled
@@ -364,31 +300,6 @@ final class BrowserPaneDropTargetView: NSView {
 
         exitActiveFileDropWebView(sender)
 
-        // Dock-hosted browser pane: route a live-surface tab move into the Dock
-        // and reject anything else (see performDragOperation). A main-area pane
-        // (`dockForPane` is nil) falls through to the workspace handling below.
-        if let dock = AppDelegate.shared?.dockForPane(dropContext.paneId) {
-            guard let transfer = liveSurfaceTransfer(for: sender, destinationDock: dock) else {
-                clearDragState(phase: "\(phase).reject")
-                return []
-            }
-            let dockZone = dock.portalPaneDropZone(
-                tabId: transfer.tabId,
-                sourcePaneId: transfer.sourcePaneId,
-                targetPane: dropContext.paneId,
-                proposedZone: zone
-            )
-            activeZone = dockZone
-            slotView?.setPortalDragDropZone(dockZone)
-#if DEBUG
-            cmuxDebugLog(
-                "browser.paneDrop.\(phase).dock panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(dockZone)"
-            )
-#endif
-            return .move
-        }
-
         if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard) {
             guard transfer.isFromCurrentProcess,
                   (!transfer.isFilePreview || FilePreviewDragRegistry.shared.contains(id: transfer.tabId)) else {
@@ -422,20 +333,6 @@ final class BrowserPaneDropTargetView: NSView {
 
     private func activeDropContext() -> BrowserPaneDropContext? {
         dropContext
-    }
-
-    /// The live container tab a Dock drop would move. Registry-backed virtual
-    /// drags and owners without Dock transfer routing return nil. Shared by
-    /// prepare/update/perform so unsupported payloads do not fall through to the
-    /// workspace handlers.
-    private func liveSurfaceTransfer(for sender: any NSDraggingInfo, destinationDock: DockSplitStore) -> BrowserPaneDragTransfer? {
-        guard let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
-              transfer.isFromCurrentProcess,
-              !transfer.isFilePreview,
-              AppDelegate.shared?.canMoveSurfaceIntoDock(sourceTabId: transfer.tabId, destinationDock: destinationDock) == true else {
-            return nil
-        }
-        return transfer
     }
 
     private func focusBrowserPanelAfterSuccessfulFileDrop(context: BrowserPaneDropContext) {

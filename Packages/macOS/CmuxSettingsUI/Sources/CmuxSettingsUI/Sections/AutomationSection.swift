@@ -5,7 +5,7 @@ import SwiftUI
 /// **Automation** section — mirrors the legacy in-app section
 /// row-for-row: Socket Control (mode picker, password subrow when
 /// .password, warnings, overrides note), then separate cards for
-/// Claude Code Integration, Claude Binary Path, Ripgrep Binary Path,
+/// Claude Code Integration, Claude Binary Path,
 /// Suppress Subagent Notifications, Cursor Integration, Gemini
 /// Integration, and Port Base / Port Range Size.
 @MainActor
@@ -20,7 +20,6 @@ public struct AutomationSection: View {
     @State private var autoNamingModel: DefaultsValueModel<Bool>
     @State private var autoNamingAgentModel: DefaultsValueModel<String>
     @State private var autoNamingStatusModel: DefaultsValueModel<String>
-    @State private var ripgrepPathModel: DefaultsValueModel<String>
     @State private var suppressSubagentModel: DefaultsValueModel<Bool>
     @State private var ampModel: DefaultsValueModel<Bool>
     @State private var cursorModel: DefaultsValueModel<Bool>
@@ -69,7 +68,6 @@ public struct AutomationSection: View {
                 userDefaultsKey: AutoNamingStatusStore.userDefaultsKey
             )
         ))
-        _ripgrepPathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ripgrepCustomBinaryPath))
         _suppressSubagentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications))
         _ampModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ampHooksEnabled))
         _cursorModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.cursorHooksEnabled))
@@ -91,7 +89,6 @@ public struct AutomationSection: View {
             codexCard
             claudePathCard
             autoNamingCard
-            ripgrepPathCard
             suppressSubagentCard
             ampCard
             cursorCard
@@ -126,7 +123,7 @@ public struct AutomationSection: View {
                 localized: "settings.automation.openAccess.dialog.message",
                 defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."
             ))
-        }.task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
+        }.task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
     }
 
     @ViewBuilder
@@ -352,24 +349,6 @@ public struct AutomationSection: View {
         guard !autoNamingStatusModel.current.isEmpty,
               let data = autoNamingStatusModel.current.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(AutoNamingStatus.self, from: data)
-    }
-
-    @ViewBuilder
-    private var ripgrepPathCard: some View {
-        SettingsCard {
-            SettingsCardRow(
-                configurationReview: .json("automation.ripgrepBinaryPath"),
-                String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"),
-                subtitle: String(localized: "settings.automation.ripgrep.customPath.subtitle", defaultValue: "Custom path to the rg binary used by Find. Leave empty to use common install locations and PATH.")
-            ) {
-                TextField(
-                    String(localized: "settings.automation.ripgrep.customPath.placeholder", defaultValue: "e.g. /etc/profiles/per-user/you/bin/rg"),
-                    text: Binding(get: { ripgrepPathModel.current }, set: { ripgrepPathModel.set($0) })
-                )
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 200)
-            }
-        }
     }
 
     @ViewBuilder

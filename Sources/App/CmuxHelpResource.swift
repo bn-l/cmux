@@ -5,7 +5,6 @@ enum CmuxHelpResource {
     case concepts
     case configuration
     case customCommands
-    case dock
     case keyboardShortcuts
     case apiReference
     case browserAutomation
@@ -30,8 +29,6 @@ enum CmuxHelpResource {
             return String(localized: "menu.help.configuration", defaultValue: "Configuration")
         case .customCommands:
             return String(localized: "menu.help.customCommands", defaultValue: "Custom Commands")
-        case .dock:
-            return String(localized: "menu.help.dock", defaultValue: "Dock")
         case .keyboardShortcuts:
             return String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")
         case .apiReference:
@@ -71,8 +68,6 @@ enum CmuxHelpResource {
             return URL(string: "https://cmux.com/docs/configuration")!
         case .customCommands:
             return URL(string: "https://cmux.com/docs/custom-commands")!
-        case .dock:
-            return URL(string: "https://cmux.com/docs/dock")!
         case .keyboardShortcuts:
             return URL(string: "https://cmux.com/docs/keyboard-shortcuts")!
         case .apiReference:

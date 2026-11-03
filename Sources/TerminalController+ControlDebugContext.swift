@@ -343,41 +343,7 @@ extension TerminalController: ControlDebugContext {
         }
     }
 
-    // MARK: - debug.right_sidebar.focus / debug.sidebar.visible
-
-    func controlDebugRightSidebarFocus(
-        modeName: String?,
-        windowID: UUID?,
-        focusFirstItem: Bool
-    ) -> ControlDebugRightSidebarFocusResolution {
-        let resolvedModeName = modeName ?? RightSidebarMode.dock.rawValue
-        guard let mode = RightSidebarMode(rawValue: resolvedModeName) else {
-            return .invalidMode(resolvedModeName)
-        }
-        let preferredWindow: NSWindow?
-        if let windowID {
-            preferredWindow = AppDelegate.shared?.mainWindow(for: windowID)
-            guard preferredWindow != nil else {
-                return .windowNotFound
-            }
-        } else {
-            preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
-        }
-        let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
-            mode: mode,
-            focusFirstItem: focusFirstItem,
-            preferredWindow: preferredWindow
-        )
-        return .revealed(ControlDebugRightSidebarFocusState(
-            revealed: result?.revealed ?? false,
-            focusApplied: result?.focusApplied ?? false,
-            contextFound: result?.contextFound ?? false,
-            stateFound: result?.stateFound ?? false,
-            visible: result?.visible ?? false,
-            activeMode: result?.activeMode,
-            mode: mode.rawValue
-        ))
-    }
+    // MARK: - debug.sidebar.visible
 
     func controlDebugSidebarVisibility(windowID: UUID) -> Bool? {
         AppDelegate.shared?.sidebarVisibility(windowId: windowID)

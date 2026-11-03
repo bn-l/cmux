@@ -31,8 +31,7 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
             windowId: windowId,
             tabManager: manager,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
+            sidebarSelectionState: SidebarSelectionState()
         )
         TerminalController.shared.setActiveTabManager(manager)
 

@@ -53,7 +53,6 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
                     browser: nil,
                     markdown: nil,
                     filePreview: nil,
-                    rightSidebarTool: nil,
                     agentSession: SessionAgentSessionPanelSnapshot(
                         rendererKind: .react,
                         providerID: .codex,
@@ -123,7 +122,6 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
                     browser: nil,
                     markdown: nil,
                     filePreview: nil,
-                    rightSidebarTool: nil,
                     agentSession: nil,
                     project: nil
                 ),

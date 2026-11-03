@@ -1,30 +1,25 @@
 import XCTest
 
-/// Behavioral UI tests for the Settings **Sidebar** + **Beta Features**
-/// section, scoped to the controls called out for this section:
-/// the *Sidebar Branch Layout* picker (vertical vs inline), the active-tab
-/// *indicator style*, and the *beta Feed* / *beta Dock* toggles.
+/// Behavioral UI tests for the Settings **Sidebar** section, scoped to the
+/// controls called out for this section: the *Sidebar Branch Layout* picker
+/// (vertical vs inline) and the active-tab *indicator style*.
 ///
 /// What is actually assertable through XCUITest here, and why:
 ///
 /// The real runtime consumers of these settings render *inside the
-/// workspace sidebar rows and the right-sidebar mode bar* — surfaces that
-/// only exist once a workspace has been materialized. The shared
-/// `SettingsUITestCase` harness launches the app with `makeLaunchedApp()`
-/// (no `CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP` / `_SHOW_RIGHT_SIDEBAR`
-/// launch env), so the app comes up with an empty main window: no
-/// workspace rows, and the right sidebar mode bar is not populated. That
-/// means the *downstream* render effects (branch text stacked vs inline in
-/// a workspace row; the `RightSidebarModeButton.dock` button appearing in
-/// the mode bar) are NOT reachable without modifying the harness or adding
-/// a launch-time setup seam, which this task forbids.
+/// workspace sidebar rows* — surfaces that only exist once a workspace has
+/// been materialized. The shared `SettingsUITestCase` harness launches the
+/// app with `makeLaunchedApp()` (no `CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP`
+/// launch env), so the app comes up with an empty main window and no
+/// workspace rows. That means the *downstream* render effects (branch text
+/// stacked vs inline in a workspace row) are NOT reachable without modifying
+/// the harness or adding a launch-time setup seam, which this task forbids.
 ///
 /// What *is* reachable and genuinely behavioral: each of these controls is
 /// wired through a live `@AppStorage` / `@Setting` binding whose value
 /// drives a *derived, reactive subtitle* in the same Settings window. The
 /// subtitle text is computed from the current setting value
-/// (`sidebarBranchVerticalLayout ? "Vertical: …" : "Inline: …"`,
-/// `dockEnabled ? "Shows Dock …" : "Hides Dock …"`). Asserting that the
+/// (`sidebarBranchVerticalLayout ? "Vertical: …" : "Inline: …"`). Asserting that the
 /// subtitle label flips when the control changes verifies the full
 /// binding → store → dependent-view path, not merely that the control's
 /// own state toggled. These subtitle strings are surfaced as `staticText`
@@ -38,29 +33,15 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
     // test so the run starts from the shipped default.
     //  - sidebarBranchVerticalLayout: SidebarCatalogSection.branchVerticalLayout (default true / "Vertical")
     //  - sidebarActiveTabIndicatorStyle: indicator style key (default "leftRail")
-    //  - rightSidebar.beta.feed.enabled: BetaFeaturesCatalogSection.rightSidebarFeed (default false)
-    //  - rightSidebar.beta.dock.enabled: BetaFeaturesCatalogSection.rightSidebarDock (default false)
     private let inScopeDefaultsKeys = [
         "sidebarBranchVerticalLayout",
         "sidebarActiveTabIndicatorStyle",
-        "rightSidebar.beta.feed.enabled",
-        "rightSidebar.beta.dock.enabled",
     ]
 
     // Branch-layout subtitle strings (exact defaultValue copy from
     // SettingsPickerRow at cmuxApp.swift / SidebarSection.swift).
     private let branchVerticalSubtitle = "Vertical: each branch appears on its own line."
     private let branchInlineSubtitle = "Inline: all branches share one line."
-
-    // Beta Feed subtitle strings (exact defaultValue copy from
-    // BetaFeaturesSection.feedRow).
-    private let feedOffSubtitle = "Hides Feed from the right sidebar until you enable it here."
-    private let feedOnSubtitle = "Shows Feed in the right sidebar mode switcher for inline agent decisions."
-
-    // Beta Dock subtitle strings (exact defaultValue copy from
-    // BetaFeaturesSection.dockRow).
-    private let dockOffSubtitle = "Hides Dock from the right sidebar until you enable it here."
-    private let dockOnSubtitle = "Shows Dock in the right sidebar mode switcher for custom terminal controls."
 
     override func setUp() {
         super.setUp()
@@ -132,92 +113,6 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
         )
     }
 
-    // MARK: - TIER 1: Beta Feed toggle
-
-    /// Toggling the **Beta Features → Feed** switch flips the row's derived
-    /// subtitle between the "Hides Feed …" (off) and "Shows Feed …" (on)
-    /// copy. The subtitle is computed from the `rightSidebarFeed` binding,
-    /// so the label change verifies the toggle drove the live settings store
-    /// and the dependent view re-rendered.
-    func testBetaFeedToggleDrivesDerivedSubtitle() {
-        let app = makeLaunchedApp()
-        let window = openSettings(app)
-        defer { closeSettings(app, window) }
-
-        navigate(window, to: "Beta Features")
-
-        let offSubtitle = window.staticTexts[feedOffSubtitle]
-        let onSubtitle = window.staticTexts[feedOnSubtitle]
-
-        // Default is off → "Hides Feed …" present, "Shows Feed …" absent.
-        XCTAssertTrue(
-            poll(timeout: 5.0) { offSubtitle.exists },
-            "Expected the default (off) Feed subtitle"
-        )
-        XCTAssertFalse(onSubtitle.exists, "On subtitle should not be shown while Feed is disabled")
-
-        let feedToggle = toggle(window, id: "SettingsBetaFeedToggle")
-        feedToggle.click()
-
-        // Effect: subtitle flips to the "on" copy.
-        XCTAssertTrue(
-            poll(timeout: 5.0) { onSubtitle.exists },
-            "Expected the (on) Feed subtitle after enabling Feed"
-        )
-        XCTAssertFalse(offSubtitle.exists, "Off subtitle should be gone once Feed is enabled")
-
-        // Toggle back off to prove the binding is reversible (full round-trip).
-        feedToggle.click()
-        XCTAssertTrue(
-            poll(timeout: 5.0) { offSubtitle.exists },
-            "Expected the (off) Feed subtitle after disabling Feed again"
-        )
-        XCTAssertFalse(onSubtitle.exists, "On subtitle should be gone once Feed is disabled again")
-    }
-
-    // MARK: - TIER 1: Beta Dock toggle
-
-    /// Toggling the **Beta Features → Dock** switch flips the row's derived
-    /// subtitle between the "Hides Dock …" (off) and "Shows Dock …" (on)
-    /// copy. The subtitle is computed from the `rightSidebarDockEnabled`
-    /// binding, so the label change verifies the toggle drove the live
-    /// settings store and the dependent view re-rendered.
-    func testBetaDockToggleDrivesDerivedSubtitle() {
-        let app = makeLaunchedApp()
-        let window = openSettings(app)
-        defer { closeSettings(app, window) }
-
-        navigate(window, to: "Beta Features")
-
-        let offSubtitle = window.staticTexts[dockOffSubtitle]
-        let onSubtitle = window.staticTexts[dockOnSubtitle]
-
-        // Default is off → "Hides Dock …" present, "Shows Dock …" absent.
-        XCTAssertTrue(
-            poll(timeout: 5.0) { offSubtitle.exists },
-            "Expected the default (off) Dock subtitle"
-        )
-        XCTAssertFalse(onSubtitle.exists, "On subtitle should not be shown while Dock is disabled")
-
-        let dockToggle = toggle(window, id: "SettingsBetaDockToggle")
-        dockToggle.click()
-
-        // Effect: subtitle flips to the "on" copy.
-        XCTAssertTrue(
-            poll(timeout: 5.0) { onSubtitle.exists },
-            "Expected the (on) Dock subtitle after enabling Dock"
-        )
-        XCTAssertFalse(offSubtitle.exists, "Off subtitle should be gone once Dock is enabled")
-
-        // Toggle back off to prove the binding is reversible (full round-trip).
-        dockToggle.click()
-        XCTAssertTrue(
-            poll(timeout: 5.0) { offSubtitle.exists },
-            "Expected the (off) Dock subtitle after disabling Dock again"
-        )
-        XCTAssertFalse(onSubtitle.exists, "On subtitle should be gone once Dock is disabled again")
-    }
-
     // MARK: - Tiering documentation for this section
     //
     // TIER 2 (needs runtime seam): Sidebar Branch Layout downstream render —
@@ -239,15 +134,5 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
     //   harness launch there is nothing to render the indicator on, and the
     //   distinction is pixel-level appearance with no accessibility element.
     //   This would need a workspace-setup launch seam plus screenshot
-    //   sampling (cf. RightSidebarChromeHeightUITests) to verify.
-    //
-    // TIER 2 (needs runtime seam): Beta Dock downstream effect — enabling the
-    //   Dock toggle adds the `RightSidebarModeButton.dock` button to the
-    //   right-sidebar mode bar (RightSidebarPanelView `availableModes`). That
-    //   button only exists when the right sidebar is open over a workspace,
-    //   which requires CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR=1 plus the
-    //   bonsplit workspace setup at launch — env the shared harness does not
-    //   set. The reactive binding is covered above; the mode-bar button would
-    //   need the right-sidebar setup launch env (cf.
-    //   RightSidebarChromeHeightUITests) to assert directly.
+    //   sampling to verify.
 }

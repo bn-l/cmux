@@ -4,7 +4,7 @@ import SwiftUI
 /// **Account** section — mirrors the legacy in-app section: a
 /// `SettingsCard` containing the identity row (primary email title +
 /// display name subtitle + Sign In / Sign Out button, no avatar). The
-/// integration toggles (Claude Code, Cursor, Gemini, ripgrep, subagent
+/// integration toggles (Claude Code, Cursor, Gemini, subagent
 /// suppression) live under **Automation** to match legacy ordering.
 @MainActor
 public struct AccountSection: View {

@@ -6325,7 +6325,6 @@ extension BrowserPanel {
 #endif
             return
         }
-        if Workspace.openDockBrowserLinkInNewTabIfNeeded(panel: self, seed: seed) { return }
         guard let app = AppDelegate.shared else {
 #if DEBUG
             cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=missingAppDelegate")

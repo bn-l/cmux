@@ -19,7 +19,6 @@ final class TerminalViewportUITestRecorder {
     private let resizeWindowSize: NSSize?
     private let resizeWindowSizeText: String?
     private let hideSidebar: Bool
-    private let hideRightSidebar: Bool
     private let deadline: Date
     private var didRecordReadyGeometry = false
     private var didRecordInitialGeometry = false
@@ -44,7 +43,6 @@ final class TerminalViewportUITestRecorder {
         resizeWindowSize = Self.parseWindowSize(environment["CMUX_UI_TEST_TERMINAL_VIEWPORT_RESIZE_WINDOW_SIZE"])
         resizeWindowSizeText = Self.requestedWindowSizeText(environment["CMUX_UI_TEST_TERMINAL_VIEWPORT_RESIZE_WINDOW_SIZE"])
         hideSidebar = environment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] == "1"
-        hideRightSidebar = environment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_RIGHT_SIDEBAR"] == "1"
         deadline = Date().addingTimeInterval(20)
     }
 
@@ -95,9 +93,6 @@ final class TerminalViewportUITestRecorder {
         if hideSidebar {
             context.sidebarState.isVisible = false
         }
-        if hideRightSidebar {
-            context.fileExplorerState?.setVisible(false)
-        }
         if let requestedWindowSize {
             Self.setWindowSize(requestedWindowSize, on: window)
         }
@@ -116,7 +111,6 @@ final class TerminalViewportUITestRecorder {
             "terminalViewportWindowWidth": Self.format(window.frame.width),
             "terminalViewportWindowHeight": Self.format(window.frame.height),
             "terminalViewportSidebarVisible": context.sidebarState.isVisible ? "1" : "0",
-            "terminalViewportRightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
             "terminalViewportWorkspaceId": terminalPanel.workspaceId.uuidString,
         ]
         if let requestedWindowSizeText {

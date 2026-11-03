@@ -68,6 +68,70 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.panelTitle(panelId: restoredPanelId), "Readme")
     }
 
+    /// Session files written while the right sidebar existed can hold a Files/
+    /// Find pane in the workspace (a `rightSidebarTool` panel). Loading must drop
+    /// only that panel; before the fix it failed the whole session file.
+    @MainActor
+    func testSessionFileWithRemovedRightSidebarToolPanelStillRestoresEverythingElse() throws {
+        // Arrange
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-removed-type-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        let store = sessionStore()
+
+        let workspace = Workspace()
+        let keptPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let removedPanelId = try XCTUnwrap(
+            workspace.newTerminalSplit(from: keptPanelId, orientation: .horizontal, focus: false)?.id
+        )
+        workspace.setPanelCustomTitle(panelId: keptPanelId, title: "Kept terminal")
+        let otherWorkspace = Workspace()
+        otherWorkspace.setCustomTitle("Untouched workspace")
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces = [
+            workspace.sessionSnapshot(includeScrollback: false),
+            otherWorkspace.sessionSnapshot(includeScrollback: false),
+        ]
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
+
+        var root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: snapshotURL)) as? [String: Any]
+        )
+        var windows = try XCTUnwrap(root["windows"] as? [[String: Any]])
+        var tabManager = try XCTUnwrap(windows[0]["tabManager"] as? [String: Any])
+        var workspaces = try XCTUnwrap(tabManager["workspaces"] as? [[String: Any]])
+        var panels = try XCTUnwrap(workspaces[0]["panels"] as? [[String: Any]])
+        let removedIndex = try XCTUnwrap(panels.firstIndex { $0["id"] as? String == removedPanelId.uuidString })
+        panels[removedIndex]["type"] = "rightSidebarTool"
+        panels[removedIndex]["terminal"] = nil
+        panels[removedIndex]["rightSidebarTool"] = ["mode": "files"]
+        workspaces[0]["panels"] = panels
+        tabManager["workspaces"] = workspaces
+        windows[0]["tabManager"] = tabManager
+        root["windows"] = windows
+        try JSONSerialization.data(withJSONObject: root).write(to: snapshotURL, options: .atomic)
+
+        // Act
+        let loaded = try XCTUnwrap(
+            store.load(fileURL: snapshotURL),
+            "one removed-type panel must not fail the whole session file"
+        )
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(loaded.windows[0].tabManager.workspaces[0])
+
+        // Assert
+        let loadedWorkspaces = loaded.windows[0].tabManager.workspaces
+        XCTAssertEqual(loadedWorkspaces.count, 2)
+        XCTAssertEqual(loadedWorkspaces[0].panels.map(\.id), [keptPanelId])
+        XCTAssertEqual(loadedWorkspaces[1].customTitle, "Untouched workspace")
+        XCTAssertTrue(
+            restored.panels.keys.contains { restored.panelTitle(panelId: $0) == "Kept terminal" },
+            "the surviving terminal must restore with its title"
+        )
+    }
+
     @MainActor
     func testSessionSnapshotSkipsTransientRemoteListeningPorts() throws {
         let workspace = Workspace()

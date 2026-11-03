@@ -47,10 +47,6 @@ struct SettingCatalogTests {
                 "automation.kiroNotificationLevel",
                 "integrations.kiro.notificationLevel",
             ],
-            "ripgrepCustomBinaryPath": [
-                "automation.ripgrepBinaryPath",
-                "integrations.ripgrep.customBinaryPath",
-            ],
             "suppressSubagentNotifications": [
                 "automation.suppressSubagentNotifications",
                 "integrations.suppressSubagentNotifications",

@@ -25,7 +25,7 @@ public struct WindowBackdropLayer: View {
             switch role {
             case .windowRoot:
                 Color(nsColor: backdropColor)
-            case .terminalCanvas, .bonsplitChrome, .titlebar, .leftSidebar, .rightSidebar, .browserSurface:
+            case .terminalCanvas, .bonsplitChrome, .titlebar, .leftSidebar, .browserSurface:
                 LayerBackedBackdropColor(color: backdropColor)
             }
         case let .sidebarMaterial(materialPolicy):

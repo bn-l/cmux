@@ -1652,7 +1652,6 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
-    var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
     var customSidebar: SessionCustomSidebarPanelSnapshot? = nil
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
@@ -1775,7 +1774,9 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Canvas pane frames in z-order; persisted whenever any exist so
     /// positions survive toggling back to splits across restarts.
     var canvasPanes: [SessionCanvasPaneSnapshot]? = nil
-    var panels: [SessionPanelSnapshot]
+    /// Panels that no longer decode (e.g. a removed panel type) are dropped so
+    /// the rest of the workspace still restores.
+    @DroppingInvalidElements var panels: [SessionPanelSnapshot]
     var statusEntries: [SessionStatusEntrySnapshot]
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?

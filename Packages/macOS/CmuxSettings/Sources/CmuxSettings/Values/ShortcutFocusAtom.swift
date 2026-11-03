@@ -8,8 +8,6 @@ import Foundation
 /// ``ShortcutContextKnownKey`` name, so a clause referencing one of these names
 /// parses to ``ShortcutWhenClause/atom(_:)`` and keeps its original behavior.
 public enum ShortcutFocusAtom: String, CaseIterable, Sendable {
-    /// The right sidebar (vault/files/find/feed/dock) owns focus.
-    case sidebarFocus
     /// A browser panel owns focus.
     case browserFocus
     /// A markdown preview viewer owns focus.

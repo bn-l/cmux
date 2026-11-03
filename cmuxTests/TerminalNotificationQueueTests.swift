@@ -490,7 +490,6 @@ final class TerminalNotificationQueueTests: XCTestCase {
             appDelegate.tabManager = nil
             appDelegate.sidebarState = nil
             appDelegate.sidebarSelectionState = nil
-            appDelegate.fileExplorerState = nil
             TerminalController.shared.setActiveTabManager(nil)
         }
 
@@ -508,7 +507,6 @@ final class TerminalNotificationQueueTests: XCTestCase {
         XCTAssertNil(appDelegate.tabManager)
         XCTAssertNil(appDelegate.sidebarState)
         XCTAssertNil(appDelegate.sidebarSelectionState)
-        XCTAssertNil(appDelegate.fileExplorerState)
     }
 
     func testReplacingMainActorMutationKeepsOnlyNewestEntryPerKey() throws {

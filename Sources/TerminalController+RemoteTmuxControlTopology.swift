@@ -8,13 +8,11 @@ import GhosttyKit
 extension TerminalController {
     func controlTabManager(surfaceID: UUID) -> TabManager? {
         AppDelegate.shared?.locateSurface(surfaceId: surfaceID)?.tabManager
-            ?? locateDockSurface(surfaceID)?.tabManager
             ?? locateRemoteTmuxControlSurface(surfaceID)?.tabManager
     }
 
     func controlTabManager(paneID: UUID) -> TabManager? {
         v2LocatePane(paneID)?.tabManager
-            ?? locateDockPane(paneID)?.tabManager
             ?? locateRemoteTmuxControlPane(paneID)?.tabManager
     }
 

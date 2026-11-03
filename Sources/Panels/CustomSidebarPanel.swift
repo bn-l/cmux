@@ -12,7 +12,7 @@ final class CustomSidebarPanel: Panel, ObservableObject {
     @Published private(set) var focusFlashToken: Int = 0
 
     private weak var workspace: Workspace?
-    private weak var focusAnchorView: RightSidebarToolFocusAnchorView?
+    private weak var focusAnchorView: PanelFocusAnchorView?
 
     init(workspace: Workspace, name: String, fileURL: URL) {
         self.id = UUID()
@@ -32,7 +32,7 @@ final class CustomSidebarPanel: Panel, ObservableObject {
         self.workspace = workspace
     }
 
-    func attachFocusAnchor(_ anchor: RightSidebarToolFocusAnchorView?) {
+    func attachFocusAnchor(_ anchor: PanelFocusAnchorView?) {
         focusAnchorView = anchor
     }
 

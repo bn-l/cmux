@@ -44,7 +44,7 @@ struct CustomSidebarPanelView: View {
         .background(sidebarBackdrop)
         .environment(\.colorScheme, windowAppearance.sidebarContentColorScheme)
         .background(
-            RightSidebarToolFocusAnchor(onViewChange: panel.attachFocusAnchor)
+            PanelFocusAnchor(onViewChange: panel.attachFocusAnchor)
                 .frame(width: 0, height: 0)
         )
         .overlay {
@@ -72,7 +72,8 @@ struct CustomSidebarPanelView: View {
     private var sidebarBackdrop: some View {
         ZStack {
             Color(nsColor: appearance.backgroundColor)
-            WindowBackdropLayer(role: .rightSidebar, snapshot: windowAppearance)
+            // A custom sidebar pane takes the workspace sidebar's backdrop.
+            WindowBackdropLayer(role: .leftSidebar, snapshot: windowAppearance)
         }
         .clipShape(RoundedRectangle(cornerRadius: windowAppearance.sidebarSettings.materialPolicy.cornerRadius, style: .continuous))
     }

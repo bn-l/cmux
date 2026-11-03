@@ -9,10 +9,6 @@ public struct ShortcutHintDebugSettings {
     public static let defaultTitlebarHintY = -5.0
     public static let defaultPaneHintX = 0.0
     public static let defaultPaneHintY = 0.0
-    public static let defaultRightSidebarCloseHintX = -10.0
-    public static let defaultRightSidebarCloseHintY = 3.3
-    public static let defaultRightSidebarFocusHintX = -1.6
-    public static let defaultRightSidebarFocusHintY = 1.7
     public static let defaultAlwaysShowHints = false
     public static let defaultShowHintsOnCommandHold = true
     public static let defaultShowHintsOnControlHold = true

@@ -4,8 +4,8 @@ import Testing
 
 @Suite("ShortcutWhenClause")
 struct ShortcutWhenClauseTests {
-    private func state(browser: Bool = false, markdown: Bool = false, sidebar: Bool = false) -> ShortcutFocusState {
-        ShortcutFocusState(browser: browser, markdown: markdown, sidebar: sidebar)
+    private func state(browser: Bool = false, markdown: Bool = false) -> ShortcutFocusState {
+        ShortcutFocusState(browser: browser, markdown: markdown)
     }
 
     /// A context with one of each value kind for evaluation tests.
@@ -20,8 +20,8 @@ struct ShortcutWhenClauseTests {
     // MARK: - Backwards-compatible parsing (must produce identical trees)
 
     @Test func parsesNegatedAtom() {
-        #expect(ShortcutWhenClause.parse("!sidebarFocus") == .not(.atom(.sidebarFocus)))
-        #expect(ShortcutWhenClause.parse("  sidebarFocus ") == .atom(.sidebarFocus))
+        #expect(ShortcutWhenClause.parse("!markdownFocus") == .not(.atom(.markdownFocus)))
+        #expect(ShortcutWhenClause.parse("  markdownFocus ") == .atom(.markdownFocus))
     }
 
     @Test func parsesAndOrWithPrecedence() {
@@ -31,8 +31,8 @@ struct ShortcutWhenClauseTests {
                 == .or(.atom(.terminalFocus), .and(.atom(.browserFocus), .atom(.markdownFocus)))
         )
         #expect(
-            ShortcutWhenClause.parse("(terminalFocus || browserFocus) && !sidebarFocus")
-                == .and(.or(.atom(.terminalFocus), .atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+            ShortcutWhenClause.parse("(terminalFocus || browserFocus) && !markdownFocus")
+                == .and(.or(.atom(.terminalFocus), .atom(.browserFocus)), .not(.atom(.markdownFocus)))
         )
     }
 
@@ -47,44 +47,6 @@ struct ShortcutWhenClauseTests {
         #expect(ShortcutWhenClause.parse("commandPaletteVisible") == .key("commandPaletteVisible"))
         #expect(ShortcutWhenClause.parse("someUnknownKey") == .key("someUnknownKey"))
         #expect(ShortcutWhenClause.parse("!commandPaletteVisible") == .not(.key("commandPaletteVisible")))
-    }
-
-    // MARK: - Priority-aware collision (bindingsCollide)
-
-    @Test func priorityResolvedPairsCoexist() {
-        let sidebar = ShortcutWhenClause.atom(.sidebarFocus)
-        // The pre-routed sidebar action owns the overlap; an always-on binding
-        // keeps every other context — the factory Select Surface ⌃1…9 alongside
-        // the sidebar's ⌃1…5.
-        #expect(!ShortcutWhenClause.bindingsCollide(
-            .always, lhsHasPriority: false, sidebar, rhsHasPriority: true))
-        #expect(!ShortcutWhenClause.bindingsCollide(
-            sidebar, lhsHasPriority: true, .always, rhsHasPriority: false))
-    }
-
-    @Test func fullyShadowedLoserStillCollides() {
-        let sidebar = ShortcutWhenClause.atom(.sidebarFocus)
-        // A binding scoped entirely inside the winner's context would never
-        // fire, so the pair must still surface as a conflict.
-        #expect(ShortcutWhenClause.bindingsCollide(
-            sidebar, lhsHasPriority: false, sidebar, rhsHasPriority: true))
-    }
-
-    @Test func equalPrioritySidesFallBackToPlainOverlap() throws {
-        let sidebar = ShortcutWhenClause.atom(.sidebarFocus)
-        // Two pre-routed sidebar actions on one stroke are a real conflict —
-        // both live in the same prioritized context.
-        #expect(ShortcutWhenClause.bindingsCollide(
-            sidebar, lhsHasPriority: true, sidebar, rhsHasPriority: true))
-        // Disjoint clauses coexist regardless of priority flags.
-        let workspace = try #require(ShortcutWhenClause.parse("!sidebarFocus"))
-        #expect(!ShortcutWhenClause.bindingsCollide(
-            workspace, lhsHasPriority: false, sidebar, rhsHasPriority: true))
-        #expect(!ShortcutWhenClause.bindingsCollide(
-            workspace, lhsHasPriority: false, sidebar, rhsHasPriority: false))
-        // Two unprioritized always-on bindings still collide.
-        #expect(ShortcutWhenClause.bindingsCollide(
-            .always, lhsHasPriority: false, .always, rhsHasPriority: false))
     }
 
     // MARK: - Boolean literals (VS Code parity)
@@ -116,8 +78,8 @@ struct ShortcutWhenClauseTests {
         #expect(ShortcutWhenClause.parse("commandPaletteVisible == 'true'")
             == .key("commandPaletteVisible"))
         // A focus atom keeps its `.atom` form so conflict detection stays exact.
-        #expect(ShortcutWhenClause.parse("sidebarFocus == true") == .atom(.sidebarFocus))
-        #expect(ShortcutWhenClause.parse("sidebarFocus == false") == .not(.atom(.sidebarFocus)))
+        #expect(ShortcutWhenClause.parse("markdownFocus == true") == .atom(.markdownFocus))
+        #expect(ShortcutWhenClause.parse("markdownFocus == false") == .not(.atom(.markdownFocus)))
         // An absent boolean key reads as false, so `== false` matches it.
         let context = ShortcutContext()
         #expect(try #require(ShortcutWhenClause.parse("missingKey == false")).evaluate(context))
@@ -165,8 +127,8 @@ struct ShortcutWhenClauseTests {
     // MARK: - Malformed input still rejected (nil)
 
     @Test(arguments: [
-        "sidebarFocus &&",
-        "(sidebarFocus",
+        "markdownFocus &&",
+        "(markdownFocus",
         "!",
         "paneCount >",                 // relational missing operand
         "paneCount == == 1",           // double operator
@@ -183,17 +145,17 @@ struct ShortcutWhenClauseTests {
     // MARK: - Evaluation against a focus state (backwards-compatible overload)
 
     @Test func evaluatesAtomsAgainstFocusState() {
-        #expect(ShortcutWhenClause.atom(.sidebarFocus).evaluate(state(sidebar: true)))
-        #expect(!ShortcutWhenClause.atom(.sidebarFocus).evaluate(state(browser: true)))
+        #expect(ShortcutWhenClause.atom(.markdownFocus).evaluate(state(markdown: true)))
+        #expect(!ShortcutWhenClause.atom(.markdownFocus).evaluate(state(browser: true)))
         #expect(ShortcutWhenClause.atom(.terminalFocus).evaluate(state()))
-        #expect(!ShortcutWhenClause.atom(.terminalFocus).evaluate(state(sidebar: true)))
+        #expect(!ShortcutWhenClause.atom(.terminalFocus).evaluate(state(markdown: true)))
     }
 
-    @Test func workspaceDigitsExceptSidebar() throws {
-        let clause = try #require(ShortcutWhenClause.parse("!sidebarFocus"))
+    @Test func negatedAtomHoldsEverywhereExceptThatFocus() throws {
+        let clause = try #require(ShortcutWhenClause.parse("!markdownFocus"))
         #expect(clause.evaluate(state()))
         #expect(clause.evaluate(state(browser: true)))
-        #expect(!clause.evaluate(state(sidebar: true)))
+        #expect(!clause.evaluate(state(markdown: true)))
     }
 
     // MARK: - Evaluation against a full context
@@ -240,13 +202,13 @@ struct ShortcutWhenClauseTests {
     // MARK: - Conflict detection (canCoexist)
 
     @Test func canCoexistIsExactForFocusOnlyClauses() throws {
-        let workspace = try #require(ShortcutWhenClause.parse("!sidebarFocus"))
-        // ⌃1 = workspace (not sidebar) and ⌃1 = sidebar do NOT collide.
-        #expect(!ShortcutWhenClause.canCoexist(workspace, .atom(.sidebarFocus)))
+        let notMarkdown = try #require(ShortcutWhenClause.parse("!markdownFocus"))
+        // A binding outside markdown focus and one inside it do NOT collide.
+        #expect(!ShortcutWhenClause.canCoexist(notMarkdown, .atom(.markdownFocus)))
         // Two always-on bindings genuinely collide.
         #expect(ShortcutWhenClause.canCoexist(.always, .always))
-        // Workspace-except-sidebar still overlaps a browser-scoped binding.
-        #expect(ShortcutWhenClause.canCoexist(workspace, .atom(.browserFocus)))
+        // Everywhere-but-markdown still overlaps a browser-scoped binding.
+        #expect(ShortcutWhenClause.canCoexist(notMarkdown, .atom(.browserFocus)))
     }
 
     @Test func canCoexistSeparatesNegatedKey() throws {
@@ -286,8 +248,8 @@ struct ShortcutWhenClauseTests {
 
     @Test func canCoexistMixesFocusAndContextTerms() throws {
         // Same focus + opposite context key → cannot coexist.
-        let a = try #require(ShortcutWhenClause.parse("sidebarFocus && commandPaletteVisible"))
-        let b = try #require(ShortcutWhenClause.parse("sidebarFocus && !commandPaletteVisible"))
+        let a = try #require(ShortcutWhenClause.parse("markdownFocus && commandPaletteVisible"))
+        let b = try #require(ShortcutWhenClause.parse("markdownFocus && !commandPaletteVisible"))
         #expect(!ShortcutWhenClause.canCoexist(a, b))
         #expect(ShortcutWhenClause.canCoexist(a, a))
         // browser and markdown focus never co-occur (the one realizability

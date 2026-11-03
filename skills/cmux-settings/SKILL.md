@@ -7,7 +7,7 @@ description: "View and edit cmux settings in ~/.config/cmux/cmux.json. Use when 
 
 cmux reads user settings from `~/.config/cmux/cmux.json` (JSONC). The app installs a file watcher; saving the file applies changes immediately, no restart needed. Legacy `~/.config/cmux/settings.json` is read only as a fallback for keys not present in `cmux.json`.
 
-Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json`. The authoritative path list lives in `Sources/CmuxSettingsJSONPathSupport.swift` in the cmux checkout, and the installed skill includes a generated copy in `references/all-keys.md`. Top-level sections are `app`, `terminal`, `notifications`, `sidebar`, `sidebarAppearance`, `workspaceColors`, `automation`, `browser`, and `shortcuts`. Non-settings sections (`actions`, `ui`, `commands`, `vault`, `rightSidebar`) coexist in the same file.
+Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json`. The authoritative path list lives in `Sources/CmuxSettingsJSONPathSupport.swift` in the cmux checkout, and the installed skill includes a generated copy in `references/all-keys.md`. Top-level sections are `app`, `terminal`, `notifications`, `sidebar`, `sidebarAppearance`, `workspaceColors`, `automation`, `browser`, and `shortcuts`. Non-settings sections (`actions`, `ui`, `commands`, `vault`) coexist in the same file.
 
 ## Helper script
 
@@ -77,7 +77,7 @@ For the full list of settings, defaults, and descriptions, run `cmux-settings li
 - Only edit `cmux.json`. Never edit `settings.json` unless the user explicitly asks; it is legacy and only read when the key is absent from `cmux.json`.
 - Never tell the user to restart cmux to apply a change. The file watcher reloads on save.
 - Always validate after a bulk edit: `cmux-settings validate`. Unknown keys mean the user pasted a key the app does not consume.
-- Do not blindly overwrite top-level sections (`actions`, `ui`, `commands`, `vault`, `rightSidebar`). They live in the same file and contain non-settings config the user has hand-tuned.
+- Do not blindly overwrite top-level sections (`actions`, `ui`, `commands`, `vault`). They live in the same file and contain non-settings config the user has hand-tuned.
 - Shortcut action ids must match the schema enum. Look them up in [references/shortcut-actions.md](references/shortcut-actions.md) before binding.
 - Color values must be `#RRGGBB`. Opacities are `0..1`.
 - For settings the user expressed in app-level language (e.g. "Settings > Notifications > Dock badge"), translate to the matching JSON path first; the docs page at `web/app/[locale]/docs/configuration/page.tsx` mirrors the schema 1:1.

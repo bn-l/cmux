@@ -20,8 +20,7 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(viewZoom.isAvailable(
             focusedBrowserPanel: false,
             focusedMarkdownPanel: false,
-            focusedFilePreviewTextEditor: true,
-            rightSidebarFocused: false
+            focusedFilePreviewTextEditor: true
         ))
 
         var textPreviewPaletteContext = CommandPaletteContextSnapshot()
@@ -38,30 +37,25 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(context.isAvailable(
             focusedBrowserPanel: true,
             focusedMarkdownPanel: false,
-            focusedFilePreviewTextEditor: false,
-            rightSidebarFocused: false
+            focusedFilePreviewTextEditor: false
         ))
         #expect(context.isAvailable(
             focusedBrowserPanel: false,
             focusedMarkdownPanel: false,
-            focusedFilePreviewTextEditor: true,
-            rightSidebarFocused: false
+            focusedFilePreviewTextEditor: true
         ))
         #expect(context.isAvailable(
             focusedBrowserPanel: true,
             focusedMarkdownPanel: false,
-            focusedFilePreviewTextEditor: true,
-            rightSidebarFocused: false
+            focusedFilePreviewTextEditor: true
         ))
         #expect(!context.isAvailable(
             focusedBrowserPanel: false,
             focusedMarkdownPanel: false,
-            focusedFilePreviewTextEditor: false,
-            rightSidebarFocused: false
+            focusedFilePreviewTextEditor: false
         ))
 
         #expect(context.overlaps(KeyboardShortcutSettings.Action.browserReload.shortcutContext))
-        #expect(!context.overlaps(KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext))
         #expect(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
     }
 

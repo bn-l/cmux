@@ -355,7 +355,6 @@ def cmd_validate(args: argparse.Namespace) -> int:
         "vault",
         "newWorkspaceCommand",
         "surfaceTabBarButtons",
-        "rightSidebar",
     }
     for top, value in data.items():
         if top in structural:

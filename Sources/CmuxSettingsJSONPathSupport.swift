@@ -1,7 +1,6 @@
 import CmuxSettings
 import Foundation
 
-typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
 
 enum SidebarWorkspaceDetailDefaults {
     static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
@@ -324,7 +323,6 @@ enum AutomationSettingsFileMapping {
 
     static let stringSettings: [SettingsFileStringMapping] = [
         .init(jsonKey: "claudeBinaryPath", defaultsKey: automation.claudeBinaryPath.userDefaultsKey),
-        .init(jsonKey: "ripgrepBinaryPath", defaultsKey: automation.ripgrepBinaryPath.userDefaultsKey),
         .init(jsonKey: "autoNamingAgent", defaultsKey: automation.autoNamingAgent.userDefaultsKey),
     ]
 }
@@ -456,7 +454,6 @@ extension CmuxSettingsFileStore {
         "sidebar.loadingSpinnerPosition",
         "sidebar.notificationBadgePosition",
         "sidebar.showCustomMetadata",
-        RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",
         "workspaceColors.titlebarIndicator",
         "workspaceColors.paneBorder",
@@ -478,7 +475,6 @@ extension CmuxSettingsFileStore {
         "automation.claudeBinaryPath",
         "automation.workspaceAutoNaming",
         "automation.autoNamingAgent",
-        "automation.ripgrepBinaryPath",
         "automation.suppressSubagentNotifications",
         "automation.ampIntegration",
         "automation.cursorIntegration",
@@ -508,7 +504,6 @@ extension CmuxSettingsFileStore {
         "canvas.paneGap",
         "canvas.snappingEnabled",
         "fileEditor.wordWrap",
-        "fileExplorer.doubleClickAction",
         "shortcuts.bindings",
     ]
 }

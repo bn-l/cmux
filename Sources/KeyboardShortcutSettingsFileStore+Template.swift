@@ -49,7 +49,7 @@ extension CmuxSettingsFileStore {
 
     private static func defaultTemplateSections() -> [[String: Any]] {
         let shortcutsBindings = Dictionary(
-            uniqueKeysWithValues: KeyboardShortcutSettings.publicShortcutActions.map { action in
+            uniqueKeysWithValues: KeyboardShortcutSettings.Action.allCases.map { action in
                 (action.rawValue, shortcutTemplateValue(action.defaultShortcut, usesNumberedDigits: action.usesNumberedDigitMatching))
             }
         )
@@ -180,7 +180,6 @@ extension CmuxSettingsFileStore {
                     "socketPassword": "",
                     "claudeCodeIntegration": IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
                     "claudeBinaryPath": "",
-                    "ripgrepBinaryPath": "",
                     "suppressSubagentNotifications": IntegrationsCatalogSection().suppressSubagentNotifications.defaultValue,
                     "ampIntegration": IntegrationsCatalogSection().ampHooksEnabled.defaultValue,
                     "cursorIntegration": IntegrationsCatalogSection().cursorHooksEnabled.defaultValue,
@@ -220,11 +219,6 @@ extension CmuxSettingsFileStore {
             [
                 "fileEditor": [
                     "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
-                ],
-            ],
-            [
-                "fileExplorer": [
-                    "doubleClickAction": FileExplorerDoubleClickActionSettings.defaultValue.rawValue,
                 ],
             ],
             [

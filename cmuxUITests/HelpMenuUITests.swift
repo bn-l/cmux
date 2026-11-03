@@ -70,7 +70,6 @@ final class HelpMenuUITests: XCTestCase {
         XCTAssertTrue(app.menuItems["Concepts"].waitForExistence(timeout: 2.0))
         XCTAssertTrue(app.menuItems["Configuration"].waitForExistence(timeout: 2.0))
         XCTAssertTrue(app.menuItems["Custom Commands"].waitForExistence(timeout: 2.0))
-        XCTAssertTrue(app.menuItems["Dock"].waitForExistence(timeout: 2.0))
         XCTAssertTrue(app.menuItems["Keyboard Shortcuts"].waitForExistence(timeout: 2.0))
         XCTAssertTrue(app.menuItems["API Reference"].waitForExistence(timeout: 2.0))
         XCTAssertTrue(app.menuItems["Browser Automation"].waitForExistence(timeout: 2.0))
@@ -81,6 +80,7 @@ final class HelpMenuUITests: XCTestCase {
         XCTAssertTrue(app.menuItems["Changelog"].waitForExistence(timeout: 2.0))
         XCTAssertTrue(app.menuItems["Send Feedback"].waitForExistence(timeout: 2.0))
         XCTAssertFalse(app.menuItems["Codex Integration"].exists)
+        XCTAssertFalse(app.menuItems["Dock"].exists, "The right-sidebar Dock docs link was removed")
 
         let keyboardShortcutsItem = requireElement(
             candidates: [

@@ -260,21 +260,6 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The full call result.
     func controlDebugBrowserFavicon(params: [String: JSONValue]) -> ControlCallResult
 
-    /// Reveals and focuses the right sidebar for `debug.right_sidebar.focus`.
-    ///
-    /// - Parameters:
-    ///   - modeName: The requested sidebar mode raw value, or `nil` for the
-    ///     app's default (`dock`).
-    ///   - windowID: The explicit target window, or `nil` for the key/main
-    ///     window.
-    ///   - focusFirstItem: Whether to focus the first sidebar item.
-    /// - Returns: The reveal resolution.
-    func controlDebugRightSidebarFocus(
-        modeName: String?,
-        windowID: UUID?,
-        focusFirstItem: Bool
-    ) -> ControlDebugRightSidebarFocusResolution
-
     /// The sidebar visibility of a window for `debug.sidebar.visible`.
     ///
     /// - Parameter windowID: The window to inspect.

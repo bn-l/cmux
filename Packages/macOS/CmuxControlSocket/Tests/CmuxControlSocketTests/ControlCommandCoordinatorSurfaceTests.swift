@@ -5,145 +5,47 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator surface domain")
 struct ControlCommandCoordinatorSurfaceTests {
-    private func coordinator(
-        createResolution: ControlSurfaceCreateResolution
-    ) -> (ControlCommandCoordinator, FakeSurfaceControlCommandContext) {
+    /// The right-sidebar Dock is gone: a `dock` placement (or any value other
+    /// than `workspace`) fails loudly before the app creates anything, instead
+    /// of silently landing in the workspace.
+    @Test(arguments: ["surface.create", "pane.create"], ["dock", "sidebar", "Workspace"])
+    func createRejectsEveryPlacementButWorkspaceBeforeCallingTheApp(method: String, placement: String) {
+        // Arrange
         let context = FakeSurfaceControlCommandContext()
-        context.createResolution = createResolution
-        return (ControlCommandCoordinator(context: context), context)
-    }
-
-    @Test func surfaceCreateDockPayloadUsesDockScopedIDs() throws {
-        let windowID = UUID()
-        let workspaceID = UUID()
-        let dockPaneID = UUID()
-        let dockSurfaceID = UUID()
-        let (coordinator, context) = coordinator(createResolution: .createdDock(
-            windowID: windowID,
-            workspaceID: workspaceID,
-            dockPaneID: dockPaneID,
-            dockSurfaceID: dockSurfaceID,
-            typeRawValue: "browser"
-        ))
-
-        let result = coordinator.handle(ControlRequest(
-            id: .int(1),
-            method: "surface.create",
-            params: [
-                "type": .string("browser"),
-                "placement": .string("dock"),
-            ]
-        ))
-        _ = context
-
-        guard case .ok(.object(let payload)) = result else {
-            Issue.record("expected dock create payload")
-            return
-        }
-
-        #expect(payload["placement"] == .string("dock"))
-        #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
-        #expect(payload["window_id"] == .string(windowID.uuidString))
-        #expect(payload["surface_id"] == .null)
-        #expect(payload["surface_ref"] == .null)
-        #expect(payload["pane_id"] == .null)
-        #expect(payload["pane_ref"] == .null)
-        #expect(payload["dock_surface_id"] == .string(dockSurfaceID.uuidString))
-        #expect(payload["dock_pane_id"] == .string(dockPaneID.uuidString))
-        #expect(payload["type"] == .string("browser"))
-    }
-
-    @Test func paneCreateDockPayloadUsesDockScopedIDs() throws {
-        let windowID = UUID()
-        let workspaceID = UUID()
-        let dockPaneID = UUID()
-        let dockSurfaceID = UUID()
-        let context = FakeSurfaceControlCommandContext()
-        context.paneCreateResolution = .createdDock(
-            windowID: windowID,
-            workspaceID: workspaceID,
-            dockPaneID: dockPaneID,
-            dockSurfaceID: dockSurfaceID,
-            typeRawValue: "terminal"
-        )
         let coordinator = ControlCommandCoordinator(context: context)
 
+        // Act
         let result = coordinator.handle(ControlRequest(
             id: .int(1),
-            method: "pane.create",
-            params: [
-                "direction": .string("right"),
-                "placement": .string("dock"),
-            ]
+            method: method,
+            params: ["direction": .string("right"), "type": .string("terminal"), "placement": .string(placement)]
         ))
 
-        guard case .ok(.object(let payload)) = result else {
-            Issue.record("expected dock pane create payload")
-            return
-        }
-
-        #expect(payload["placement"] == .string("dock"))
-        #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
-        #expect(payload["window_id"] == .string(windowID.uuidString))
-        #expect(payload["surface_id"] == .null)
-        #expect(payload["surface_ref"] == .null)
-        #expect(payload["pane_id"] == .null)
-        #expect(payload["pane_ref"] == .null)
-        #expect(payload["dock_surface_id"] == .string(dockSurfaceID.uuidString))
-        #expect(payload["dock_pane_id"] == .string(dockPaneID.uuidString))
-        #expect(payload["type"] == .string("terminal"))
+        // Assert
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "placement must be: workspace",
+            data: .object(["placement": .string(placement)])
+        ))
+        #expect(context.paneCreateCallCount == 0)
+        #expect(context.surfaceCreateCallCount == 0)
     }
 
-    @Test func surfaceCreateDockUnsupportedTypeReturnsInvalidParams() throws {
-        let (coordinator, context) = coordinator(createResolution: .dockUnsupportedType(
-            typeRawValue: "agentSession",
-            message: "Dock placement supports only terminal and browser surfaces"
-        ))
-        let result = coordinator.handle(ControlRequest(
-            id: .int(1),
-            method: "surface.create",
-            params: [
-                "type": .string("agent-session"),
-                "placement": .string("dock"),
-            ]
-        ))
-        _ = context
-
-        guard case .err(let code, let message, let data) = result else {
-            Issue.record("expected invalid_params error")
-            return
-        }
-
-        #expect(code == "invalid_params")
-        #expect(message == "Dock placement supports only terminal and browser surfaces")
-        #expect(data == .object(["type": .string("agentSession")]))
-    }
-
-    @Test func paneCreateDockUnsupportedTypeReturnsInvalidParams() throws {
+    @Test(arguments: [nil, "workspace"] as [String?])
+    func createWithWorkspaceOrNoPlacementReachesTheApp(placement: String?) {
+        // Arrange
         let context = FakeSurfaceControlCommandContext()
-        context.paneCreateResolution = .dockUnsupportedType(
-            typeRawValue: "markdown",
-            message: "Dock placement supports only terminal and browser surfaces"
-        )
         let coordinator = ControlCommandCoordinator(context: context)
-        let result = coordinator.handle(ControlRequest(
-            id: .int(1),
-            method: "pane.create",
-            params: [
-                "direction": .string("right"),
-                "type": .string("markdown"),
-                "placement": .string("dock"),
-            ]
-        ))
+        var params: [String: JSONValue] = ["direction": .string("right"), "type": .string("terminal")]
+        if let placement { params["placement"] = .string(placement) }
 
-        guard case .err(let code, let message, let data) = result else {
-            Issue.record("expected invalid_params error")
-            return
-        }
+        // Act
+        _ = coordinator.handle(ControlRequest(id: .int(1), method: "pane.create", params: params))
+        _ = coordinator.handle(ControlRequest(id: .int(2), method: "surface.create", params: params))
 
-        #expect(code == "invalid_params")
-        #expect(message == "Dock placement supports only terminal and browser surfaces")
-        #expect(data == .object(["type": .string("markdown")]))
+        // Assert
+        #expect(context.paneCreateCallCount == 1)
+        #expect(context.surfaceCreateCallCount == 1)
     }
 
     private func makeCoordinator() -> (ControlCommandCoordinator, FakeSurfaceControlCommandContext) {

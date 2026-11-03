@@ -64,8 +64,6 @@ extension ControlCommandCoordinator {
             return debugBrowserAddressBarFocused(request.params)
         case "debug.browser.favicon":
             return debugBrowserFavicon(request.params)
-        case "debug.right_sidebar.focus":
-            return debugRightSidebarFocus(request.params)
         case "debug.sidebar.visible":
             return debugSidebarVisible(request.params)
         case "debug.terminal.is_focused":

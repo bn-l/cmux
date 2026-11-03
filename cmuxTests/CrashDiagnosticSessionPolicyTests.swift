@@ -487,8 +487,7 @@ struct CrashDiagnosticSessionPolicyTests {
             terminal: terminal,
             browser: nil,
             markdown: nil,
-            filePreview: nil,
-            rightSidebarTool: nil
+            filePreview: nil
         )
     }
 

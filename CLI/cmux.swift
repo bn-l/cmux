@@ -3244,11 +3244,6 @@ struct CMUXCLI {
             return
         }
 
-        if command == "right-sidebar" {
-            let parsed = try parseRightSidebarCLIArguments(commandArgs)
-            _ = try rightSidebarSocketArguments(from: parsed)
-        }
-
         if command == "themes" {
             try runThemes(
                 commandArgs: commandArgs,
@@ -3949,7 +3944,7 @@ struct CMUXCLI {
             if let placement { params["placement"] = placement }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "dock_surface", "dock_pane", "workspace"]))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
         case "new-surface":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             let type = optionValue(commandArgs, name: "--type")
@@ -3965,8 +3960,7 @@ struct CMUXCLI {
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
-            let dockPaneId = paneRaw?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let paneId = (placement?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "dock" && dockPaneId.map(isUUID) == true) ? dockPaneId : try normalizePaneHandle(paneRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
+            let paneId = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
@@ -3979,7 +3973,7 @@ struct CMUXCLI {
             }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "dock_surface", "dock_pane", "workspace"]))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "surface":
             try runSurfaceCommand(
@@ -4593,13 +4587,6 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-
-        case "right-sidebar":
-            try forwardRightSidebarCommand(
-                commandArgs: commandArgs,
-                client: client,
-                windowOverride: windowId
-            )
 
         case "sidebar":
             try runSidebarCommand(
@@ -13628,8 +13615,6 @@ struct CMUXCLI {
             Flags:
               --type <terminal|browser>           Pane type (default: terminal)
               --direction <left|right|up|down>    Split direction (default: right)
-              --placement <workspace|dock>        Target container (default: workspace).
-                                                  dock splits the right-sidebar Dock.
               --workspace <id|ref|index>          Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>             Window context for workspace refs and indexes
               --url <url>                         URL for browser panes
@@ -13638,7 +13623,6 @@ struct CMUXCLI {
             Example:
               cmux new-pane
               cmux new-pane --type browser --direction down --url https://example.com
-              cmux new-pane --type browser --placement dock --url https://example.com
             """
         case "new-surface":
             return """
@@ -13649,9 +13633,6 @@ struct CMUXCLI {
             Flags:
               --type <terminal|browser|agent-session>   Surface type (default: terminal)
               --pane <id|ref|index>       Target pane
-              --placement <workspace|dock>  Target container (default: workspace).
-                                           dock adds the surface to the right-sidebar Dock
-                                           (terminal and browser only).
               --workspace <id|ref|index>  Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>     Window context for workspace/pane refs and indexes
               --url <url>                 URL for browser surfaces
@@ -13665,7 +13646,6 @@ struct CMUXCLI {
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
               cmux new-surface --type agent-session --provider claude --renderer solid --focus true
-              cmux new-surface --type browser --placement dock --url https://example.com
             """
         case "close-surface":
             return """
@@ -14374,33 +14354,6 @@ struct CMUXCLI {
               cmux sidebar-state
               cmux sidebar-state --workspace workspace:2
             """
-        case "right-sidebar":
-            return String(localized: "cli.rightSidebar.usage", defaultValue: """
-            Usage: cmux right-sidebar <command> [flags]
-
-            Control the right sidebar from the CLI.
-
-            Commands:
-              toggle                         Toggle right sidebar visibility
-              show                           Show the right sidebar
-              hide                           Hide the right sidebar
-              focus                          Focus the current right sidebar mode
-              set <files|find|feed|dock>
-                                             Show, switch mode, and focus
-              mode                           Print {"visible":bool,"mode":string}
-              files|find|feed|dock
-                                             Alias for show + set + focus
-
-            Flags:
-              --workspace <id|ref|index>     Target the window containing a workspace
-              --window <id|ref|index>        Target a window
-              --no-focus                     With set, switch mode without moving focus
-
-            Examples:
-              cmux right-sidebar toggle
-              cmux right-sidebar set find
-              cmux right-sidebar mode
-            """)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
             Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]
@@ -14804,40 +14757,6 @@ struct CMUXCLI {
         return try sendV1Command(command, client: client)
     }
 
-    private struct RightSidebarCLIArguments {
-        let positional: [String]
-        let workspace: String?
-        let window: String?
-        let noFocus: Bool
-    }
-
-    private func forwardRightSidebarCommand(
-        commandArgs: [String],
-        client: SocketClient,
-        windowOverride: String?
-    ) throws {
-        let parsed = try parseRightSidebarCLIArguments(commandArgs)
-        let socketArgs = try rightSidebarSocketArguments(from: parsed)
-        let windowId = try resolveRightSidebarWindowId(parsed.window ?? windowOverride, client: client)
-        let workspaceId = try resolveRightSidebarWorkspaceId(parsed.workspace, windowId: windowId, client: client)
-
-        var forwardedArgs = socketArgs
-        if let workspaceId {
-            forwardedArgs.append("--tab=\(workspaceId)")
-        }
-        if let windowId {
-            forwardedArgs.append("--window=\(windowId)")
-        }
-
-        let command = (["right_sidebar"] + forwardedArgs)
-            .map(shellQuote)
-            .joined(separator: " ")
-        let response = try sendV1Command(command, client: client)
-        if parsed.positional.first?.lowercased() == "mode" {
-            print(response)
-        }
-    }
-
     private func runSidebarCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -15013,177 +14932,6 @@ struct CMUXCLI {
         Self.boolValue(raw)
     }
 
-    private func parseRightSidebarCLIArguments(_ args: [String]) throws -> RightSidebarCLIArguments {
-        var positional: [String] = []
-        var workspace: String?
-        var window: String?
-        var noFocus = false
-        var index = 0
-
-        while index < args.count {
-            let arg = args[index]
-            switch arg {
-            case "--workspace":
-                guard index + 1 < args.count else {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.workspaceRequiresValue", defaultValue: "right-sidebar: --workspace requires an id"))
-                }
-                workspace = args[index + 1]
-                index += 2
-            case "--window":
-                guard index + 1 < args.count else {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.windowRequiresValue", defaultValue: "right-sidebar: --window requires an id"))
-                }
-                window = args[index + 1]
-                index += 2
-            case "--no-focus":
-                noFocus = true
-                index += 1
-            default:
-                if arg.hasPrefix("--workspace=") {
-                    workspace = String(arg.dropFirst("--workspace=".count))
-                    index += 1
-                } else if arg.hasPrefix("--window=") {
-                    window = String(arg.dropFirst("--window=".count))
-                    index += 1
-                } else if arg.hasPrefix("--") {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownFlag", defaultValue: "right-sidebar: unknown flag '\(arg)'"))
-                } else {
-                    positional.append(arg)
-                    index += 1
-                }
-            }
-        }
-
-        return RightSidebarCLIArguments(
-            positional: positional,
-            workspace: workspace,
-            window: window,
-            noFocus: noFocus
-        )
-    }
-
-    private func rightSidebarSocketArguments(from parsed: RightSidebarCLIArguments) throws -> [String] {
-        guard let action = parsed.positional.first?.lowercased() else {
-            throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand"))
-        }
-
-        switch action {
-        case "toggle", "show", "hide", "focus", "mode":
-            guard parsed.positional.count == 1 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
-            }
-            guard !parsed.noFocus else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
-            }
-            return [action]
-
-        case "set":
-            guard parsed.positional.count == 2 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, feed, or dock"))
-            }
-            let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard isRightSidebarCLIMode(mode) else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownMode", defaultValue: "Unknown right-sidebar mode '\(parsed.positional[1])'"))
-            }
-            var args = ["set", normalizedRightSidebarCLIArgument(mode)]
-            if parsed.noFocus {
-                args.append("--no-focus")
-            }
-            return args
-
-        case "files", "find", "feed", "dock":
-            guard parsed.positional.count == 1 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
-            }
-            guard !parsed.noFocus else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
-            }
-            return ["set", action]
-
-        default:
-            let rawAction = parsed.positional[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard parsed.positional.count == 1, isRightSidebarCLIMode(rawAction) else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownCommand", defaultValue: "Unknown right-sidebar command '\(action)'"))
-            }
-            guard !parsed.noFocus else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
-            }
-            return ["set", normalizedRightSidebarCLIArgument(rawAction)]
-        }
-    }
-
-    private func resolveRightSidebarWindowId(_ raw: String?, client: SocketClient) throws -> String? {
-        guard let normalized = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !normalized.isEmpty else { return nil }
-        return try resolvedRightSidebarHandleID(
-            normalized,
-            expectedRefKind: "window",
-            invalidMessage: String(localized: "cli.rightSidebar.error.invalidWindow", defaultValue: "Invalid window handle: \(normalized)"),
-            missingRefMessage: String(localized: "cli.rightSidebar.error.windowRefNotFound", defaultValue: "Window ref not found"),
-            listMethod: "window.list",
-            listKey: "windows",
-            client: client
-        )
-    }
-
-    private func resolveRightSidebarWorkspaceId(
-        _ raw: String?,
-        windowId: String?,
-        client: SocketClient
-    ) throws -> String? {
-        guard let normalized = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !normalized.isEmpty else { return nil }
-        var params: [String: Any] = [:]
-        if let windowId {
-            params["window_id"] = windowId
-        }
-        return try resolvedRightSidebarHandleID(
-            normalized,
-            expectedRefKind: "workspace",
-            invalidMessage: String(localized: "cli.rightSidebar.error.invalidWorkspace", defaultValue: "Invalid workspace handle: \(normalized)"),
-            missingRefMessage: String(localized: "cli.rightSidebar.error.workspaceRefNotFound", defaultValue: "Workspace ref not found"),
-            listMethod: "workspace.list",
-            listKey: "workspaces",
-            listParams: params,
-            client: client
-        )
-    }
-
-    private func resolvedRightSidebarHandleID(
-        _ handle: String,
-        expectedRefKind: String,
-        invalidMessage: String,
-        missingRefMessage: String,
-        listMethod: String,
-        listKey: String,
-        listParams: [String: Any] = [:],
-        client: SocketClient
-    ) throws -> String {
-        let trimmed = handle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if isUUID(trimmed) { return trimmed }
-        let refIndex: Int?
-        if isHandleRef(trimmed) {
-            let pieces = trimmed.split(separator: ":", omittingEmptySubsequences: false)
-            guard pieces.count == 2, pieces[0].lowercased() == expectedRefKind else {
-                throw CLIError(message: invalidMessage)
-            }
-            refIndex = Int(pieces[1])
-        } else {
-            refIndex = Int(trimmed)
-        }
-
-        let listed = try client.sendV2(method: listMethod, params: listParams)
-        let items = listed[listKey] as? [[String: Any]] ?? []
-        for item in items {
-            guard let id = item["id"] as? String else { continue }
-            if id == trimmed ||
-                (item["ref"] as? String) == trimmed ||
-                (refIndex != nil && intFromAny(item["index"]) == refIndex) {
-                return id
-            }
-        }
-        throw CLIError(message: missingRefMessage)
-    }
 
     /// Pick the display handle for an item dict based on --id-format.
     private func textHandle(_ item: [String: Any], idFormat: CLIIDFormat) -> String {
@@ -30482,7 +30230,7 @@ export default CMUXSessionRestore;
 
         print("\u{001B}[2J\u{001B}[H", terminator: "")
         print(feedTUILine(
-            "cmux Dock Feed  latest first  \(pendingCount) pending  \(items.count) total  \(visibleStart)-\(visibleEnd)",
+            "cmux Feed  latest first  \(pendingCount) pending  \(items.count) total  \(visibleStart)-\(visibleEnd)",
             width: width
         ))
         print(feedTUILine(
@@ -32334,7 +32082,6 @@ export default CMUXSessionRestore;
           \(bold)\u{2318}T\(reset)\(subdued)                  New tab\(reset)
           \(bold)\u{2318}P\(reset)\(subdued)                  Go to workspace\(reset)
           \(bold)\u{2318}B\(reset)\(subdued)                  Toggle Left Sidebar\(reset)
-          \(bold)\u{2318}\u{2325}B\(reset)\(subdued)                 Toggle Right Sidebar\(reset)
           \(bold)\u{2318}D\(reset)\(subdued)                  Split right\(reset)
           \(bold)\u{2318}\u{21E7}D\(reset)\(subdued)                 Split down\(reset)
           \(bold)\u{2318}\u{21E7}P\(reset)\(subdued)                 Command palette\(reset)
@@ -32646,7 +32393,7 @@ export default CMUXSessionRestore;
           --password takes precedence, then CMUX_SOCKET_PASSWORD, then the password saved in Settings.
 
         Agent Help:
-          Change cmux settings with `cmux docs settings` and `cmux settings path`; add Dock controls with `cmux docs dock`.
+          Change cmux settings with `cmux docs settings` and `cmux settings path`.
           Before editing, back up any existing cmux.json file to a timestamped .bak copy.
           Use printed curl commands to fetch the latest docs/schema; prefer Ghostty config for terminal behavior Ghostty already supports.
           Ghostty config lives at ~/.config/ghostty/config (terminal transparency, blur, font, theme, keybinds, etc.).
@@ -32654,7 +32401,7 @@ export default CMUXSessionRestore;
 
         Commands:
           welcome
-          docs [settings|shortcuts|api|browser|agents|dock|sidebars]
+          docs [settings|shortcuts|api|browser|agents|sidebars]
           settings [open [target]|path|docs|<target>]
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
@@ -32745,7 +32492,6 @@ export default CMUXSessionRestore;
           jump-to-unread
           jump-to-last-prompt
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
-          right-sidebar <toggle|show|hide|focus|set|mode|files|find|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select|open> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]

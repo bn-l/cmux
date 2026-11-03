@@ -3,14 +3,14 @@ import Foundation
 /// A typed value held by a keyboard-shortcut context key.
 ///
 /// A ``ShortcutContext`` maps context-key names (e.g. `commandPaletteVisible`,
-/// `sidebarMode`, `paneCount`) to these values. The three cases mirror the value
+/// `paneCount`) to these values. The three cases mirror the value
 /// kinds a ``ShortcutWhenClause`` can test: boolean focus/visibility flags,
 /// string-valued modes, and integer counts.
 ///
 /// ```swift
 /// var context = ShortcutContext()
 /// context.setBool("commandPaletteVisible", true)
-/// context.setString("sidebarMode", "find")
+/// context.setString("panelKind", "terminal")
 /// context.setInt("paneCount", 2)
 /// ```
 public enum ShortcutContextValue: Equatable, Sendable {

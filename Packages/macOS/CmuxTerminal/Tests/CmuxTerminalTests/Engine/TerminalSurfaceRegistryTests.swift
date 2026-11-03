@@ -5,15 +5,13 @@ import Testing
 
 @testable import CmuxTerminal
 
-/// Minimal registered-surface stand-in: identity plus focus placement,
-/// matching exactly what the registry reads through `TerminalSurfacing`.
+/// Minimal registered-surface stand-in: identity, matching exactly what the
+/// registry reads through `TerminalSurfacing`.
 private final class FakeSurface: TerminalSurfacing {
     let id: UUID
-    let focusPlacement: TerminalSurfaceFocusPlacement
 
-    init(id: UUID = UUID(), focusPlacement: TerminalSurfaceFocusPlacement = .workspace) {
+    init(id: UUID = UUID()) {
         self.id = id
-        self.focusPlacement = focusPlacement
     }
 }
 
@@ -53,32 +51,31 @@ struct TerminalSurfaceRegistryTests {
         #expect(registry.surface(id: UUID()) == nil)
     }
 
-    @Test func unregisterRemovesSurfaceAndPlacement() {
+    @Test func unregisterRemovesSurface() {
         let registry = TerminalSurfaceRegistry()
-        let surface = FakeSurface(focusPlacement: .rightSidebarDock)
+        let surface = FakeSurface()
         registry.register(surface)
-        #expect(registry.isRightSidebarDockSurface(id: surface.id))
+        #expect(registry.surface(id: surface.id) === surface)
 
         registry.unregister(surface)
         #expect(registry.surface(id: surface.id) == nil)
-        #expect(!registry.isRightSidebarDockSurface(id: surface.id))
     }
 
-    @Test func placementSurvivesWhileAnotherSurfaceSharesTheId() {
+    @Test func replacementSurfaceKeepsTheSharedIdAfterTheOldOneUnregisters() {
         let registry = TerminalSurfaceRegistry()
         let sharedId = UUID()
-        let first = FakeSurface(id: sharedId, focusPlacement: .rightSidebarDock)
-        let second = FakeSurface(id: sharedId, focusPlacement: .rightSidebarDock)
+        let first = FakeSurface(id: sharedId)
+        let second = FakeSurface(id: sharedId)
         registry.register(first)
         registry.register(second)
 
         registry.unregister(first)
-        // The replacement portal still owns the id, so its placement record
-        // must survive the old surface's teardown (the legacy guard).
-        #expect(registry.isRightSidebarDockSurface(id: sharedId))
+        // The replacement portal still owns the id after the old surface's
+        // teardown.
+        #expect(registry.surface(id: sharedId) === second)
 
         registry.unregister(second)
-        #expect(!registry.isRightSidebarDockSurface(id: sharedId))
+        #expect(registry.surface(id: sharedId) == nil)
     }
 
     @Test func evictsDeallocatedSurfaces() {
@@ -158,36 +155,10 @@ struct TerminalSurfaceRegistryTests {
         #expect(registry.surface(id: surface.id) == nil)
     }
 
-    @Test func updateFocusPlacementFlipsRecordedPlacement() {
-        let registry = TerminalSurfaceRegistry()
-        let surface = FakeSurface(focusPlacement: .workspace)
-        registry.register(surface)
-        #expect(!registry.isRightSidebarDockSurface(id: surface.id))
-
-        // Moving a live surface into the dock re-records its placement so the
-        // dock-surface predicate (portal layering, focus cycling) sees the move
-        // without recreating the surface.
-        registry.updateFocusPlacement(id: surface.id, .rightSidebarDock)
-        #expect(registry.isRightSidebarDockSurface(id: surface.id))
-
-        registry.updateFocusPlacement(id: surface.id, .workspace)
-        #expect(!registry.isRightSidebarDockSurface(id: surface.id))
-    }
-
-    @Test func updateFocusPlacementIgnoresUnregisteredId() {
-        let registry = TerminalSurfaceRegistry()
-        // A move record for an id with no live surface must not resurrect a
-        // dropped placement entry.
-        registry.updateFocusPlacement(id: UUID(), .rightSidebarDock)
-        let strayId = UUID()
-        registry.updateFocusPlacement(id: strayId, .rightSidebarDock)
-        #expect(!registry.isRightSidebarDockSurface(id: strayId))
-    }
-
     @Test func diagnosticSnapshotDropsUnregisteredSurfacesAndRuntimePointers() throws {
         let registry = TerminalSurfaceRegistry()
-        let retained = FakeSurface(focusPlacement: .workspace)
-        var closed: FakeSurface? = FakeSurface(focusPlacement: .rightSidebarDock)
+        let retained = FakeSurface()
+        var closed: FakeSurface? = FakeSurface()
         let retainedRuntimeSurface = try #require(ghostty_surface_t(bitPattern: 0x1111))
         let closedRuntimeSurface = try #require(ghostty_surface_t(bitPattern: 0x2222))
 
@@ -202,8 +173,6 @@ struct TerminalSurfaceRegistryTests {
 
         let snapshot = registry.diagnosticSnapshot()
         #expect(snapshot.registeredSurfaceCount == 1)
-        #expect(snapshot.workspaceSurfaceCount == 1)
-        #expect(snapshot.rightSidebarDockSurfaceCount == 0)
         #expect(snapshot.runtimeSurfaceCount == 1)
         #expect(snapshot.payload()["registered_surface_count"] as? Int == 1)
         #expect(snapshot.payload()["runtime_surface_count"] as? Int == 1)

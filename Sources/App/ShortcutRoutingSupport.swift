@@ -578,7 +578,6 @@ func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {
 
 private enum BrowserFindCommandEquivalent: CaseIterable {
     case find
-    case findInDirectory
     case findNext
     case findPrevious
     case hideFind
@@ -587,7 +586,6 @@ private enum BrowserFindCommandEquivalent: CaseIterable {
     var action: KeyboardShortcutSettings.Action {
         switch self {
         case .find: return .find
-        case .findInDirectory: return .findInDirectory
         case .findNext: return .findNext
         case .findPrevious: return .findPrevious
         case .hideFind: return .hideFind
@@ -599,7 +597,7 @@ private enum BrowserFindCommandEquivalent: CaseIterable {
         switch self {
         case .find, .findNext, .findPrevious, .hideFind:
             return true
-        case .findInDirectory, .useSelection:
+        case .useSelection:
             return false
         }
     }
@@ -730,10 +728,6 @@ func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
     }
 
     if case .find = shortcut {
-        return false
-    }
-
-    if case .findInDirectory = shortcut {
         return false
     }
 

@@ -441,27 +441,4 @@ extension TerminalController {
         tab.resetSidebarContext(reason: "reset_sidebar")
         return true
     }
-
-    func controlSidebarApplyRightSidebarRemoteCommand(tokens: [String]) -> ControlSidebarRightSidebarResolution {
-        let parsed = RightSidebarRemoteRequest.parse(tokens: tokens)
-        let request: RightSidebarRemoteRequest
-        switch parsed {
-        case .success(let value):
-            request = value
-        case .failure(let error):
-            return .failure(message: error.message)
-        }
-
-        guard let app = AppDelegate.shared else {
-            return .failure(message: String(localized: "rightSidebar.remote.error.appDelegateUnavailable", defaultValue: "ERROR: App delegate not available"))
-        }
-        switch app.applyRightSidebarRemoteCommand(request.command, target: request.target) {
-        case .ok:
-            return .ok
-        case .state(let state):
-            return .state(visible: state.visible, modeRawValue: state.modeRawValue)
-        case .failure(let message):
-            return .failure(message: message)
-        }
-    }
 }

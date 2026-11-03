@@ -413,11 +413,10 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
     //   Observable only with a real nested-agent completion event. Stored
     //   value proven TIER 1 via the subtitle.
     //
-    // TIER 2 (needs runtime seam): Claude Binary Path / Ripgrep Binary Path —
-    //   these select which `claude` / `rg` executable cmux resolves
-    //   (FileExplorerSearchController for ripgrep, agent launch for claude).
-    //   The effect is which on-disk binary runs; there is no app-surface
-    //   element reflecting the resolved path. The text fields have no
+    // TIER 2 (needs runtime seam): Claude Binary Path — selects which
+    //   `claude` executable the agent launch resolves. The effect is which
+    //   on-disk binary runs; there is no app-surface element reflecting the
+    //   resolved path. The text field has no
     //   accessibility identifier and no observable consequence to assert
     //   without a process-launch seam.
     //

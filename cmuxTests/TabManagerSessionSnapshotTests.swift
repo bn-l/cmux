@@ -1534,10 +1534,101 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(item.menuSubtitle.contains(String(localized: "menu.history.recentlyClosed.kind.tab", defaultValue: "Tab")))
     }
 
-    func testRightSidebarToolSnapshotTolerantlyDecodesObsoleteHistoryMode() throws {
-        let json = #"{"mode":"history"}"#.data(using: .utf8)!
-        let snapshot = try JSONDecoder().decode(SessionRightSidebarToolPanelSnapshot.self, from: json)
-        XCTAssertNil(snapshot.mode)
+    /// History files written while the right sidebar existed hold closed
+    /// Files/Find panes (`rightSidebarTool` panels), as their own records and
+    /// inside closed workspaces. Loading must drop only those panes: one
+    /// undecodable record used to empty the whole reopen history.
+    func testClosedItemHistoryFileWithRemovedRightSidebarToolPanelsKeepsEveryOtherRecord() throws {
+        // Arrange
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-history-removed-type-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let historyURL = tempDir.appendingPathComponent("history.json", isDirectory: false)
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let keptPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let removedPanelId = try XCTUnwrap(
+            workspace.newTerminalSplit(from: keptPanelId, orientation: .horizontal, focus: false)?.id
+        )
+        workspace.setPanelCustomTitle(panelId: keptPanelId, title: "Kept tab")
+        workspace.setPanelCustomTitle(panelId: removedPanelId, title: "Files pane")
+        var workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        workspaceSnapshot.customTitle = "Closed workspace"
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: keptPanelId)?.id)
+        let keptSnapshot = try XCTUnwrap(workspaceSnapshot.panels.first { $0.id == keptPanelId })
+        let removedSnapshot = try XCTUnwrap(workspaceSnapshot.panels.first { $0.id == removedPanelId })
+
+        let seedStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+        for (index, snapshot) in [keptSnapshot, removedSnapshot].enumerated() {
+            seedStore.push(ClosedItemHistoryRecord(
+                closedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                entry: .panel(ClosedPanelHistoryEntry(
+                    workspaceId: workspace.id,
+                    paneId: paneId,
+                    tabIndex: index,
+                    snapshot: snapshot
+                ))
+            ))
+        }
+        seedStore.push(ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 2),
+            entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: UUID(),
+                windowId: nil,
+                workspaceIndex: 0,
+                snapshot: workspaceSnapshot
+            ))
+        ))
+        XCTAssertEqual(
+            try rewritePanelAsRemovedRightSidebarTool(panelId: removedPanelId, inJSONFileAt: historyURL),
+            2,
+            "the Files pane must be rewritten in its own record and inside the closed workspace"
+        )
+
+        // Act
+        let loadingStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+
+        // Assert
+        let snapshot = loadingStore.menuSnapshot()
+        XCTAssertEqual(snapshot.totalItemCount, 2)
+        XCTAssertEqual(snapshot.items.map(\.title), ["Closed workspace", "Kept tab"])
+    }
+
+    /// Rewrites every stored panel snapshot with `panelId` into the shape the
+    /// right-sidebar builds wrote for a Files pane. Returns how many it rewrote.
+    private func rewritePanelAsRemovedRightSidebarTool(panelId: UUID, inJSONFileAt url: URL) throws -> Int {
+        var rewritten = 0
+        func rewrite(_ value: Any) -> Any {
+            if var dictionary = value as? [String: Any] {
+                if dictionary["id"] as? String == panelId.uuidString, dictionary["type"] != nil {
+                    dictionary["type"] = "rightSidebarTool"
+                    dictionary["terminal"] = nil
+                    dictionary["rightSidebarTool"] = ["mode": "files"]
+                    rewritten += 1
+                    return dictionary
+                }
+                return dictionary.mapValues(rewrite)
+            }
+            if let array = value as? [Any] {
+                return array.map(rewrite)
+            }
+            return value
+        }
+        let root = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
+        try JSONSerialization.data(withJSONObject: rewrite(root)).write(to: url, options: .atomic)
+        return rewritten
     }
 
     func testReopenSpecificRecentlyClosedRowRestoresOnlyThatRecord() throws {
@@ -1837,7 +1928,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         panelSnapshot.browser = nil
         panelSnapshot.markdown = nil
         panelSnapshot.filePreview = nil
-        panelSnapshot.rightSidebarTool = nil
         snapshot.customTitle = "Broken Workspace"
         snapshot.panels = [panelSnapshot]
         snapshot.layout = .pane(SessionPaneLayoutSnapshot(
@@ -3809,8 +3899,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 forwardHistoryURLStrings: nil
             ),
             markdown: nil,
-            filePreview: nil,
-            rightSidebarTool: nil
+            filePreview: nil
         )
     }
 
@@ -3828,8 +3917,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             terminal: SessionTerminalPanelSnapshot(),
             browser: nil,
             markdown: nil,
-            filePreview: nil,
-            rightSidebarTool: nil
+            filePreview: nil
         )
     }
 }

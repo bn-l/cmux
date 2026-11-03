@@ -29,10 +29,10 @@ private final class CanvasRoutingViewportSpy: CanvasViewportControlling {
 struct CanvasShortcutContextTests {
     @Test
     func canvasOnlyShortcutDefaultWhenClausesRequireCanvasLayout() {
-        var splitContext = ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
+        var splitContext = ShortcutFocusState(browser: false, markdown: false).context
         splitContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, false)
 
-        var canvasContext = ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
+        var canvasContext = ShortcutFocusState(browser: false, markdown: false).context
         canvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
 
         #expect(
@@ -59,20 +59,17 @@ struct CanvasShortcutContextTests {
         let nonBrowser = KeyboardShortcutSettings.Action.renameTab.shortcutContext
         let browser = KeyboardShortcutSettings.Action.browserReload.shortcutContext
         let markdown = KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext
-        let sidebar = KeyboardShortcutSettings.Action.fileExplorerOpenSelection.shortcutContext
 
         #expect(canvas == .canvasLayout)
         #expect(nonBrowser == .nonBrowserPanel)
         #expect(canvas.isAvailable(
             focusedBrowserPanel: false,
             focusedMarkdownPanel: false,
-            rightSidebarFocused: false,
             workspaceCanvasLayout: true
         ))
         #expect(nonBrowser.isAvailable(
             focusedBrowserPanel: false,
             focusedMarkdownPanel: false,
-            rightSidebarFocused: false,
             workspaceCanvasLayout: true
         ))
         #expect(canvas.overlaps(nonBrowser))
@@ -81,8 +78,6 @@ struct CanvasShortcutContextTests {
         #expect(browser.overlaps(canvas))
         #expect(canvas.overlaps(markdown))
         #expect(markdown.overlaps(canvas))
-        #expect(canvas.overlaps(sidebar))
-        #expect(sidebar.overlaps(canvas))
     }
 
     @Test
@@ -92,13 +87,13 @@ struct CanvasShortcutContextTests {
         let markdownActualSize = KeyboardShortcutSettings.Action.markdownZoomReset.defaultShortcut
         let canvasActualSizeContext = KeyboardShortcutSettings.Action.canvasZoomReset.shortcutContext
         let canvasActualSizeWhen = KeyboardShortcutSettings.effectiveWhenClause(for: .canvasZoomReset)
-        var backgroundCanvasContext = ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
+        var backgroundCanvasContext = ShortcutFocusState(browser: false, markdown: false).context
         backgroundCanvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
-        var browserCanvasContext = ShortcutFocusState(browser: true, markdown: false, sidebar: false).context
+        var browserCanvasContext = ShortcutFocusState(browser: true, markdown: false).context
         browserCanvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
-        var markdownCanvasContext = ShortcutFocusState(browser: false, markdown: true, sidebar: false).context
+        var markdownCanvasContext = ShortcutFocusState(browser: false, markdown: true).context
         markdownCanvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
-        var filePreviewTextEditorCanvasContext = ShortcutFocusState(browser: false, markdown: false, sidebar: false, filePreviewTextEditor: true).context
+        var filePreviewTextEditorCanvasContext = ShortcutFocusState(browser: false, markdown: false, filePreviewTextEditor: true).context
         filePreviewTextEditorCanvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
         let browserActualSizeWhen = KeyboardShortcutSettings.effectiveWhenClause(for: .browserZoomReset)
 
@@ -127,7 +122,7 @@ struct CanvasShortcutContextTests {
 @MainActor
 @Suite(.serialized)
 struct CanvasShortcutRoutingFeedbackTests {
-    @Test func canvasSurfaceDigitsWinOverRightSidebarModeDigitsInCanvasMode() throws {
+    @Test func canvasSurfaceDigitsSelectCanvasSurfacesInCanvasMode() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
@@ -144,9 +139,6 @@ struct CanvasShortcutRoutingFeedbackTests {
             let secondPanelId = try #require(workspace.openNewCanvasPane(type: .terminal, focus: true))
             #expect(workspace.focusedPanelId == secondPanelId)
 
-            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .find, in: window)
-            let fileExplorerState = try #require(appDelegate.fileExplorerState)
-            fileExplorerState.mode = .find
 
 #if DEBUG
             #expect(appDelegate.debugHandleCustomShortcut(event: event))
@@ -154,10 +146,9 @@ struct CanvasShortcutRoutingFeedbackTests {
             Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-            #expect(workspace.focusedPanelId == firstPanelId)
             #expect(
-                fileExplorerState.mode == .find,
-                "Ctrl+1 should select the first Canvas surface instead of switching the right sidebar to Files in canvas mode"
+                workspace.focusedPanelId == firstPanelId,
+                "Ctrl+1 should select the first Canvas surface in canvas mode"
             )
         }
     }

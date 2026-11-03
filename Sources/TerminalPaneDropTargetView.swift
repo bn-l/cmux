@@ -112,39 +112,6 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
-        // Dock panes route real live-surface tab drops to the Dock controller,
-        // unless the same payload should insert its file path as terminal text.
-        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
-           transfer.isFromCurrentProcess,
-           let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
-           AppDelegate.shared?.canMoveSurfaceIntoDock(sourceTabId: transfer.tabId, destinationDock: dock) == true,
-           !DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
-               pasteboardTypes: sender.draggingPasteboard.types,
-               modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
-               canDropAsText: hostedView != nil
-           ) {
-            let proposed = PaneDropRouting.zone(for: convert(sender.draggingLocation, from: nil), in: bounds.size)
-            let zone = dock.portalPaneDropZone(
-                tabId: transfer.tabId,
-                sourcePaneId: transfer.sourcePaneId,
-                targetPane: dropContext.paneId,
-                proposedZone: proposed
-            )
-            let handled = dock.performPortalPaneDrop(
-                tabId: transfer.tabId,
-                sourcePaneId: transfer.sourcePaneId,
-                targetPane: dropContext.paneId,
-                zone: zone
-            )
-#if DEBUG
-            cmuxDebugLog(
-                "terminal.paneDrop.perform.dock panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone) handled=\(handled ? 1 : 0)"
-            )
-#endif
-            return handled
-        }
-
         guard let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
 #if DEBUG
             cmuxDebugLog("terminal.paneDrop.perform allowed=0 reason=missingWorkspace")
@@ -229,27 +196,6 @@ final class PaneDropTargetView: NSView {
         guard let dropContext else {
             clearDragState(phase: "\(phase).reject")
             return []
-        }
-
-        // Dock pane target: preview the Dock route unless this is file-drop-as-text.
-        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
-           transfer.isFromCurrentProcess,
-           let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
-           AppDelegate.shared?.canMoveSurfaceIntoDock(sourceTabId: transfer.tabId, destinationDock: dock) == true,
-           !DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
-               pasteboardTypes: sender.draggingPasteboard.types,
-               modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
-               canDropAsText: hostedView != nil
-           ) {
-            let proposed = PaneDropRouting.zone(for: location, in: bounds.size)
-            let zone = dock.portalPaneDropZone(
-                tabId: transfer.tabId,
-                sourcePaneId: transfer.sourcePaneId,
-                targetPane: dropContext.paneId,
-                proposedZone: proposed
-            )
-            setActiveDropZone(zone)
-            return .move
         }
 
         guard let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
@@ -396,8 +342,6 @@ final class PaneDropTargetView: NSView {
             }
             return .editor
         case .markdown:
-            return nil
-        case .rightSidebarTool:
             return nil
         case .customSidebar:
             return nil

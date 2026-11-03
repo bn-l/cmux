@@ -192,8 +192,6 @@ extension TerminalController {
             return .markdown
         case "filepreview":
             return .filePreview
-        case "rightsidebartool":
-            return .rightSidebarTool
         case "agentsession":
             return .agentSession
         default:

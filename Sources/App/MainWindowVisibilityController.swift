@@ -10,14 +10,11 @@ final class MainWindowVisibilityController {
         case applicationReopen
         case ensureInitialWindow
         case feedback
-        case fileSearchFocus
         case findShortcut
         case focusMainWindow
         case globalHotkey
         case menuBar
         case notification
-        case rightSidebarFocus
-        case rightSidebarToggle
         case titlebarDismiss
         case socketActivate
         case workspaceCreation

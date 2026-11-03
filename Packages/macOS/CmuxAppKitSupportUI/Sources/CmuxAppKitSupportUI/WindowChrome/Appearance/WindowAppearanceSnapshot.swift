@@ -94,7 +94,7 @@ public struct WindowAppearanceSnapshot {
             return terminalBackdropPolicy()
         case .terminalCanvas, .bonsplitChrome, .titlebar, .browserSurface:
             return .clear
-        case .leftSidebar, .rightSidebar:
+        case .leftSidebar:
             if unifySurfaceBackdrops {
                 return .clear
             }

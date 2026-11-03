@@ -719,11 +719,6 @@ final class ClosedItemHistoryStore: ObservableObject {
             return String(localized: "menu.history.recentlyClosed.panel.markdown", defaultValue: "Markdown")
         case .filePreview:
             return String(localized: "menu.history.recentlyClosed.panel.filePreview", defaultValue: "File Preview")
-        case .rightSidebarTool:
-            if let mode = snapshot.rightSidebarTool?.mode {
-                return mode.label
-            }
-            return String(localized: "menu.history.recentlyClosed.panel.tool", defaultValue: "Tool")
         case .customSidebar:
             return String(localized: "menu.history.recentlyClosed.panel.customSidebar", defaultValue: "Custom Sidebar")
         case .agentSession:
@@ -780,7 +775,9 @@ private struct ClosedItemHistoryPersistenceSnapshot: Codable {
     static let currentVersion = 1
 
     var version: Int = currentVersion
-    var records: [ClosedItemHistoryRecord]
+    /// Records that no longer decode (e.g. a closed pane of a removed panel
+    /// type) are dropped instead of discarding the whole history.
+    @DroppingInvalidElements var records: [ClosedItemHistoryRecord]
 }
 
 private actor ClosedItemHistoryPersistenceActor {

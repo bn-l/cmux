@@ -18,16 +18,6 @@ import Testing
         #expect(!shortcut.control)
         #expect(shortcut.configIdentifier == "return")
         #expect(StoredShortcut.parseConfig("enter", allowBareFirstStroke: true) == shortcut)
-        #expect(
-            KeyboardShortcutSettings.Action.fileExplorerOpenSelection.defaultShortcut.configIdentifier == "return"
-        )
-        #expect(
-            StoredShortcut.parseConfig(
-                KeyboardShortcutSettings.Action.fileExplorerOpenSelection.defaultShortcut.configIdentifier,
-                allowBareFirstStroke: true
-            ) ==
-            KeyboardShortcutSettings.Action.fileExplorerOpenSelection.defaultShortcut
-        )
     }
 
     @Test func shortcutConfigParsingRoundTripsSpaceKey() throws {

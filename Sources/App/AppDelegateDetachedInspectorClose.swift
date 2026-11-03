@@ -200,17 +200,6 @@ extension AppDelegate {
                 for panel in workspace.panels.values {
                     appendPanel(panel)
                 }
-                // Workspace Docks keep their own panel store; include their
-                // browser panels so detached-inspector close routing and focus
-                // handoff cover Dock-hosted DevTools too.
-                workspace._dockSplit?.forEachPanel { _, panel in
-                    appendPanel(panel)
-                }
-            }
-        }
-        for context in mainWindowContexts.values {
-            context.existingWindowDock()?.forEachPanel { _, panel in
-                appendPanel(panel)
             }
         }
 

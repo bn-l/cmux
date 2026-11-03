@@ -8,7 +8,6 @@ public enum PanelType: String, Codable, Sendable {
     case browser
     case markdown
     case filePreview = "filepreview"
-    case rightSidebarTool
     case customSidebar
     case agentSession
     case project
@@ -23,10 +22,6 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.filePreview.rawValue {
             self = .filePreview
-            return
-        }
-        if rawValue.lowercased() == Self.rightSidebarTool.rawValue.lowercased() {
-            self = .rightSidebarTool
             return
         }
         if rawValue.lowercased() == Self.customSidebar.rawValue.lowercased() {

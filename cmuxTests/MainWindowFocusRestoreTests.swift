@@ -81,10 +81,6 @@ struct MainWindowFocusRestoreTests {
         )
 
         appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: panelId, in: window)
-        #expect(
-            appDelegate.allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: panelId, in: window),
-            "Main-panel intent should allow terminal focus before window-key restoration"
-        )
 
         #expect(
             focusController.restoreTargetAfterWindowBecameKey(),
@@ -97,57 +93,6 @@ struct MainWindowFocusRestoreTests {
         #expect(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
             "A same-window stray responder must not block terminal first-responder restoration"
-        )
-        #expect(window.firstResponder === terminalView, "Expected Ghostty surface view to own first responder after restore")
-    }
-
-    @Test func windowKeyRestoreIgnoresStrandedRightSidebarResponderForFocusedTerminal() throws {
-        let appDelegate = try #require(AppDelegate.shared)
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        let window = try #require(mainWindow(for: windowId))
-        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-        let workspace = try #require(manager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
-        let terminalView = try #require(surfaceView(in: terminalPanel.hostedView))
-        let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
-
-        focusHostedTerminal(window: window, hostedView: terminalPanel.hostedView)
-
-        let staleSidebarResponder = RightSidebarKeyboardFocusView(
-            frame: NSRect(x: 0, y: 0, width: 24, height: 24)
-        )
-        (window.contentView?.superview ?? window.contentView)?.addSubview(staleSidebarResponder)
-        staleSidebarResponder.registerWithKeyboardFocusCoordinatorIfNeeded()
-        #expect(window.makeFirstResponder(staleSidebarResponder), "Expected right-sidebar responder to take focus")
-        #expect(window.firstResponder === staleSidebarResponder)
-        staleSidebarResponder.removeFromSuperview()
-        #expect(staleSidebarResponder.window == nil, "Expected a stranded right-sidebar responder")
-        #expect(
-            !terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Expected terminal surface to lose first responder before stranded-responder restoration"
-        )
-
-        appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: panelId, in: window)
-        #expect(
-            appDelegate.allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: panelId, in: window),
-            "Main-panel intent should allow terminal focus before window-key restoration"
-        )
-
-        #expect(
-            focusController.restoreTargetAfterWindowBecameKey(),
-            "Window key restoration should ignore stranded right-sidebar responders and restore the focused terminal"
-        )
-        waitUntil(timeout: 1.0) {
-            terminalPanel.hostedView.isSurfaceViewFirstResponder() && window.firstResponder === terminalView
-        }
-
-        #expect(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "A stranded right-sidebar responder must not block terminal first-responder restoration"
         )
         #expect(window.firstResponder === terminalView, "Expected Ghostty surface view to own first responder after restore")
     }

@@ -67,8 +67,8 @@ layout, and right-click to offer alternate starters.
 
 ## Full-Stack Dev
 
-Use this when a repo needs terminals, browser preview, and persistent Dock
-controls for repeated local development.
+Use this when a repo needs terminals and a browser preview for repeated local
+development.
 
 `.cmux/cmux.json`:
 
@@ -114,17 +114,6 @@ controls for repeated local development.
         }
       }
     }
-  ]
-}
-```
-
-`.cmux/dock.json`:
-
-```json
-{
-  "controls": [
-    { "id": "git", "title": "Git", "command": "lazygit", "cwd": ".", "height": 320 },
-    { "id": "feed", "title": "Feed", "command": "cmux feed tui --opentui", "height": 260 }
   ]
 }
 ```
@@ -298,33 +287,6 @@ the default new terminal and browser buttons.
       ]
     }
   }
-}
-```
-
-## CI Watch
-
-Use this when the user wants a repeatable place for GitHub Actions, CircleCI,
-or release-monitoring commands. Prefer Dock controls for long-running monitors.
-
-`.cmux/dock.json`:
-
-```json
-{
-  "controls": [
-    {
-      "id": "gh-runs",
-      "title": "GitHub Runs",
-      "command": "gh run list --limit 10 && exec ${SHELL:-/bin/zsh} -l",
-      "cwd": ".",
-      "height": 260
-    },
-    {
-      "id": "feed",
-      "title": "Feed",
-      "command": "cmux feed tui --opentui",
-      "height": 260
-    }
-  ]
 }
 ```
 

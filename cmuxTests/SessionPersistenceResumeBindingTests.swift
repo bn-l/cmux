@@ -1271,7 +1271,6 @@ struct CrossProjectAgentSessionIdentityTests {
             browser: nil,
             markdown: nil,
             filePreview: nil,
-            rightSidebarTool: nil,
             project: nil
         )
     }
@@ -1300,7 +1299,6 @@ struct CrossProjectAgentSessionIdentityTests {
             browser: nil,
             markdown: nil,
             filePreview: nil,
-            rightSidebarTool: nil,
             project: nil
         )
     }

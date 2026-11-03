@@ -760,94 +760,6 @@ private func installFileDropOverlayWhenReady(
     }
 }
 
-@MainActor
-private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
-    private struct Snapshot: Equatable {
-        let workspaceId: UUID?
-        let currentDirectory: String?
-        let remoteConfiguration: WorkspaceRemoteConfiguration?
-        let remoteConnectionState: WorkspaceRemoteConnectionState?
-        let remoteConnectionDetail: String?
-        let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
-        let activeRemoteTerminalSessionCount: Int
-    }
-
-    @Published private(set) var directoryChangeGeneration: UInt64 = 0
-    private weak var tabManager: TabManager?
-    private var cancellable: AnyCancellable?
-
-    func wire(tabManager: TabManager) {
-        guard self.tabManager !== tabManager || cancellable == nil else { return }
-        self.tabManager = tabManager
-        cancellable = tabManager.selectedTabIdPublisher
-            .map { [weak tabManager] tabId -> Workspace? in
-                guard let tabId, let tabManager else { return nil }
-                return tabManager.tabs.first(where: { $0.id == tabId })
-            }
-            .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<(Snapshot, UInt64), Never> in
-                guard let workspace else {
-                    return Just(
-                        Snapshot(
-                            workspaceId: nil,
-                            currentDirectory: nil,
-                            remoteConfiguration: nil,
-                            remoteConnectionState: nil,
-                            remoteConnectionDetail: nil,
-                            remoteDaemonStatus: nil,
-                            activeRemoteTerminalSessionCount: 0
-                        )
-                    )
-                    .map { ($0, UInt64(0)) }
-                    .eraseToAnyPublisher()
-                }
-                let directoryChangeRevision = workspace.currentDirectoryChangeRevisionPublisher()
-                return workspace.$currentDirectory
-                    .combineLatest(
-                        workspace.$remoteConfiguration,
-                        workspace.$remoteConnectionState,
-                        workspace.$remoteConnectionDetail
-                    )
-                    .combineLatest(
-                        workspace.$remoteDaemonStatus,
-                        workspace.$activeRemoteTerminalSessionCount
-                    )
-                    .map { values in
-                        let (
-                            previousValues,
-                            remoteDaemonStatus,
-                            activeRemoteTerminalSessionCount
-                        ) = values
-                        let (
-                            currentDirectory,
-                            remoteConfiguration,
-                            remoteConnectionState,
-                            remoteConnectionDetail
-                        ) = previousValues
-                        return Snapshot(
-                            workspaceId: workspace.id,
-                            currentDirectory: workspace.isRemoteWorkspace
-                                ? workspace.presentedCurrentDirectory
-                                : currentDirectory,
-                            remoteConfiguration: remoteConfiguration,
-                            remoteConnectionState: remoteConnectionState,
-                            remoteConnectionDetail: remoteConnectionDetail,
-                            remoteDaemonStatus: remoteDaemonStatus,
-                            activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount
-                        )
-                    }
-                    .combineLatest(directoryChangeRevision)
-                    .eraseToAnyPublisher()
-            }
-            .switchToLatest()
-            .removeDuplicates { lhs, rhs in lhs.0 == rhs.0 && lhs.1 == rhs.1 }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.directoryChangeGeneration &+= 1
-            }
-    }
-}
-
 struct ContentView: View {
     private enum CommandPaletteTaskKey: Hashable, Sendable {
         case searchIndexBuild
@@ -869,13 +781,11 @@ struct ContentView: View {
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
-    @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
-    @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
@@ -909,13 +819,9 @@ struct ContentView: View {
     private var observedWindow: NSWindow? { observedWindowReference.window }
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
-    @StateObject private var fileExplorerStore = FileExplorerStore()
-    @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var workspacePresentationModeRuntimeCache = WorkspacePresentationModeRuntimeCache()
-    @State private var fileExplorerWidth: CGFloat = 220
-    @State private var fileExplorerDragStartWidth: CGFloat?
     @State private var previousSelectedWorkspaceId: UUID?
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffFallbackScheduler = MainActorDeferredActionScheduler()
@@ -1175,7 +1081,7 @@ struct ContentView: View {
     /// pane, because it says which project this is; the configured
     /// active-pane color only tells panes apart, so it needs more than one.
     private func focusedPaneOutlineColorHex(for workspace: Workspace) -> String? {
-        guard workspace.layoutMode != .canvas, !fileExplorerState.rightSidebarOwnsInputFocus else { return nil }
+        guard workspace.layoutMode != .canvas else { return nil }
         if outlinesFocusedPaneInWorkspaceColor,
            let colorHex = tabManager.resolvedWorkspaceIndicatorColorHex(for: workspace),
            let displayColor = Self.workspaceIndicatorDisplayColor(hex: colorHex, over: GhosttyApp.shared.defaultBackgroundColor) {
@@ -1224,9 +1130,6 @@ struct ContentView: View {
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
-    private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
-    private static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
-    private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
         CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
@@ -1234,7 +1137,6 @@ struct ContentView: View {
 
     private enum SidebarResizerHandle: Hashable {
         case divider
-        case explorerDivider
     }
 
     /// Returns the current drag width, start width capture, width update, and drag end cleanup for a resizer handle.
@@ -1261,26 +1163,6 @@ struct ContentView: View {
                     }
                 },
                 finishDrag: { sidebarDragStartWidth = nil }
-            )
-        case .explorerDivider:
-            return (
-                currentWidth: fileExplorerWidth,
-                captureStart: { fileExplorerDragStartWidth = fileExplorerWidth },
-                updateWidth: { translation in
-                    let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
-                    let nextWidth = Self.clampedRightSidebarWidth(
-                        startWidth - translation,
-                        availableWidth: availableWidth,
-                        configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
-                    )
-                    withTransaction(Transaction(animation: nil)) {
-                        fileExplorerWidth = nextWidth
-                    }
-                },
-                finishDrag: {
-                    fileExplorerDragStartWidth = nil
-                    fileExplorerState.width = fileExplorerWidth
-                }
             )
         }
     }
@@ -1316,28 +1198,6 @@ struct ContentView: View {
         return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
     }
 
-    static func clampedRightSidebarWidth(
-        _ candidate: CGFloat,
-        availableWidth: CGFloat,
-        configuredMaximumWidth: CGFloat? = nil
-    ) -> CGFloat {
-        let minimumWidth = Self.minimumRightSidebarWidth
-        let sanitizedCandidate = candidate.isFinite ? candidate : 220
-        let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
-        let availableWidthCap = max(
-            minimumWidth,
-            sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
-        )
-        let configuredOrDefaultCap: CGFloat
-        if let configuredMaximumWidth, configuredMaximumWidth.isFinite {
-            configuredOrDefaultCap = max(minimumWidth, configuredMaximumWidth)
-        } else {
-            configuredOrDefaultCap = Self.maximumRightSidebarWidth
-        }
-        let maximumWidth = min(configuredOrDefaultCap, availableWidthCap)
-        return max(minimumWidth, min(maximumWidth, sanitizedCandidate))
-    }
-
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
         let nextWidth = Self.clampedSidebarWidth(
             sidebarWidth,
@@ -1356,55 +1216,6 @@ struct ContentView: View {
             maximumWidth: maxSidebarWidth(),
             minimumWidth: minimumSidebarWidth
         )
-    }
-
-    private func resolvedRightSidebarAvailableWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
-        if let availableWidth {
-            return availableWidth
-        }
-        if let width = observedWindow?.contentView?.bounds.width {
-            return width
-        }
-        if let width = observedWindow?.contentLayoutRect.width {
-            return width
-        }
-        if let width = NSApp.keyWindow?.contentView?.bounds.width {
-            return width
-        }
-        if let width = NSApp.keyWindow?.contentLayoutRect.width {
-            return width
-        }
-        if let width = NSApp.keyWindow?.screen?.frame.width {
-            return width
-        }
-        if let width = NSScreen.main?.frame.width {
-            return width
-        }
-        return 1920
-    }
-
-    private var rightSidebarConfiguredMaximumWidth: CGFloat? {
-        guard let width = RightSidebarWidthSettings().configuredMaximumWidth(from: rightSidebarMaxWidthSetting) else {
-            return nil
-        }
-        return CGFloat(width)
-    }
-
-    private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
-        Self.clampedRightSidebarWidth(
-            candidate,
-            availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
-            configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
-        )
-    }
-
-    private func clampRightSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
-        let nextWidth = normalizedRightSidebarWidth(fileExplorerWidth, availableWidth: availableWidth)
-        guard abs(nextWidth - fileExplorerWidth) > 0.5 else { return }
-        withTransaction(Transaction(animation: nil)) {
-            fileExplorerWidth = nextWidth
-        }
-        fileExplorerState.width = nextWidth
     }
 
     private func activateSidebarResizerCursor() {
@@ -1430,7 +1241,7 @@ struct ContentView: View {
     }
 
     private func updateSidebarResizerBandState(using _: NSEvent? = nil) {
-        guard sidebarState.isVisible || rightSidebarVisible,
+        guard sidebarState.isVisible,
               let window = observedWindow,
               let contentView = window.contentView else {
             isResizerBandActive = false
@@ -1445,9 +1256,7 @@ struct ContentView: View {
             point: pointInContent,
             contentBounds: contentView.bounds,
             isLeftSidebarVisible: sidebarState.isVisible,
-            leftDividerX: sidebarWidth,
-            isRightSidebarVisible: rightSidebarVisible,
-            rightDividerX: contentView.bounds.maxX - rightSidebarWidth
+            leftDividerX: sidebarWidth
         )
         let mayActivate = sidebarResizerOcclusionResolver.bandMayActivate(
             isDragging: isResizerDragging,
@@ -1642,19 +1451,9 @@ struct ContentView: View {
         )
     }
 
-    private var rightSidebarResizerOverlay: some View {
-        placedSidebarResizerOverlay(
-            handle: .explorerDivider,
-            edge: .trailing,
-            accessibilityIdentifier: "RightSidebarResizer",
-            dividerX: { totalWidth in totalWidth - rightSidebarWidth }
-        )
-    }
-
     private var sidebarView: some View {
         VerticalTabsSidebar(
             updateViewModel: updateViewModel,
-            fileExplorerState: fileExplorerState,
             windowId: windowId,
             onToggleSidebar: { sidebarState.toggle() },
             onNewTab: {
@@ -1765,7 +1564,6 @@ struct ContentView: View {
                         workspace: tab,
                         isWorkspaceVisible: presentation.isPanelVisible,
                         isWorkspaceInputActive: isInputActive,
-                        rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
                         windowAppearance: appearance,
@@ -1810,24 +1608,6 @@ struct ContentView: View {
             }
     }
 
-    private func terminalContentWithRightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
-        // The right-sidebar shell remains in the view tree so its frame can
-        // animate without SwiftUI insertion/removal. Cold hidden launches defer
-        // heavy mode content until the sidebar has been shown at least once.
-        return HStack(spacing: 0) {
-            terminalContentWithSidebarDropOverlay(appearance: appearance)
-            rightSidebarPanelWithBackdrop(appearance: appearance)
-        }
-    }
-
-    private var rightSidebarVisible: Bool {
-        fileExplorerState.isVisible
-    }
-
-    private var rightSidebarWidth: CGFloat {
-        rightSidebarVisible ? fileExplorerWidth : 0
-    }
-
     private func sidebarBackdropLayer(
         width: CGFloat,
         role: WindowBackdropRole,
@@ -1859,72 +1639,6 @@ struct ContentView: View {
     private func sidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
         sidebarPanelContainer(width: sidebarWidth, alignment: .leading, role: .leftSidebar, appearance: appearance) {
             sidebarView
-        }
-    }
-
-    private func rightSidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
-        let panel = sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing, role: .rightSidebar, appearance: appearance) {
-            rightSidebarPanel(appearance: appearance)
-        }
-        .overlay(alignment: .leading) {
-            if rightSidebarVisible {
-                WindowChromeBorder(
-                    orientation: .vertical,
-                    refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
-                    backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
-                )
-            }
-        }
-
-        return panel
-    }
-
-    private func rightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
-        return RightSidebarPanelView(
-            tabManager: tabManager,
-            fileExplorerStore: fileExplorerStore,
-            fileExplorerState: fileExplorerState,
-            titlebarHeight: RightSidebarChromeMetrics.titlebarHeight,
-            windowAppearance: appearance,
-            workspaceId: tabManager.selectedTabId,
-            onOpenFilePreview: { filePath in
-                openFilePreviewFromSidebar(filePath: filePath)
-            },
-            onOpenAsPane: { mode in
-                openRightSidebarToolPane(mode)
-            },
-            onClose: {
-                #if DEBUG
-                cmuxDebugLog("rightSidebar.closeButton")
-                #endif
-                _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
-            }
-        )
-        .frame(width: rightSidebarWidth)
-        .clipped()
-        .allowsHitTesting(rightSidebarVisible)
-        .accessibilityHidden(!rightSidebarVisible)
-        .transaction { $0.animation = nil }
-        .onAppear {
-            let sanitized = normalizedRightSidebarWidth(fileExplorerState.width)
-            fileExplorerWidth = sanitized
-            if abs(fileExplorerState.width - sanitized) > 0.5 {
-                DispatchQueue.main.async {
-                    fileExplorerState.width = sanitized
-                }
-            }
-        }
-        .onChange(of: fileExplorerState.width) { newValue in
-            if fileExplorerDragStartWidth == nil {
-                let sanitized = normalizedRightSidebarWidth(newValue)
-                if abs(newValue - sanitized) > 0.5 {
-                    DispatchQueue.main.async {
-                        fileExplorerState.width = sanitized
-                    }
-                    return
-                }
-                fileExplorerWidth = sanitized
-            }
         }
     }
 
@@ -2118,25 +1832,6 @@ struct ContentView: View {
             .frame(maxWidth: .infinity)
             .overlay(alignment: .topLeading) {
                 customTitlebar(appearance: appearance)
-                    // The workspace titlebar band spans the full window width and sits at
-                    // zIndex(100) over the content/sidebar layout. Its drag/double-click
-                    // surface (`WindowDragHandleView` + `.contentShape(Rectangle())`) must
-                    // not cover the right sidebar, whose mode bar (Files/Search/Feed/Vault)
-                    // lives inside the titlebar-height strip — otherwise the band wins the
-                    // hit-test and swallows every click/hover on those buttons (#5099).
-                    // Confine the interactive titlebar surface to the area left of the
-                    // right sidebar, matching the pre-#5017 "only over terminal content,
-                    // not the sidebar" intent. The left sidebar's titlebar controls live in
-                    // the AppKit titlebar accessory (above this band), so only the trailing
-                    // (right-sidebar) edge needs to be ceded here.
-                    //
-                    // `rightSidebarWidth` is already `rightSidebarVisible ? fileExplorerWidth : 0`,
-                    // so it collapses to 0 when the sidebar is hidden. The sidebar panel itself
-                    // snaps without animation (`.transaction { $0.animation = nil }`), so we match
-                    // that here — otherwise this inset could animate out of step with the panel on
-                    // toggle and momentarily expose (or re-cover) the mode bar mid-transition.
-                    .padding(.trailing, rightSidebarWidth)
-                    .animation(nil, value: rightSidebarWidth)
             }
             .overlay(alignment: .topLeading) {
                 if let placement = Self.fullscreenControlsPlacement(
@@ -2283,120 +1978,6 @@ struct ContentView: View {
         )
     }
 
-    func openRightSidebarToolPane(_ mode: RightSidebarMode) {
-        guard mode.canOpenAsPane,
-              let workspace = tabManager.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            NSSound.beep()
-            return
-        }
-
-        sidebarSelectionState.selection = .tabs
-        workspace.clearSplitZoom()
-        _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
-    }
-
-    private func openFilePreviewFromSidebar(filePath: String) {
-        guard let workspace = tabManager.selectedWorkspace else { return }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return
-        }
-
-        sidebarSelectionState.selection = .tabs
-        if workspace.isRemoteWorkspace {
-            Task { [weak workspace, fileExplorerStore] in
-                guard let workspace else { return }
-                do {
-                    let localURL = try await fileExplorerStore.materializeRemoteFileForPreview(path: filePath)
-                    _ = workspace.openFileSurfaces(
-                        inPane: paneId,
-                        filePaths: [localURL.path],
-                        focus: true,
-                        reuseExisting: true
-                    )
-                } catch {
-                    NSSound.beep()
-                }
-            }
-            return
-        }
-        _ = workspace.openFileSurfaces(
-            inPane: paneId,
-            filePaths: [filePath],
-            focus: true,
-            reuseExisting: true
-        )
-    }
-
-    private func syncFileExplorerDirectory() {
-        guard let selectedId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
-            fileExplorerStore.applyWorkspaceRoot(.none)
-            return
-        }
-
-        fileExplorerStore.showHiddenFiles = true
-
-        if tab.usesRemoteDirectoryProvenance {
-            guard shouldSyncFileExplorerStore else {
-                fileExplorerStore.applyWorkspaceRoot(.none)
-                return
-            }
-            guard let config = tab.remoteConfiguration, config.transport == .ssh else {
-                fileExplorerStore.applyWorkspaceRoot(.none)
-                return
-            }
-            let unavailableDetail = tab.remoteConnectionDetail ?? tab.remoteDaemonStatus.detail
-
-            #if DEBUG
-            let hasUnavailableDetail = unavailableDetail?.isEmpty == false
-            cmuxDebugLog(
-                "fileExplorer.sync remote state=\(tab.remoteConnectionState.rawValue) " +
-                "hasDestination=\(config.destination.isEmpty ? 0 : 1) " +
-                "hasDisplayTarget=\(config.displayTarget.isEmpty ? 0 : 1) " +
-                "hasIdentityFile=\(config.identityFile == nil ? 0 : 1) " +
-                "hasDetail=\(hasUnavailableDetail ? 1 : 0)"
-            )
-            #endif
-
-            fileExplorerStore.applyWorkspaceRoot(
-                .remoteSSH(
-                    workspaceId: tab.id,
-                    connection: SSHFileExplorerConnection(
-                        destination: config.destination,
-                        port: config.port,
-                        identityFile: config.identityFile,
-                        sshOptions: config.sshOptions
-                    ),
-                    displayTarget: config.displayTarget,
-                    rootPath: tab.trustedRemoteCurrentDirectory,
-                    isAvailable: tab.remoteConnectionState == .connected,
-                    unavailableDetail: unavailableDetail
-                )
-            )
-            return
-        }
-
-        let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !dir.isEmpty else {
-            fileExplorerStore.applyWorkspaceRoot(.none)
-            return
-        }
-
-        guard shouldSyncFileExplorerStore else {
-            fileExplorerStore.applyWorkspaceRoot(.none)
-            return
-        }
-        fileExplorerStore.applyWorkspaceRoot(.local(workspaceId: tab.id, path: dir))
-    }
-
-    private var shouldSyncFileExplorerStore: Bool {
-        FileExplorerRootSyncPolicy.shouldSyncFileExplorerStore(
-            isRightSidebarVisible: fileExplorerState.isVisible,
-            mode: fileExplorerState.mode
-        )
-    }
-
     private var focusedDirectory: String? {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
@@ -2419,18 +2000,13 @@ struct ContentView: View {
         let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
             && !sidebarMatchTerminalBackground
         if useWithinWindow {
-            // Overlay mode keeps the left sidebar on top, but the right
-            // sidebar stays in an HStack so terminal rows are clipped before
-            // the sidebar backdrop samples the window.
+            // Overlay mode keeps the left sidebar on top of the terminal content.
             layout = AnyView(
                 ZStack(alignment: .leading) {
-                    HStack(spacing: 0) {
-                        terminalContentWithSidebarDropOverlay(appearance: appearance)
-                            .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .layoutPriority(1)
-                        rightSidebarPanelWithBackdrop(appearance: appearance)
-                    }
+                    terminalContentWithSidebarDropOverlay(appearance: appearance)
+                        .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .layoutPriority(1)
                     if sidebarState.isVisible {
                         sidebarPanelWithBackdrop(appearance: appearance)
                     }
@@ -2443,7 +2019,7 @@ struct ContentView: View {
                     if sidebarState.isVisible {
                         sidebarPanelWithBackdrop(appearance: appearance)
                     }
-                    terminalContentWithRightSidebarPanel(appearance: appearance)
+                    terminalContentWithSidebarDropOverlay(appearance: appearance)
                 }
             )
         }
@@ -2453,12 +2029,6 @@ struct ContentView: View {
                 .overlay(alignment: .leading) {
                     if sidebarState.isVisible {
                         sidebarResizerOverlay
-                            .zIndex(1000)
-                    }
-                }
-                .overlay(alignment: .leading) {
-                    if rightSidebarVisible {
-                        rightSidebarResizerOverlay
                             .zIndex(1000)
                     }
                 }
@@ -2497,7 +2067,6 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
-            selectedWorkspaceDirectoryObserver.wire(tabManager: tabManager)
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -2595,11 +2164,6 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: selectedTabIds) { _ in
             syncSidebarSelectedWorkspaceIds()
-        })
-
-        // File explorer: keep the Combine subscription stable across body re-evaluations.
-        view = AnyView(view.onChange(of: selectedWorkspaceDirectoryObserver.directoryChangeGeneration) { _ in
-            syncFileExplorerDirectory()
         })
 
         view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in
@@ -3032,15 +2596,6 @@ struct ContentView: View {
                   window === observedWindow else { return }
             let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
             clampSidebarWidthIfNeeded(availableWidth: availableWidth)
-            clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
-            updateSidebarResizerBandState()
-        })
-
-        view = AnyView(view.onChange(of: rightSidebarMaxWidthSetting) { _, _ in
-            clampRightSidebarWidthIfNeeded()
-            if rightSidebarVisible {
-                schedulePortalGeometrySynchronize()
-            }
             updateSidebarResizerBandState()
         })
 
@@ -3055,19 +2610,6 @@ struct ContentView: View {
             }
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
             // terminals and browsers need an explicit post-layout geometry resync.
-            schedulePortalGeometrySynchronize()
-            updateSidebarResizerBandState()
-        })
-
-        // Mirror of the `sidebarWidth` handler above for the RIGHT sidebar width.
-        // The right sidebar can host the Dock — a Bonsplit tree of portal-hosted
-        // terminals/browsers. Like the left sidebar, its width is a pure SwiftUI
-        // layout change, so portal surfaces need an explicit coalesced geometry
-        // resync each tick. Without this the Dock's surfaces miss the
-        // interactive-resize flush path and the width drag renders laggily
-        // compared to a native Bonsplit divider drag.
-        view = AnyView(view.onChange(of: fileExplorerWidth) { _ in
-            guard rightSidebarVisible else { return }
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
         })
@@ -3090,22 +2632,6 @@ struct ContentView: View {
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
-        })
-
-        view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
-            if !isVisible {
-                _ = AppDelegate.shared?.restoreTerminalFocusAfterRightSidebarHidden(in: observedWindow)
-            }
-            syncFileExplorerDirectory()
-            if let observedWindow {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
-            }
-        })
-
-        view = AnyView(view.onChange(of: fileExplorerState.mode) { _, _ in
-            syncFileExplorerDirectory()
         })
 
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
@@ -3185,7 +2711,6 @@ struct ContentView: View {
                 isFullScreen = window.styleMask.contains(.fullScreen)
                 let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
                 clampSidebarWidthIfNeeded(availableWidth: availableWidth)
-                clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
                 syncCommandPaletteDebugStateForObservedWindow()
                 installSidebarResizerPointerMonitorIfNeeded()
                 updateSidebarResizerBandState()
@@ -3231,7 +2756,6 @@ struct ContentView: View {
             tabManager: tabManager,
             sidebarState: sidebarState,
             sidebarSelectionState: sidebarSelectionState,
-            fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
         installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
@@ -5511,8 +5035,6 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
         case .filePreview:
             return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
-        case .rightSidebarTool:
-            return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
         case .customSidebar:
             return String(localized: "commandPalette.kind.customSidebar", defaultValue: "Custom Sidebar")
         case .agentSession:
@@ -5533,8 +5055,6 @@ struct ContentView: View {
             return ["markdown", "note", "preview"]
         case .filePreview:
             return ["file", "preview", "text", "pdf", "image", "audio", "video"]
-        case .rightSidebarTool:
-            return ["tool", "files", "find", "sidebar"]
         case .customSidebar:
             return ["custom", "sidebar", "pane"]
         case .agentSession:
@@ -6466,8 +5986,6 @@ struct ContentView: View {
                 )
             )
         }
-        contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
-        contributions.append(contentsOf: Self.commandPaletteRightSidebarToolPaneCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleMatchTerminalBackground",
@@ -7143,14 +6661,6 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
-                commandId: "palette.findInDirectory",
-                title: constant(String(localized: "menu.find.findInDirectory", defaultValue: "Find in Directory…")),
-                subtitle: constant(String(localized: "command.findInDirectory.subtitle", defaultValue: "Right Sidebar")),
-                keywords: ["files", "directory", "find", "search"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
                 commandId: "palette.terminalFind",
                 title: constant(String(localized: "command.terminalFind.title", defaultValue: "Find…")),
                 subtitle: terminalPanelSubtitle,
@@ -7645,16 +7155,6 @@ struct ContentView: View {
                 CmuxExtensionSidebarSelection.setProviderId(descriptor.id)
             }
         }
-        for mode in RightSidebarMode.allCases {
-            registry.register(commandId: Self.commandPaletteRightSidebarModeCommandID(mode)) {
-                handleCommandPaletteRightSidebarMode(mode, observedWindow: observedWindow)
-            }
-        }
-        for descriptor in Self.commandPaletteRightSidebarToolPaneCommandDescriptors() {
-            registry.register(commandId: descriptor.commandId) {
-                handleCommandPaletteRightSidebarToolPane(descriptor.mode)
-            }
-        }
         registry.register(commandId: "palette.toggleMatchTerminalBackground") {
             sidebarMatchTerminalBackground.toggle()
         }
@@ -7967,11 +7467,6 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.browserClearHistory") {
             BrowserHistoryStore.shared.clearHistory()
-        }
-        registry.register(commandId: "palette.findInDirectory") {
-            _ = AppDelegate.shared?.focusFileSearchInActiveMainWindow(
-                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-            )
         }
         registry.register(commandId: "palette.browserSplitRight") {
             _ = tabManager.createBrowserSplit(direction: .right)
@@ -9989,7 +9484,6 @@ extension SidebarDragState {
 /// open context menu). All other rows transition live.
 struct VerticalTabsSidebar: View {
     var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
     let windowId: UUID
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
@@ -10461,7 +9955,7 @@ struct VerticalTabsSidebar: View {
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
-            SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState)
+            SidebarFooter(updateViewModel: updateViewModel)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("Sidebar")
@@ -11115,8 +10609,6 @@ struct VerticalTabsSidebar: View {
             return .markdown
         case .filePreview:
             return .filePreview
-        case .rightSidebarTool:
-            return .rightSidebarTool
         case .customSidebar:
             return .unknown
         case .agentSession:
@@ -13276,13 +12768,12 @@ private struct SidebarExternalDropDelegate: DropDelegate {
 
 private struct SidebarFooter: View {
     var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
 
     var body: some View {
 #if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState)
+        SidebarDevFooter(updateViewModel: updateViewModel)
 #else
-        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState)
+        SidebarFooterButtons(updateViewModel: updateViewModel)
             .padding(.leading, 6)
             .padding(.trailing, 10)
             .padding(.bottom, 6)
@@ -13292,7 +12783,6 @@ private struct SidebarFooter: View {
 
 private struct SidebarFooterButtons: View {
     var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
     @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
 
@@ -13580,13 +13070,12 @@ private struct SidebarFooterIconButtonStyleBody: View {
 #if DEBUG
 private struct SidebarDevFooter: View {
     var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState)
+            SidebarFooterButtons(updateViewModel: updateViewModel)
             if showSidebarDevBuildBanner {
                 Text(String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD"))
                     .cmuxFont(size: 11, weight: .semibold)

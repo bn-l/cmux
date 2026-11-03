@@ -404,21 +404,21 @@ import CmuxSettings
         let action = ShortcutAction.openSettings
 
         // Pre-load a when override so the first stream delivery carries it.
-        try await store.set([action.rawValue: "!sidebarFocus"], for: catalog.shortcuts.when)
+        try await store.set([action.rawValue: "!markdownFocus"], for: catalog.shortcuts.when)
 
         let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
         model.startObserving()
         await spin(until: { model.whenOverrideClauses[action.rawValue] != nil })
 
         // Parsed to the clause AST, and the raw expression retained verbatim.
-        #expect(model.whenOverrideClauses[action.rawValue] == .not(.atom(.sidebarFocus)))
-        #expect(model.whenOverrideRawStrings[action.rawValue] == "!sidebarFocus")
+        #expect(model.whenOverrideClauses[action.rawValue] == .not(.atom(.markdownFocus)))
+        #expect(model.whenOverrideRawStrings[action.rawValue] == "!markdownFocus")
 
         // An external edit re-parses and re-captures the raw expression.
-        try await store.set([action.rawValue: "sidebarFocus"], for: catalog.shortcuts.when)
-        await spin(until: { model.whenOverrideClauses[action.rawValue] == .atom(.sidebarFocus) })
+        try await store.set([action.rawValue: "markdownFocus"], for: catalog.shortcuts.when)
+        await spin(until: { model.whenOverrideClauses[action.rawValue] == .atom(.markdownFocus) })
 
-        #expect(model.whenOverrideRawStrings[action.rawValue] == "sidebarFocus")
+        #expect(model.whenOverrideRawStrings[action.rawValue] == "markdownFocus")
     }
 
     @Test func scopeCaptionDescribesBrowserOrFilePreviewTextEditorFocus() {

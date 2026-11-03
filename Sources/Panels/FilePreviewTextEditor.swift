@@ -406,7 +406,6 @@ final class SavingTextView: NSTextView {
         ShortcutFocusState(
             browser: false,
             markdown: false,
-            sidebar: false,
             filePreviewTextEditor: true
         ).context
     }

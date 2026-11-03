@@ -98,14 +98,9 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.markOldestUnreadAndJumpNext`
 - `shortcuts.bindings.triggerFlash`
 
-## Right sidebar
+## Sidebar
 
 - `shortcuts.bindings.toggleSidebar`
-- `shortcuts.bindings.focusRightSidebar`
-- `shortcuts.bindings.switchRightSidebarToFiles`
-- `shortcuts.bindings.switchRightSidebarToFind`
-- `shortcuts.bindings.switchRightSidebarToFeed`
-- `shortcuts.bindings.switchRightSidebarToDock`
 - `shortcuts.bindings.nextSidebarTab`
 - `shortcuts.bindings.prevSidebarTab`
 
@@ -128,14 +123,12 @@ Values for `shortcuts.bindings.<action>`:
 ## Find
 
 - `shortcuts.bindings.find`
-- `shortcuts.bindings.findInDirectory`
 - `shortcuts.bindings.findNext`
 - `shortcuts.bindings.findPrevious`
 - `shortcuts.bindings.hideFind`
 - `shortcuts.bindings.useSelectionForFind`
 
-## Files and React Grab
+## File preview and React Grab
 
-- `shortcuts.bindings.toggleFileExplorer`
 - `shortcuts.bindings.saveFilePreview`
 - `shortcuts.bindings.toggleReactGrab`

@@ -161,7 +161,6 @@ extension CMUXCLI {
         "resize-pane",
         "respawn-pane",
         "restore-session",
-        "right-sidebar",
         "rpc",
         "select-workspace",
         "send",

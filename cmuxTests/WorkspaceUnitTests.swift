@@ -554,67 +554,33 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.control)
     }
 
-    func testRightSidebarAndFindShortcutDefaultsMatchSettingsSurface() {
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.focusRightSidebar.label,
-            String(localized: "shortcut.focusRightSidebar.label", defaultValue: "Toggle Right Sidebar Focus")
-        )
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.toggleRightSidebar.label,
-            String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar")
-        )
-
-        let toggleRightSidebar = KeyboardShortcutSettings.Action.toggleRightSidebar.defaultShortcut
-        XCTAssertEqual(toggleRightSidebar.key, "b")
-        XCTAssertTrue(toggleRightSidebar.command)
-        XCTAssertFalse(toggleRightSidebar.shift)
-        XCTAssertTrue(toggleRightSidebar.option)
-        XCTAssertFalse(toggleRightSidebar.control)
-
-        let focusRightSidebar = KeyboardShortcutSettings.Action.focusRightSidebar.defaultShortcut
-        XCTAssertEqual(focusRightSidebar.key, "e")
-        XCTAssertTrue(focusRightSidebar.command)
-        XCTAssertTrue(focusRightSidebar.shift)
-        XCTAssertFalse(focusRightSidebar.option)
-        XCTAssertFalse(focusRightSidebar.control)
-
-        let findInDirectory = KeyboardShortcutSettings.Action.findInDirectory.defaultShortcut
-        XCTAssertEqual(findInDirectory.key, "f")
-        XCTAssertTrue(findInDirectory.command)
-        XCTAssertTrue(findInDirectory.shift)
-        XCTAssertFalse(findInDirectory.option)
-        XCTAssertFalse(findInDirectory.control)
-    }
-
-    func testRightSidebarModeSwitchesHavePrivateControlDigitDefaults() {
-        let modeSwitchActions: [(KeyboardShortcutSettings.Action, String)] = [
-            (.switchRightSidebarToFiles, "1"),
-            (.switchRightSidebarToFind, "2"),
-            (.switchRightSidebarToFeed, "4"),
-            (.switchRightSidebarToDock, "5"),
-        ]
-
-        for (action, key) in modeSwitchActions {
-            XCTAssertEqual(action.defaultShortcut.key, key)
-            XCTAssertFalse(action.defaultShortcut.command)
-            XCTAssertFalse(action.defaultShortcut.shift)
-            XCTAssertFalse(action.defaultShortcut.option)
-            XCTAssertTrue(action.defaultShortcut.control)
-            XCTAssertFalse(action.isPublicShortcutAction)
-            XCTAssertFalse(KeyboardShortcutSettings.publicShortcutActions.contains(action))
-            XCTAssertFalse(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
-        }
-    }
-
     func testSettingsVisibleShortcutActionsIncludeRemappableExampleShortcuts() {
         let visibleActions = Set(KeyboardShortcutSettings.settingsVisibleActions)
 
-        XCTAssertTrue(visibleActions.contains(.toggleRightSidebar))
-        XCTAssertTrue(visibleActions.contains(.focusRightSidebar))
-        XCTAssertTrue(visibleActions.contains(.findInDirectory))
         XCTAssertTrue(visibleActions.contains(.toggleUnread))
         XCTAssertTrue(visibleActions.contains(.markOldestUnreadAndJumpNext))
         XCTAssertFalse(visibleActions.contains(.showHideAllWindows))
+    }
+
+    /// The right sidebar (Files/Find/Feed/Dock) was removed with all of its
+    /// shortcuts. Their ids must not resolve to any action — in the app or in
+    /// the settings package — so a stale `cmux.json` binding cannot revive one.
+    func testRemovedRightSidebarShortcutIdsNoLongerResolve() {
+        let removedIds = [
+            "toggleFileExplorer",
+            "focusRightSidebar",
+            "switchRightSidebarToFiles",
+            "switchRightSidebarToFind",
+            "switchRightSidebarToFeed",
+            "switchRightSidebarToDock",
+            "fileExplorerOpenSelection",
+            "fileExplorerOpenSelectionFinderAlias",
+            "findInDirectory",
+        ]
+        for id in removedIds {
+            XCTAssertNil(KeyboardShortcutSettings.Action(rawValue: id), id)
+            XCTAssertNil(ShortcutAction(rawValue: id), id)
+        }
     }
 
     func testToggleUnreadUsesConfigurableCommandOptionUDefault() {
@@ -625,7 +591,6 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.shift)
         XCTAssertTrue(shortcut.option)
         XCTAssertFalse(shortcut.control)
-        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.toggleUnread))
         XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.toggleUnread))
     }
 
@@ -637,28 +602,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.shift)
         XCTAssertFalse(shortcut.option)
         XCTAssertTrue(shortcut.control)
-        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.markOldestUnreadAndJumpNext))
         XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.markOldestUnreadAndJumpNext))
-    }
-
-    func testSettingsVisibleShortcutActionsColocateRightSidebarFileExplorerAndFindShortcuts() {
-        let visibleActions = KeyboardShortcutSettings.settingsVisibleActions
-        let expectedActions: [KeyboardShortcutSettings.Action] = [
-            .focusRightSidebar, .toggleRightSidebar, .findInDirectory,
-            .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
-        ]
-
-        guard let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) else {
-            XCTFail("Toggle Right Sidebar Focus should be visible in keyboard shortcut settings")
-            return
-        }
-
-        let endIndex = startIndex + expectedActions.count
-        guard endIndex <= visibleActions.count else {
-            XCTFail("Expected shortcut settings to include the full right-sidebar shortcut run")
-            return
-        }
-        XCTAssertEqual(Array(visibleActions[startIndex..<endIndex]), expectedActions)
     }
 
     func testMenuItemKeyEquivalentHandlesArrowAndTabKeys() {
@@ -1204,54 +1148,6 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertNil(defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey))
-    }
-
-    func testSettingsFileStoreParsesRightSidebarShortcutBindings() throws {
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        try writeSettingsFile(
-            """
-            {
-              "shortcuts": {
-                "focusRightSidebar": "cmd+opt+shift+e",
-                "switchRightSidebarToFiles": "ctrl+4",
-                "switchRightSidebarToFind": "ctrl+5",
-                "switchRightSidebarToFeed": "ctrl+7",
-                "switchRightSidebarToDock": "ctrl+8"
-              }
-            }
-            """,
-            to: settingsFileURL
-        )
-
-        let store = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
-
-        XCTAssertEqual(
-            store.override(for: .focusRightSidebar),
-            StoredShortcut(key: "e", command: true, shift: true, option: true, control: false)
-        )
-        XCTAssertEqual(
-            store.override(for: .switchRightSidebarToFiles),
-            StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
-        )
-        XCTAssertEqual(
-            store.override(for: .switchRightSidebarToFind),
-            StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
-        )
-        XCTAssertEqual(
-            store.override(for: .switchRightSidebarToFeed),
-            StoredShortcut(key: "7", command: false, shift: false, option: false, control: true)
-        )
-        XCTAssertEqual(
-            store.override(for: .switchRightSidebarToDock),
-            StoredShortcut(key: "8", command: false, shift: false, option: false, control: true)
-        )
     }
 
     func testSettingsFileStoreParsesWorkspaceWorkingDirectoryInheritanceSetting() throws {
@@ -3779,7 +3675,7 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
     func testNewBrowserWorkspaceShortcutDefaultsAndMetadata() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.newBrowserWorkspace.label, "New Browser Workspace")
         XCTAssertEqual(KeyboardShortcutSettings.Action.newBrowserWorkspace.defaultsKey, "shortcut.newBrowserWorkspace")
-        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.newBrowserWorkspace))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.newBrowserWorkspace))
 
         let shortcut = KeyboardShortcutSettings.Action.newBrowserWorkspace.defaultShortcut
         XCTAssertEqual(shortcut.key, "n")
@@ -5985,79 +5881,6 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             workspace.surfaceIdFromPanelId(originalFocusedPanelId),
             "Expected selected tab to stay on the original focused panel"
         )
-    }
-
-    func testNewRightSidebarToolSurfaceWithFocusFalsePreservesFocusedPanel() {
-        let workspace = Workspace()
-        guard let originalFocusedPanelId = workspace.focusedPanelId,
-              let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId),
-              let originalTabId = workspace.surfaceIdFromPanelId(originalFocusedPanelId) else {
-            XCTFail("Expected initial focused panel, pane, and tab")
-            return
-        }
-
-        guard let newPanel = workspace.newRightSidebarToolSurface(
-            inPane: originalPaneId,
-            mode: .files,
-            focus: false
-        ) else {
-            XCTFail("Expected right sidebar tool surface to be created")
-            return
-        }
-
-        drainMainQueue()
-        drainMainQueue()
-        drainMainQueue()
-
-        XCTAssertNotEqual(newPanel.id, originalFocusedPanelId)
-        XCTAssertEqual(newPanel.panelType, .rightSidebarTool)
-        XCTAssertEqual(newPanel.mode, .files)
-        XCTAssertEqual(
-            workspace.focusedPanelId,
-            originalFocusedPanelId,
-            "Expected non-focus right sidebar tool surface creation to preserve the existing focused panel"
-        )
-        XCTAssertEqual(
-            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
-            originalTabId,
-            "Expected selected tab to stay on the original focused panel"
-        )
-        XCTAssertEqual(
-            workspace.surfaceIdFromPanelId(newPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
-            SurfaceKind.rightSidebarTool.rawValue
-        )
-    }
-
-    func testOpenOrFocusRightSidebarToolSurfaceReusesExistingMode() {
-        let workspace = Workspace()
-        guard let paneId = workspace.bonsplitController.focusedPaneId else {
-            XCTFail("Expected focused pane")
-            return
-        }
-
-        guard let firstPanel = workspace.openOrFocusRightSidebarToolSurface(
-            inPane: paneId,
-            mode: .find,
-            focus: true
-        ) else {
-            XCTFail("Expected Find tool surface to be created")
-            return
-        }
-        guard let secondPanel = workspace.openOrFocusRightSidebarToolSurface(
-            inPane: paneId,
-            mode: .find,
-            focus: true
-        ) else {
-            XCTFail("Expected existing Find tool surface to be focused")
-            return
-        }
-
-        XCTAssertEqual(firstPanel.id, secondPanel.id)
-        XCTAssertEqual(
-            workspace.panels.values.compactMap { $0 as? RightSidebarToolPanel }.filter { $0.mode == .find }.count,
-            1
-        )
-        XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
     }
 
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {

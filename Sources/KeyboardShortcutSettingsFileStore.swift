@@ -383,9 +383,6 @@ final class CmuxSettingsFileStore {
         if let fileEditorSection = root["fileEditor"] as? [String: Any] {
             parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
-        if let fileExplorerSection = root["fileExplorer"] as? [String: Any] {
-            parseFileExplorerSection(fileExplorerSection, sourcePath: sourcePath, snapshot: &snapshot)
-        }
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -696,13 +693,6 @@ final class CmuxSettingsFileStore {
             }
         }
         parseSidebarIndicatorPositionSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
-        if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
-            snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
-                RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)
-            )
-        } else if section.keys.contains(RightSidebarWidthSettings.jsonKey) {
-            logInvalid(RightSidebarWidthSettings.settingsPath, sourcePath: sourcePath)
-        }
     }
 
     private func parseWorkspaceColorsSection(

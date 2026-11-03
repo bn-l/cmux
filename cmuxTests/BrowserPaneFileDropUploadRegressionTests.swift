@@ -228,8 +228,7 @@ struct BrowserPaneFileDropUploadRegressionTests {
             #expect(
                 BrowserPaneFileDropRouting.disposition(
                     pasteboardTypes: fileURLPasteboardTypes(),
-                    modifierFlags: [],
-                    isDockHosted: false
+                    modifierFlags: []
                 ) == .forwardToPage
             )
         }
@@ -237,8 +236,7 @@ struct BrowserPaneFileDropUploadRegressionTests {
             #expect(
                 BrowserPaneFileDropRouting.disposition(
                     pasteboardTypes: fileURLPasteboardTypes(),
-                    modifierFlags: [],
-                    isDockHosted: false
+                    modifierFlags: []
                 ) == .forwardToPage
             )
         }
@@ -249,8 +247,7 @@ struct BrowserPaneFileDropUploadRegressionTests {
             #expect(
                 BrowserPaneFileDropRouting.disposition(
                     pasteboardTypes: fileURLPasteboardTypes(),
-                    modifierFlags: [.shift],
-                    isDockHosted: false
+                    modifierFlags: [.shift]
                 ) == .previewInWorkspace
             )
         }
@@ -258,68 +255,21 @@ struct BrowserPaneFileDropUploadRegressionTests {
             #expect(
                 BrowserPaneFileDropRouting.disposition(
                     pasteboardTypes: fileURLPasteboardTypes(),
-                    modifierFlags: [.shift],
-                    isDockHosted: false
+                    modifierFlags: [.shift]
                 ) == .previewInWorkspace
             )
         }
     }
 
-    @Test func dispositionDockAlwaysForwardsToPage() {
-        #expect(
-            BrowserPaneFileDropRouting.disposition(
-                pasteboardTypes: fileURLPasteboardTypes(),
-                modifierFlags: [],
-                isDockHosted: true
-            ) == .forwardToPage
-        )
-        #expect(
-            BrowserPaneFileDropRouting.disposition(
-                pasteboardTypes: fileURLPasteboardTypes(),
-                modifierFlags: [.shift],
-                isDockHosted: true
-            ) == .forwardToPage
-        )
-    }
-
     @Test func dispositionRequiresFileURLPayload() {
         #expect(BrowserPaneFileDropRouting.disposition(
             pasteboardTypes: [DragOverlayRoutingPolicy.filePreviewTransferType],
-            modifierFlags: [],
-            isDockHosted: false
+            modifierFlags: []
         ) == nil)
         #expect(BrowserPaneFileDropRouting.disposition(
             pasteboardTypes: nil,
-            modifierFlags: [],
-            isDockHosted: false
+            modifierFlags: []
         ) == nil)
-    }
-
-    // The dock-status lookup is an app-wide ownership sweep; disposition must not
-    // evaluate it unless a file-URL payload is present. Drag callbacks fire for
-    // every payload type, so an eager lookup would run on every non-file drag.
-    @Test func dispositionDoesNotEvaluateDockStatusWithoutFileURL() {
-        var dockStatusEvaluations = 0
-        func countingDockStatus() -> Bool {
-            dockStatusEvaluations += 1
-            return true
-        }
-
-        #expect(BrowserPaneFileDropRouting.disposition(
-            pasteboardTypes: nil,
-            modifierFlags: [],
-            isDockHosted: countingDockStatus()
-        ) == nil)
-        #expect(dockStatusEvaluations == 0)
-
-        #expect(
-            BrowserPaneFileDropRouting.disposition(
-                pasteboardTypes: fileURLPasteboardTypes(),
-                modifierFlags: [],
-                isDockHosted: countingDockStatus()
-            ) == .forwardToPage
-        )
-        #expect(dockStatusEvaluations == 1)
     }
 
     @Test func guardConsumesRecordedDropNavigationOnceWithinTTL() {

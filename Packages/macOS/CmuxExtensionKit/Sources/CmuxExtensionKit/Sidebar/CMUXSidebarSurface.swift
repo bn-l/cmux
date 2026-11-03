@@ -10,8 +10,6 @@ public enum CmuxSidebarSurfaceKind: String, Codable, CaseIterable, Equatable, Se
     case markdown
     /// A file preview surface.
     case filePreview
-    /// A right-sidebar tool surface.
-    case rightSidebarTool
     /// An agent session GUI surface.
     case agentSession
     /// A project/file explorer surface.

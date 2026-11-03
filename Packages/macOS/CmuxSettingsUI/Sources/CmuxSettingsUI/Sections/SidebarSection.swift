@@ -5,7 +5,6 @@ import SwiftUI
 public struct SidebarSection: View {
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
-    private let rightSidebarWidthSettings = RightSidebarWidthSettings()
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
     @State private var tasks = MainActorTaskStore<String>()
@@ -31,8 +30,6 @@ public struct SidebarSection: View {
     @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State private var showMetadata: DefaultsValueModel<Bool>
-    @State private var rightMaxWidth: DefaultsValueModel<Double>
-    @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
         self.hostActions = hostActions
@@ -59,8 +56,6 @@ public struct SidebarSection: View {
         _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
         _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
-        _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
-        _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
     /// The rendered sidebar settings section.
     public var body: some View {
@@ -95,8 +90,6 @@ public struct SidebarSection: View {
             loadingSpinnerPosition,
             notificationBadgePosition,
             showMetadata,
-            rightMaxWidth,
-            rememberedRightMaxWidth,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -109,62 +102,6 @@ public struct SidebarSection: View {
             let saved = await hostActions.setSidebarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
         }
-    }
-
-    private var rightMaxWidthOverrideEnabled: Bool {
-        rightMaxWidth.current.isFinite && rightMaxWidth.current > 0
-    }
-
-    private var rightMaxWidthOverrideBinding: Binding<Bool> {
-        Binding(
-            get: { rightMaxWidthOverrideEnabled },
-            set: { enabled in
-                if enabled {
-                    let restored = rightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
-                        rememberedStoredValue: rememberedRightMaxWidth.current
-                    )
-                    rememberedRightMaxWidth.set(restored)
-                    rightMaxWidth.set(restored)
-                } else {
-                    rememberedRightMaxWidth.set(
-                        rightSidebarWidthSettings.storedRememberedMaximumWidth(
-                            activeStoredValue: rightMaxWidth.current,
-                            rememberedStoredValue: rememberedRightMaxWidth.current
-                        )
-                    )
-                    rightMaxWidth.set(RightSidebarWidthSettings.noOverrideValue)
-                }
-            }
-        )
-    }
-
-    private var rightMaxWidthEditorBinding: Binding<Double> {
-        Binding(
-            get: {
-                rightSidebarWidthSettings.editorMaximumWidth(
-                    activeStoredValue: rightMaxWidth.current,
-                    rememberedStoredValue: rememberedRightMaxWidth.current
-                )
-            },
-            set: {
-                let clamped = clampedRightMaxWidth($0)
-                rememberedRightMaxWidth.set(clamped)
-                if rightMaxWidthOverrideEnabled {
-                    rightMaxWidth.set(clamped)
-                }
-            }
-        )
-    }
-
-    private var rightMaxWidthSubtitle: String {
-        if rightMaxWidthOverrideEnabled {
-            return String(localized: "settings.sidebar.rightMaxWidth.subtitleOn", defaultValue: "The Dock can grow past the built-in width cap while preserving terminal space.")
-        }
-        return String(localized: "settings.sidebar.rightMaxWidth.subtitleOff", defaultValue: "Use the built-in dynamic cap that keeps extra terminal space reserved.")
-    }
-
-    private func clampedRightMaxWidth(_ value: Double) -> Double {
-        rightSidebarWidthSettings.clampedSettingsEditorMaximumWidth(value)
     }
 
     @ViewBuilder
@@ -221,31 +158,6 @@ public struct SidebarSection: View {
                             .multilineTextAlignment(.trailing)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                }
-            }
-            SettingsCardDivider()
-
-            SettingsCardRow(
-                configurationReview: .json("sidebar.rightMaxWidth"),
-                String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"),
-                subtitle: rightMaxWidthSubtitle,
-                controlWidth: 250
-            ) {
-                HStack(spacing: 8) {
-                    Toggle("", isOn: rightMaxWidthOverrideBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                        .accessibilityLabel(String(localized: "settings.sidebar.rightMaxWidth.toggle", defaultValue: "Use custom Dock max width"))
-
-                    TextField("", value: rightMaxWidthEditorBinding, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 72)
-                        .disabled(!rightMaxWidthOverrideEnabled)
-                        .accessibilityLabel(String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"))
-
-                    Text(String(localized: "settings.sidebar.rightMaxWidth.unit", defaultValue: "pt"))
-                        .foregroundStyle(.secondary)
                 }
             }
             SettingsCardDivider()

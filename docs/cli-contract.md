@@ -147,7 +147,6 @@ Environment:
 | `jump-to-unread` | Focus the latest unread notification. |
 | `jump-to-last-prompt` | Focus the surface where you last submitted an agent prompt. |
 | `clear-notifications` | Clear queued notifications. |
-| `right-sidebar` | Control right sidebar visibility, mode, focus, and state reads. |
 | `set-status` | Set a sidebar status pill. |
 | `clear-status` | Remove a sidebar status pill. |
 | `list-status` | List sidebar status pills. |
@@ -351,19 +350,6 @@ Hook subcommands:
 | `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
 | `hooks <agent> <event>` | Generic hook surface for `grok`, `opencode`, `pi`, `amp`, `cursor`, `gemini`, `kimi`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
 
-Right sidebar commands:
-
-| Command | Contract |
-| --- | --- |
-| `right-sidebar toggle`, `right-sidebar show`, `right-sidebar hide` | Change right-sidebar visibility without printing on success. |
-| `right-sidebar focus` | Focus the current right-sidebar mode. |
-| `right-sidebar set <files\|find\|feed\|dock>` | Show the right sidebar, switch mode, and focus it unless `--no-focus` is passed. |
-| `right-sidebar files`, `right-sidebar find`, `right-sidebar feed`, `right-sidebar dock` | Short aliases for `right-sidebar set <mode>` with focus. |
-| `right-sidebar mode` | Print JSON with `visible` and `mode`. |
-| `--workspace <id\|ref\|index>` | Target the window containing a workspace. Refs and indexes resolve before the V1 socket command is sent. |
-| `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |
-| `--no-focus` | Only valid with `set`; switches mode without moving focus. |
-
 Custom sidebar commands:
 
 | Command | Contract |
@@ -463,10 +449,9 @@ the expected text without connecting to a cmux socket.
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux help --help` -> `Usage: cmux help`
-- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]`
+- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|sidebars]`
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
-- `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`
 - `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
 - `cmux settings path` -> `Config files:`
 - `cmux settings docs` -> `Config files:`
@@ -475,7 +460,6 @@ the expected text without connecting to a cmux socket.
 - `cmux config docs` -> `Config files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
 - `cmux welcome` -> `Toggle Left Sidebar`
-- `cmux welcome` -> `Toggle Right Sidebar`
 - `cmux shortcuts --help` -> `Usage: cmux shortcuts`
 - `cmux disable-browser --help` -> `Usage: cmux disable-browser [--json]`
 - `cmux enable-browser --help` -> `Usage: cmux enable-browser [--json]`
@@ -572,7 +556,6 @@ the expected text without connecting to a cmux socket.
 - `cmux jump-to-unread --help` -> `Usage: cmux jump-to-unread`
 - `cmux jump-to-last-prompt --help` -> `Usage: cmux jump-to-last-prompt`
 - `cmux clear-notifications --help` -> `Usage: cmux clear-notifications`
-- `cmux right-sidebar --help` -> `Usage: cmux right-sidebar <command> [flags]`
 - `cmux set-status --help` -> `Usage: cmux set-status`
 - `cmux clear-status --help` -> `Usage: cmux clear-status`
 - `cmux list-status --help` -> `Usage: cmux list-status`

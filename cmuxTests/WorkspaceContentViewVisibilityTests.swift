@@ -208,7 +208,6 @@ final class WorkspaceContentViewVisibilityTests {
             .environmentObject(notificationStore.sidebarUnread)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
-            .environmentObject(FileExplorerState())
             .environmentObject(CmuxConfigStore())
             .environment(
                 \.minimalModeInvalidationProbe,

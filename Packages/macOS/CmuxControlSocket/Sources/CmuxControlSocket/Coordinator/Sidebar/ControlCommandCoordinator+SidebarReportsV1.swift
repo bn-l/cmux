@@ -2,7 +2,7 @@ internal import Foundation
 
 /// The v1 sidebar telemetry/report commands (`report_git_branch` / `report_pr`
 /// / `report_ports` / `report_pwd` / `report_shell_state` / `report_tty` /
-/// `ports_kick` / `sidebar_state` / `reset_sidebar` / `right_sidebar`), lifted
+/// `ports_kick` / `sidebar_state` / `reset_sidebar`), lifted
 /// byte-faithfully from the former `TerminalController` bodies.
 ///
 /// The report/clear/kick family is `nonisolated` (the socket dispatcher's v1
@@ -11,8 +11,8 @@ internal import Foundation
 /// mutation bus with zero main hops, and each fallback path crosses to the
 /// main actor exactly once via
 /// ``ControlSidebarContext/controlSidebarOnMain(_:)`` for its synchronous
-/// resolution write. `sidebar_state` / `reset_sidebar` / `right_sidebar`
-/// stay on the main actor (unmigrated).
+/// resolution write. `sidebar_state` / `reset_sidebar` stay on the main
+/// actor (unmigrated).
 extension ControlCommandCoordinator {
     // MARK: - Git branch
 
@@ -488,24 +488,5 @@ extension ControlCommandCoordinator {
             return "ERROR: Tab not found"
         }
         return "OK"
-    }
-
-    /// `right_sidebar` — parse and apply a right-sidebar remote command
-    /// (parse + apply stay app-side; the state reply is encoded here with the
-    /// same encoder the legacy `v2Encode` used).
-    func sidebarRightSidebar(_ args: String) -> String {
-        let resolution = sidebarContext?.controlSidebarApplyRightSidebarRemoteCommand(tokens: sidebarTokenizeArgs(args))
-            ?? .failure(message: "ERROR: App delegate not available")
-        switch resolution {
-        case .ok:
-            return "OK"
-        case .state(let visible, let modeRawValue):
-            return ControlResponseEncoder().encode(.object([
-                "visible": .bool(visible),
-                "mode": .string(modeRawValue),
-            ]))
-        case .failure(let message):
-            return message
-        }
     }
 }

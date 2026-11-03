@@ -142,20 +142,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.showNotifications.shortcutContext, .application)
     }
 
-    func testRightSidebarContextIsOnlyAvailableWhenRightSidebarHasFocus() {
-        let context = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext
-
-        XCTAssertEqual(context, .rightSidebarFocus)
-        XCTAssertFalse(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false))
-        XCTAssertTrue(context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: true))
-        XCTAssertFalse(
-            KeyboardShortcutSettings.Action.renameTab.shortcutContext
-                .isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: true)
-        )
-        XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.commandPalette.shortcutContext))
-        XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
-    }
-
     func testReactGrabStaysApplicationScopedForTerminalPastebackRouting() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
@@ -197,9 +183,9 @@ final class KeyboardShortcutContextTests: XCTestCase {
         }
 
         let markdown = KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext
-        XCTAssertTrue(markdown.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: true, rightSidebarFocused: false))
-        XCTAssertFalse(markdown.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false))
-        XCTAssertFalse(markdown.isAvailable(focusedBrowserPanel: true, focusedMarkdownPanel: false, rightSidebarFocused: false))
+        XCTAssertTrue(markdown.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: true))
+        XCTAssertFalse(markdown.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false))
+        XCTAssertFalse(markdown.isAvailable(focusedBrowserPanel: true, focusedMarkdownPanel: false))
 
         // Markdown zoom and browser zoom share Cmd-=/-/0 but are mutually
         // exclusive (a panel can't be both), so they must NOT be treated as
@@ -214,43 +200,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(nonBrowser, .nonBrowserPanel)
         XCTAssertTrue(markdown.overlaps(nonBrowser))
         XCTAssertTrue(nonBrowser.overlaps(markdown))
-    }
-
-    func testSurfaceDigitFamilyCoexistsWithPrioritizedSidebarModeShortcuts() {
-        let surfaceDigits = KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultShortcut
-        let sidebarFiles = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.defaultShortcut
-
-        // Re-recording the factory default ⌃1 for Select Surface 1…9 must not be
-        // rejected against Show Sidebar Files (⌃1): the key router consumes the
-        // sidebar-mode shortcuts before general shortcut matching whenever the
-        // right sidebar is focused, so the pair is resolved by priority — the
-        // sidebar action owns the overlap and the digit family keeps every other
-        // context. The shipped defaults rely on exactly this coexistence.
-        XCTAssertFalse(
-            KeyboardShortcutSettings.Action.switchRightSidebarToFiles.conflicts(
-                with: surfaceDigits,
-                proposedAction: .selectSurfaceByNumber,
-                configuredShortcut: sidebarFiles
-            )
-        )
-        // Symmetric direction: recording the prioritized sidebar action onto a
-        // stroke inside the digit family coexists the same way.
-        XCTAssertFalse(
-            KeyboardShortcutSettings.Action.selectSurfaceByNumber.conflicts(
-                with: sidebarFiles,
-                proposedAction: .switchRightSidebarToFiles,
-                configuredShortcut: surfaceDigits
-            )
-        )
-        // Two sidebar-mode shortcuts on the same stroke remain a real conflict:
-        // both live in the same prioritized context, so nothing decides the overlap.
-        XCTAssertTrue(
-            KeyboardShortcutSettings.Action.switchRightSidebarToFiles.conflicts(
-                with: sidebarFiles,
-                proposedAction: .switchRightSidebarToFind,
-                configuredShortcut: sidebarFiles
-            )
-        )
     }
 
     func testNewBrowserWorkspaceSettingsPackageActionStaysAligned() {
@@ -272,11 +221,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
             XCTAssertEqual(
                 settingsAction.defaultFocusWhenClause,
                 action.shortcutContext.defaultWhenClause,
-                action.rawValue
-            )
-            XCTAssertEqual(
-                settingsAction.hasPriorityShortcutRouting,
-                action.hasPriorityShortcutRouting,
                 action.rawValue
             )
         }
@@ -493,25 +437,11 @@ final class KeyboardShortcutContextTests: XCTestCase {
         KeyboardShortcutSettings.setShortcut(remappedShortcut, for: .focusHistoryBack)
 
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBack), remappedShortcut)
-        XCTAssertTrue(
-            titlebarShortcutHintShouldShow(
-                shortcut: KeyboardShortcutSettings.shortcut(for: .focusHistoryBack),
-                alwaysShowShortcutHints: false,
-                modifierPressed: true
-            )
-        )
         XCTAssertTrue(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip("Focus Back").contains(remappedShortcut.displayString))
 
         KeyboardShortcutSettings.clearShortcut(for: .focusHistoryBack)
 
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBack), .unbound)
-        XCTAssertFalse(
-            titlebarShortcutHintShouldShow(
-                shortcut: KeyboardShortcutSettings.shortcut(for: .focusHistoryBack),
-                alwaysShowShortcutHints: false,
-                modifierPressed: true
-            )
-        )
     }
 
     func testShortcutSettingsFilePreservesConfiguredShortcutWithoutGlobalConflictLookup() throws {
@@ -567,60 +497,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(store.override(for: .newWindow), StoredShortcut.unbound)
     }
 
-    func testSettingsFileWhenClauseLetsWorkspaceDigitsShareSidebarDigitShortcut() throws {
-        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
-        let directoryURL = try makeTemporaryDirectory()
-        defer {
-            KeyboardShortcutSettings.resetAll()
-            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-            try? FileManager.default.removeItem(at: directoryURL)
-        }
-
-        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        try writeSettingsFile(
-            """
-            {
-              "shortcuts": {
-                "bindings": {
-                  "selectWorkspaceByNumber": "ctrl+1"
-                },
-                "when": {
-                  "selectWorkspaceByNumber": "!sidebarFocus"
-                }
-              }
-            }
-            """,
-            to: settingsFileURL
-        )
-        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            additionalFallbackPaths: [],
-            startWatching: false
-        )
-
-        let ctrl1 = StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber), ctrl1)
-
-        let workspaceWhen = KeyboardShortcutSettings.effectiveWhenClause(for: .selectWorkspaceByNumber)
-        XCTAssertTrue(workspaceWhen.evaluate(ShortcutFocusState(browser: false, markdown: false, sidebar: false)))
-        XCTAssertFalse(workspaceWhen.evaluate(ShortcutFocusState(browser: false, markdown: false, sidebar: true)))
-        XCTAssertFalse(
-            KeyboardShortcutSettings.Action.selectWorkspaceByNumber.conflicts(
-                with: ctrl1,
-                proposedAction: .switchRightSidebarToFiles,
-                configuredShortcut: ctrl1
-            )
-        )
-        XCTAssertFalse(
-            KeyboardShortcutSettings.Action.switchRightSidebarToFiles.conflicts(
-                with: ctrl1,
-                proposedAction: .selectWorkspaceByNumber,
-                configuredShortcut: ctrl1
-            )
-        )
-    }
-
     func testSettingsFileWhenClauseSupportsContextComparisons() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
@@ -637,7 +513,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
               "shortcuts": {
                 "when": {
                   "selectWorkspaceByNumber": "commandPaletteVisible && paneCount > 1",
-                  "selectSurfaceByNumber": "sidebarMode == 'find'"
+                  "selectSurfaceByNumber": "customMode == 'find'"
                 }
               }
             }
@@ -668,14 +544,14 @@ final class KeyboardShortcutContextTests: XCTestCase {
         singlePane.setInt("paneCount", 1)
         XCTAssertFalse(workspaceWhen.evaluate(singlePane))
 
-        // A string comparison against the sidebar mode.
+        // A string comparison against a user-defined context key.
         let surfaceWhen = KeyboardShortcutSettings.effectiveWhenClause(for: .selectSurfaceByNumber)
         var findMode = ShortcutContext()
-        findMode.setString("sidebarMode", "find")
+        findMode.setString("customMode", "find")
         XCTAssertTrue(surfaceWhen.evaluate(findMode))
 
         var filesMode = ShortcutContext()
-        filesMode.setString("sidebarMode", "files")
+        filesMode.setString("customMode", "files")
         XCTAssertFalse(surfaceWhen.evaluate(filesMode))
     }
 

@@ -101,21 +101,6 @@ extension CMUXCLI {
             ]
         ),
         DocsReference(
-            topic: "dock",
-            aliases: ["doc", "controls", "right-sidebar", "dock-json"],
-            summary: "Custom right-sidebar terminal controls from .cmux/dock.json or ~/.config/cmux/dock.json.",
-            webURL: "https://cmux.com/docs/dock",
-            rawResources: [
-                DocsResource(label: "dock docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/dock.md"),
-                DocsResource(label: "dock web copy", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/messages/en.json"),
-            ],
-            commands: [
-                "cmux docs dock",
-                "cmux docs dock --json",
-                "python3 -m json.tool .cmux/dock.json",
-            ]
-        ),
-        DocsReference(
             topic: "sidebars",
             aliases: ["sidebar", "custom-sidebar", "custom-sidebars", "vibe-sidebar"],
             summary: "Vibe-code a custom sidebar: a runtime-interpreted SwiftUI-style file in ~/.config/cmux/sidebars/ (beta).",
@@ -151,7 +136,7 @@ extension CMUXCLI {
         }
 
         guard args.count == 1 else {
-            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]")
+            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|sidebars]")
         }
 
         if topic == "list" || topic == "all" {
@@ -176,14 +161,13 @@ extension CMUXCLI {
 
     func docsUsage() -> String {
         return """
-        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]
+        Usage: cmux docs [settings|shortcuts|api|browser|agents|sidebars]
 
         Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic.
         This command does not require a running cmux app or socket.
 
         Agents:
           Use `cmux docs settings` before editing ~/.config/cmux/cmux.json.
-          Use `cmux docs dock` before creating or editing .cmux/dock.json.
           Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert.
           Fetch raw resources with the printed curl commands when you need the latest schema.
         """

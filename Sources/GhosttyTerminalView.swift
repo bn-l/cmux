@@ -923,7 +923,6 @@ class GhosttyApp {
 #endif
                     return
                 }
-                if app.closeWindowDockRuntimeSurface(surfaceId: callbackSurfaceId, force: !needsConfirmClose) { return }
                 // Close requests must be resolved by the callback's workspace/surface IDs only.
                 // If the mapping is already gone (duplicate/stale callback), ignore it.
                 if let callbackTabId, let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager {
@@ -2812,7 +2811,6 @@ class GhosttyApp {
             // dispatching this action callback.
             DispatchQueue.main.async {
                 guard let app = AppDelegate.shared else { return }
-                if let callbackSurfaceId, app.closeWindowDockRuntimeSurface(surfaceId: callbackSurfaceId, force: true) { return }
                 if let callbackTabId, let callbackSurfaceId,
                    let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager {
                     manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId)
@@ -3417,7 +3415,6 @@ private final class TerminalSharedBackdropCutoutFilter: CIFilter {
 
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
 
-// TerminalSurfaceFocusPlacement moved to CmuxTerminalCore (SurfaceRegistry/).
 
 private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
@@ -4405,8 +4402,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     private func reassertTerminalFocusForInputIfFirstResponder(forceNative: Bool = false) -> Bool {
         guard let terminalSurface, window?.firstResponder === self, !suppressingReparentFocus,
-              isVisibleInUI, hasUsableFocusGeometry, !isHiddenOrHasHiddenAncestor,
-              AppDelegate.shared?.allowsTerminalKeyboardFocus(workspaceId: terminalSurface.tabId, panelId: terminalSurface.id, in: window) != false else { return false }
+              isVisibleInUI, hasUsableFocusGeometry, !isHiddenOrHasHiddenAncestor else { return false }
         terminalSurface.setFocus(true); if forceNative, let surface { terminalSurface.recordExternalFocusState(true); ghostty_surface_set_focus(surface, true) }
         return true
     }
@@ -5501,20 +5497,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var shouldApplySurfaceFocus = false
         if result {
             imeConsumedKeyUps.removeAll()
-            if let terminalSurface,
-               AppDelegate.shared?.allowsTerminalKeyboardFocus(
-                   workspaceId: terminalSurface.tabId,
-                   panelId: terminalSurface.id,
-                   in: window
-               ) == false {
-                desiredFocus = false
-                terminalSurface.recordExternalFocusState(false)
-                terminalSurface.hostedView.cancelSuppressedFirstResponderFocusReapply()
-#if DEBUG
-                dlog("focus.firstResponder SUPPRESSED (coordinator) surface=\(terminalSurface.id.uuidString.prefix(5))")
-#endif
-                return result
-            }
 
             // If we become first responder before the ghostty surface exists (e.g. during
             // split/tab creation while the surface is still being created), record the desired focus.
@@ -5873,13 +5855,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
-        if let appDelegate = AppDelegate.shared,
-           let mode = appDelegate.rightSidebarModeShortcut(for: event),
-           let window,
-           appDelegate.shouldRouteRightSidebarModeShortcut(in: window) {
-            _ = appDelegate.focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: window)
-            return
-        }
         if let terminalSurface {
 #if DEBUG
             let dismissNotificationStart = ProcessInfo.processInfo.systemUptime
@@ -6672,15 +6647,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let shouldForwardTerminalActivation = terminalPointerShouldForwardActivation()
         // Treat pointer-down as explicit focus intent before forwarding any terminal activation.
         if let terminalSurface {
-            if terminalSurface.focusPlacement == .rightSidebarDock {
-                AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
-            } else {
-                AppDelegate.shared?.noteTerminalKeyboardFocusIntent(
-                    workspaceId: terminalSurface.tabId,
-                    panelId: terminalSurface.id,
-                    in: window
-                )
-            }
+            AppDelegate.shared?.noteTerminalKeyboardFocusIntent(
+                workspaceId: terminalSurface.tabId,
+                panelId: terminalSurface.id,
+                in: window
+            )
             terminalSurface.hostedView.clearReparentFocusSuppressionForPointerFocus()
         }
         requestPointerFocusRecovery()
@@ -8881,10 +8852,6 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
-    var isRightSidebarDockSurface: Bool {
-        surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
-    }
-
     var uiWindow: NSWindow? {
         if let terminalSurface = surfaceView.terminalSurface {
             return terminalSurface.uiWindow
@@ -10638,7 +10605,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setVisibleInUI(_ requestedVisible: Bool) {
-        let visible = requestedVisible && (isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: surfaceView.terminalSurface?.tabId))
+        let visible = requestedVisible && Workspace.portalRenderingEnabled(for: surfaceView.terminalSurface?.tabId)
         let wasVisible = surfaceView.isVisibleInUI
         // Re-realize before marking visible so we never draw into a released swap chain.
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
@@ -10701,7 +10668,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setActive(_ requestedActive: Bool) {
-        let active = requestedActive && (isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: surfaceView.terminalSurface?.tabId))
+        let active = requestedActive && Workspace.portalRenderingEnabled(for: surfaceView.terminalSurface?.tabId)
         let wasActive = isActive
         isActive = active
 #if DEBUG
@@ -10784,7 +10751,6 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
             let before = String(describing: window.firstResponder)
 #endif
-            guard self.canRequestSurfaceFirstResponder(in: window, reason: "moveFocus") else { return }
             if let previous, previous !== self {
                 _ = previous.surfaceView.resignFirstResponder()
             }
@@ -10999,61 +10965,6 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        if let terminalSurface = surfaceView.terminalSurface,
-           terminalSurface.focusPlacement == .rightSidebarDock {
-            guard AppDelegate.shared?.allowsTerminalKeyboardFocus(
-                workspaceId: tabId,
-                panelId: surfaceId,
-                in: window
-            ) != false else {
-#if DEBUG
-                dlog("focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=dockCoordinator")
-#endif
-                return
-            }
-            if terminalSurface.searchState != nil {
-#if DEBUG
-                cmuxDebugLog(
-                    "focus.ensure.dock.search surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
-                    "tab=\(tabId.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) " +
-                    "firstResponder=\(String(describing: window.firstResponder))"
-                )
-#endif
-                restoreSearchFocus(window: window)
-                return
-            }
-            if let fr = window.firstResponder as? NSView,
-               fr === surfaceView || fr.isDescendant(of: surfaceView) {
-                reassertTerminalSurfaceFocus(reason: "ensureFocus.dock.alreadyFirstResponder")
-                return
-            }
-            if respectForeignFirstResponder,
-               let firstResponder = window.firstResponder,
-               shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
-               AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
-           }) {
-#if DEBUG
-                let reason = firstResponder is NSText ? "textEditorFocused" : "rightSidebarFocused"
-                dlog("focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=dock.\(reason)")
-#endif
-                return
-            }
-            let result = makeSurfaceViewFirstResponder(
-                in: window,
-                focusTransactionId: focusTransactionId
-            )
-#if DEBUG
-            cmuxDebugLog(
-                "focus.ensure.dock.apply surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
-                "result=\(result ? 1 : 0) firstResponder=\(String(describing: window.firstResponder))"
-            )
-#endif
-            if isSurfaceViewFirstResponder() {
-                reassertTerminalSurfaceFocus(reason: "ensureFocus.dock.afterMakeFirstResponder")
-            }
-            return
-        }
-
         guard let delegate = AppDelegate.shared,
               let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager,
               tabManager.selectedTabId == tabId else {
@@ -11085,13 +10996,6 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        guard delegate.allowsTerminalKeyboardFocus(workspaceId: tabId, panelId: surfaceId, in: window) else {
-#if DEBUG
-            dlog("focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=coordinatorRightSidebar")
-#endif
-            return
-        }
-
         // Search focus restoration — only after confirming this is the active tab/pane.
         if surfaceView.terminalSurface?.searchState != nil {
 #if DEBUG
@@ -11112,17 +11016,14 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         // Layout and visibility reconciliation can ask the active terminal to
-        // reassert focus after a sidebar/text owner has already accepted focus.
-        // Respect those explicit AppKit first responders unless the terminal
-        // surface already owns focus.
+        // reassert focus after a text owner has already accepted focus. Respect
+        // those explicit AppKit first responders unless the terminal surface
+        // already owns focus.
         if respectForeignFirstResponder,
            let firstResponder = window.firstResponder,
-           shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
-               AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
-           }) {
+           shouldRespectForeignFirstResponder(firstResponder, in: window) {
 #if DEBUG
-            let reason = firstResponder is NSText ? "textEditorFocused" : "rightSidebarFocused"
-            dlog("focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=\(reason)")
+            dlog("focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=textEditorFocused")
 #endif
             return
         }
@@ -11295,8 +11196,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard let window = uiWindow, window.isKeyWindow else { return }
         guard let tabId = surfaceView.tabId,
               let panelId = surfaceView.terminalSurface?.id,
-              isRightSidebarDockSurface || matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId),
-              AppDelegate.shared?.allowsTerminalKeyboardFocus(workspaceId: tabId, panelId: panelId, in: window) != false,
+              matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId),
               AppDelegate.shared?.isCommandPaletteEffectivelyVisible(for: window) != true else {
             return
         }
@@ -11341,32 +11241,9 @@ final class GhosttySurfaceScrollView: NSView {
         return false
     }
 
-    private func canRequestSurfaceFirstResponder(in window: NSWindow, reason: String) -> Bool {
-        guard let terminalSurface = surfaceView.terminalSurface else {
-            return true
-        }
-        let allowed = AppDelegate.shared?.allowsTerminalKeyboardFocus(
-            workspaceId: terminalSurface.tabId,
-            panelId: terminalSurface.id,
-            in: window
-        ) ?? true
-#if DEBUG
-        if !allowed {
-            dlog(
-                "focus.apply.skip surface=\(terminalSurface.id.uuidString.prefix(5)) " +
-                "reason=\(reason).coordinatorRightSidebar"
-            )
-        }
-#endif
-        return allowed
-    }
-
     @discardableResult
     private func requestSurfaceFirstResponder(in window: NSWindow, reason: String) -> Bool {
-        guard canRequestSurfaceFirstResponder(in: window, reason: reason) else {
-            return false
-        }
-        return makeSurfaceViewFirstResponder(
+        makeSurfaceViewFirstResponder(
             in: window,
             focusTransactionId: surfaceView.firstResponderFocusTransactionId
         )
@@ -11489,15 +11366,9 @@ final class GhosttySurfaceScrollView: NSView {
         guard let window = uiWindow, window.isKeyWindow else { return }
         guard let tabId = surfaceView.tabId,
               let panelId = surfaceView.terminalSurface?.id,
-              matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) || (pendingSuppressedFirstResponderFocusReapply && isRightSidebarDockSurface && currentTerminalSurfaceOwnsFirstResponder()) else {
+              matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) else {
 #if DEBUG
             cmuxDebugLog("focus.apply.skip surface=\(surfaceShort) reason=stale_target")
-#endif
-            return
-        }
-        if AppDelegate.shared?.allowsTerminalKeyboardFocus(workspaceId: tabId, panelId: panelId, in: window) == false {
-#if DEBUG
-            dlog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=coordinatorRightSidebar")
 #endif
             return
         }
@@ -11525,15 +11396,12 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         // Don't steal focus from active non-terminal input owners. The terminal surface uses its
-        // own GhosttyNSView for input, so NSText and the feed focus host are always foreign focus
-        // owners that should survive deferred terminal visibility applies.
+        // own GhosttyNSView for input, so NSText is always a foreign focus owner that should
+        // survive deferred terminal visibility applies.
         if let firstResponder = window.firstResponder,
-           shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
-               AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
-           }) {
+           shouldRespectForeignFirstResponder(firstResponder, in: window) {
 #if DEBUG
-            let reason = firstResponder is NSText ? "textEditorFocused" : "rightSidebarFocused"
-            cmuxDebugLog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=\(reason)")
+            cmuxDebugLog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=textEditorFocused")
 #endif
             return
         }

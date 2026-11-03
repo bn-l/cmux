@@ -22,10 +22,10 @@ import Foundation
 /// An empty/whitespace clause parses to ``always``.
 ///
 /// ```swift
-/// ShortcutWhenClause.parse("!sidebarFocus")                  // everywhere but the sidebar
+/// ShortcutWhenClause.parse("!browserFocus")                  // everywhere but a browser
 /// ShortcutWhenClause.parse("terminalFocus || browserFocus")
 /// ShortcutWhenClause.parse("commandPaletteVisible && paneCount > 1")
-/// ShortcutWhenClause.parse("sidebarMode == 'find'")
+/// ShortcutWhenClause.parse("paneCount == 2")
 /// ```
 public indirect enum ShortcutWhenClause: Equatable, Sendable {
     /// Always satisfied (the clause imposes no restriction).
@@ -85,7 +85,7 @@ public indirect enum ShortcutWhenClause: Equatable, Sendable {
     ///
     /// Used by conflict detection: two shortcuts on the same keystroke truly
     /// collide only if some context activates both. Non-overlapping clauses (e.g.
-    /// `sidebarFocus` and `!sidebarFocus`) let the same keystroke drive different
+    /// `browserFocus` and `!browserFocus`) let the same keystroke drive different
     /// actions in different contexts.
     ///
     /// Focus atoms are enumerated over ``ShortcutFocusState/realizableStates``
@@ -110,7 +110,7 @@ public indirect enum ShortcutWhenClause: Equatable, Sendable {
 
         let focusStates = usesFocus
             ? ShortcutFocusState.realizableStates
-            : [ShortcutFocusState(browser: false, markdown: false, sidebar: false)]
+            : [ShortcutFocusState(browser: false, markdown: false)]
         for state in focusStates {
             for mask in 0..<(1 << terms.count) {
                 var assignment: [String: Bool] = [:]
@@ -124,38 +124,6 @@ public indirect enum ShortcutWhenClause: Equatable, Sendable {
             }
         }
         return false
-    }
-
-    /// Whether two bindings on the same keystroke genuinely collide: their
-    /// effective clauses can hold in the same context **and** router priority
-    /// cannot deterministically pick a winner for the overlap.
-    ///
-    /// `hasPriority` marks a side the app's key router consumes before general
-    /// shortcut matching whenever its clause holds (see
-    /// ``ShortcutAction/hasPriorityShortcutRouting`` — today the right-sidebar
-    /// mode shortcuts). Such a pair coexists when the non-prioritized side can
-    /// still fire somewhere outside the winner's context
-    /// (`canCoexist(loser, !winner)`): the winner owns every overlapping state
-    /// and the loser owns the rest — the same most-specific-wins resolution VS
-    /// Code applies to `when` clauses. The shipped defaults rely on this:
-    /// Select Surface `⌃1…9` coexists with the sidebar's `⌃1…5`, which win only
-    /// while the sidebar is focused.
-    ///
-    /// A loser with no states of its own (its clause implies the winner's) would
-    /// never fire, so that pair still reports as a collision rather than letting
-    /// the user save a dead binding. Two prioritized sides (or two ordinary
-    /// sides) fall back to plain ``canCoexist(_:_:)`` overlap.
-    public static func bindingsCollide(
-        _ lhs: ShortcutWhenClause,
-        lhsHasPriority: Bool,
-        _ rhs: ShortcutWhenClause,
-        rhsHasPriority: Bool
-    ) -> Bool {
-        guard canCoexist(lhs, rhs) else { return false }
-        guard lhsHasPriority != rhsHasPriority else { return true }
-        let winner = lhsHasPriority ? lhs : rhs
-        let loser = lhsHasPriority ? rhs : lhs
-        return !canCoexist(loser, .not(winner))
     }
 
     /// Parses a `when` expression, returning `nil` on malformed input so callers

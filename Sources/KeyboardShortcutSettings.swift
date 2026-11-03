@@ -17,35 +17,8 @@ enum KeyboardShortcutSettings {
     static var shortcutLookupObserver: ((Action) -> Void)?
     #endif
 
-    static var publicShortcutActions: [Action] {
-        Action.allCases.filter(\.isPublicShortcutAction)
-    }
-
     static var settingsVisibleActions: [Action] {
-        orderedSettingsVisibleActions(
-            from: publicShortcutActions.filter { $0 != .showHideAllWindows }
-        )
-    }
-
-    private static func orderedSettingsVisibleActions(from actions: [Action]) -> [Action] {
-        let colocatedSidebarActions = [
-            .focusRightSidebar,
-            .toggleRightSidebar,
-            .findInDirectory,
-            .fileExplorerOpenSelection,
-            .fileExplorerOpenSelectionFinderAlias,
-        ].filter(actions.contains)
-        let actionSet = Set(colocatedSidebarActions)
-        let baseActions = actions.filter { !actionSet.contains($0) }
-
-        guard let anchorIndex = baseActions.firstIndex(of: .markOldestUnreadAndJumpNext)
-            ?? baseActions.firstIndex(of: .jumpToUnread) else {
-            return colocatedSidebarActions + baseActions
-        }
-
-        var orderedActions = baseActions
-        orderedActions.insert(contentsOf: colocatedSidebarActions, at: anchorIndex + 1)
-        return orderedActions
+        Action.allCases.filter { $0 != .showHideAllWindows }
     }
 
     enum ShortcutRecordingRejection: Equatable {
@@ -89,11 +62,6 @@ enum KeyboardShortcutSettings {
         case jumpToLastPrompt
         case toggleUnread
         case markOldestUnreadAndJumpNext
-        case focusRightSidebar
-        case switchRightSidebarToFiles
-        case switchRightSidebarToFind
-        case switchRightSidebarToFeed
-        case switchRightSidebarToDock
         case triggerFlash
 
         // Navigation
@@ -155,9 +123,6 @@ enum KeyboardShortcutSettings {
         case canvasDistributeVertically
 
         // File Explorer
-        case toggleRightSidebar = "toggleFileExplorer"
-        case fileExplorerOpenSelection
-        case fileExplorerOpenSelectionFinderAlias
 
         // Panels
         case saveFilePreview
@@ -174,7 +139,6 @@ enum KeyboardShortcutSettings {
         case markdownZoomOut
         case markdownZoomReset
         case find
-        case findInDirectory
         case findNext
         case findPrevious
         case hideFind
@@ -219,11 +183,6 @@ enum KeyboardShortcutSettings {
             case .toggleUnread: return String(localized: "shortcut.toggleUnread.label", defaultValue: "Toggle Unread")
             case .markOldestUnreadAndJumpNext:
                 return String(localized: "shortcut.markOldestUnreadAndJumpNext.label", defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread")
-            case .focusRightSidebar: return String(localized: "shortcut.focusRightSidebar.label", defaultValue: "Toggle Right Sidebar Focus")
-            case .switchRightSidebarToFiles: return String(localized: "shortcut.switchRightSidebarToFiles.label", defaultValue: "Show Sidebar Files")
-            case .switchRightSidebarToFind: return String(localized: "shortcut.switchRightSidebarToFind.label", defaultValue: "Show Sidebar Find")
-            case .switchRightSidebarToFeed: return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
-            case .switchRightSidebarToDock: return String(localized: "shortcut.switchRightSidebarToDock.label", defaultValue: "Show Sidebar Dock")
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
@@ -280,9 +239,6 @@ enum KeyboardShortcutSettings {
             case .canvasEqualizeHeights: return String(localized: "shortcut.canvasEqualizeHeights.label", defaultValue: "Canvas: Equalize Heights")
             case .canvasDistributeHorizontally: return String(localized: "shortcut.canvasDistributeHorizontally.label", defaultValue: "Canvas: Distribute Horizontally")
             case .canvasDistributeVertically: return String(localized: "shortcut.canvasDistributeVertically.label", defaultValue: "Canvas: Distribute Vertically")
-            case .toggleRightSidebar: return String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar")
-            case .fileExplorerOpenSelection: return String(localized: "shortcut.fileExplorerOpenSelection.label", defaultValue: "File Explorer: Open Selection")
-            case .fileExplorerOpenSelectionFinderAlias: return String(localized: "shortcut.fileExplorerOpenSelectionFinderAlias.label", defaultValue: "File Explorer: Open Selection (Finder Alias)")
             case .saveFilePreview: return String(localized: "shortcut.saveFilePreview.label", defaultValue: "Save File Preview")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
             case .focusBrowserAddressBar: return String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar")
@@ -297,7 +253,6 @@ enum KeyboardShortcutSettings {
             case .markdownZoomOut: return String(localized: "shortcut.markdownZoomOut.label", defaultValue: "Markdown Viewer: Zoom Out")
             case .markdownZoomReset: return String(localized: "shortcut.markdownZoomReset.label", defaultValue: "Markdown Viewer: Actual Size")
             case .find: return String(localized: "menu.find.find", defaultValue: "Find…")
-            case .findInDirectory: return String(localized: "menu.find.findInDirectory", defaultValue: "Find in Directory…")
             case .findNext: return String(localized: "menu.find.findNext", defaultValue: "Find Next")
             case .findPrevious: return String(localized: "menu.find.findPrevious", defaultValue: "Find Previous")
             case .hideFind: return String(localized: "menu.find.hideFindBar", defaultValue: "Hide Find Bar")
@@ -317,17 +272,6 @@ enum KeyboardShortcutSettings {
 
         var defaultsKey: String { "shortcut.\(rawValue)" }
 
-        var isPublicShortcutAction: Bool {
-            switch self {
-            case .switchRightSidebarToFiles,
-                 .switchRightSidebarToFind,
-                 .switchRightSidebarToFeed,
-                 .switchRightSidebarToDock:
-                return false
-            default:
-                return true
-            }
-        }
 
         var defaultShortcut: StoredShortcut {
             switch self {
@@ -386,16 +330,6 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "u", command: true, shift: false, option: true, control: false)
             case .markOldestUnreadAndJumpNext:
                 return StoredShortcut(key: "u", command: true, shift: false, option: false, control: true)
-            case .focusRightSidebar:
-                return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
-            case .switchRightSidebarToFiles:
-                return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
-            case .switchRightSidebarToFind:
-                return StoredShortcut(key: "2", command: false, shift: false, option: false, control: true)
-            case .switchRightSidebarToFeed:
-                return StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
-            case .switchRightSidebarToDock:
-                return StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
             case .triggerFlash:
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:
@@ -512,12 +446,6 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "k", command: true, shift: true, option: false, control: false)
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
-            case .toggleRightSidebar:
-                return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
-            case .fileExplorerOpenSelection:
-                return StoredShortcut(key: "\r", command: false, shift: false, option: false, control: false)
-            case .fileExplorerOpenSelectionFinderAlias:
-                return StoredShortcut(key: "↓", command: true, shift: false, option: false, control: false)
             case .saveFilePreview:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: false)
             case .openBrowser:
@@ -548,8 +476,6 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "0", command: true, shift: false, option: false, control: false)
             case .find:
                 return StoredShortcut(key: "f", command: true, shift: false, option: false, control: false)
-            case .findInDirectory:
-                return StoredShortcut(key: "f", command: true, shift: true, option: false, control: false)
             case .findNext:
                 return StoredShortcut(key: "g", command: true, shift: false, option: false, control: false)
             case .findPrevious:
@@ -616,9 +542,7 @@ enum KeyboardShortcutSettings {
                  .diffViewerScrollUp,
                  .diffViewerScrollToBottom,
                  .diffViewerScrollToTop,
-                 .diffViewerOpenFileSearch,
-                 .fileExplorerOpenSelection,
-                 .fileExplorerOpenSelectionFinderAlias:
+                 .diffViewerOpenFileSearch:
                 return true
             default:
                 return false
@@ -626,7 +550,7 @@ enum KeyboardShortcutSettings {
         }
 
         var allowsChordShortcut: Bool {
-            self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias && self != .cycleTextBoxSubmitAction
+            self != .cycleTextBoxSubmitAction
         }
 
         var isBrowserContentShortcut: Bool {
@@ -658,16 +582,11 @@ enum KeyboardShortcutSettings {
             configuredShortcut: StoredShortcut
         ) -> Bool {
             // Two bindings on the same keystroke only collide when some focus
-            // state activates both AND router priority cannot decide the overlap.
-            // A `shortcuts.when` override (or the built-in context default) can
-            // make them non-overlapping (issue #5189), and a pre-routed action
-            // wins its context outright, so factory Select Surface ⌃1…9 coexists
-            // with the sidebar's ⌃1…5 by priority.
-            guard ShortcutWhenClause.bindingsCollide(
+            // state activates both. A `shortcuts.when` override (or the built-in
+            // context default) can make them non-overlapping (issue #5189).
+            guard ShortcutWhenClause.canCoexist(
                 KeyboardShortcutSettings.effectiveWhenClause(for: self),
-                lhsHasPriority: hasPriorityShortcutRouting,
-                KeyboardShortcutSettings.effectiveWhenClause(for: proposedAction),
-                rhsHasPriority: proposedAction.hasPriorityShortcutRouting
+                KeyboardShortcutSettings.effectiveWhenClause(for: proposedAction)
             ) else {
                 return false
             }

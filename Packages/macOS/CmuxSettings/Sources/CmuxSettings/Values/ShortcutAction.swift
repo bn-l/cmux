@@ -39,11 +39,6 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case jumpToLastPrompt
     case toggleUnread
     case markOldestUnreadAndJumpNext
-    case focusRightSidebar
-    case switchRightSidebarToFiles
-    case switchRightSidebarToFind
-    case switchRightSidebarToFeed
-    case switchRightSidebarToDock
     case triggerFlash
 
     // MARK: Navigation
@@ -100,11 +95,6 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case resizePaneDown = "resize-pane-down"
     case splitBrowserRight
     case splitBrowserDown
-    case toggleRightSidebar = "toggleFileExplorer"
-    /// Opens the selected File Explorer item from File Explorer focus.
-    case fileExplorerOpenSelection
-    /// Mirrors Finder's Command-Down open-selection shortcut from File Explorer focus.
-    case fileExplorerOpenSelectionFinderAlias
 
     // MARK: Canvas
     case toggleCanvasLayout
@@ -140,7 +130,6 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case markdownZoomOut
     case markdownZoomReset
     case find
-    case findInDirectory
     case findNext
     case findPrevious
     case hideFind
@@ -190,9 +179,7 @@ extension ShortcutAction {
         case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
              .showNotifications, .jumpToUnread, .jumpToLastPrompt, .toggleUnread, .markOldestUnreadAndJumpNext,
-             .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToFeed,
-             .switchRightSidebarToDock, .triggerFlash:
+             .triggerFlash:
             return .workspace
         case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
              .prevSidebarTab, .focusHistoryBack, .focusHistoryForward, .focusHistoryLast,
@@ -206,7 +193,6 @@ extension ShortcutAction {
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
              .toggleSplitZoom, .equalizeSplits, .resizePaneLeft, .resizePaneRight,
              .resizePaneUp, .resizePaneDown, .splitBrowserRight, .splitBrowserDown,
-             .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
              .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
@@ -216,7 +202,7 @@ extension ShortcutAction {
         case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
              .browserForward, .browserReload, .browserHardReload, .browserZoomIn, .browserZoomOut,
              .browserZoomReset, .markdownZoomIn, .markdownZoomOut, .markdownZoomReset,
-             .find, .findInDirectory, .findNext, .findPrevious,
+             .find, .findNext, .findPrevious,
              .hideFind, .useSelectionForFind, .toggleBrowserDeveloperTools,
              .showBrowserJavaScriptConsole, .toggleBrowserFocusMode, .toggleReactGrab,
              .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
@@ -255,9 +241,7 @@ extension ShortcutAction {
              .diffViewerScrollUp,
              .diffViewerScrollToBottom,
              .diffViewerScrollToTop,
-             .diffViewerOpenFileSearch,
-             .fileExplorerOpenSelection,
-             .fileExplorerOpenSelectionFinderAlias:
+             .diffViewerOpenFileSearch:
             return true
         default:
             return false
@@ -266,9 +250,7 @@ extension ShortcutAction {
 
     /// Whether this action supports a two-stroke shortcut chord.
     public var allowsChordShortcut: Bool {
-        self != .fileExplorerOpenSelection
-            && self != .fileExplorerOpenSelectionFinderAlias
-            && self != .cycleTextBoxSubmitAction
+        self != .cycleTextBoxSubmitAction
     }
 
     /// The action's built-in focus context expressed as a ``ShortcutWhenClause``,
@@ -280,15 +262,10 @@ extension ShortcutAction {
     /// mappings agree for every shared action.
     public var defaultFocusWhenClause: ShortcutWhenClause {
         switch self {
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToFeed, .switchRightSidebarToDock:
-            return .atom(.sidebarFocus)
-        case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
-            return .atom(.sidebarFocus)
         case .renameTab, .renameWorkspace:
-            return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+            return .not(.atom(.browserFocus))
         case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
-            return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+            return .not(.atom(.browserFocus))
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
              .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
@@ -314,27 +291,6 @@ extension ShortcutAction {
             return .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
         default:
             return .always
-        }
-    }
-
-    /// Whether the app's key router consumes this action *before* general
-    /// configured-shortcut matching whenever its context holds.
-    ///
-    /// The right-sidebar mode shortcuts are pre-routed: while the sidebar is
-    /// focused they win their keystroke outright, and every other binding on the
-    /// same stroke keeps firing outside that context. Conflict detection
-    /// (``ShortcutWhenClause/bindingsCollide(_:lhsHasPriority:_:rhsHasPriority:)``)
-    /// uses this to accept such priority-resolved pairs — e.g. the factory
-    /// default Select Surface `⌃1…9` alongside the sidebar's `⌃1…5` — instead of
-    /// rejecting them as colliding. Mirrors the app target's routing order in
-    /// `handleCustomShortcut`; a drift test asserts the two stay aligned.
-    public var hasPriorityShortcutRouting: Bool {
-        switch self {
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToFeed, .switchRightSidebarToDock:
-            return true
-        default:
-            return false
         }
     }
 
@@ -367,11 +323,6 @@ extension ShortcutAction {
         case .jumpToLastPrompt: return "Jump to Last Prompt"
         case .toggleUnread: return "Toggle Unread"
         case .markOldestUnreadAndJumpNext: return "Mark as Oldest Unread and Jump to Next Latest Unread"
-        case .focusRightSidebar: return "Toggle Right Sidebar Focus"
-        case .switchRightSidebarToFiles: return "Show Sidebar Files"
-        case .switchRightSidebarToFind: return "Show Sidebar Find"
-        case .switchRightSidebarToFeed: return "Show Sidebar Feed"
-        case .switchRightSidebarToDock: return "Show Sidebar Dock"
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
@@ -419,11 +370,6 @@ extension ShortcutAction {
         case .resizePaneDown: return "Resize Pane Down"
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
-        case .toggleRightSidebar: return "Toggle Right Sidebar"
-        case .fileExplorerOpenSelection:
-            return String(localized: "shortcut.fileExplorerOpenSelection.label", defaultValue: "File Explorer: Open Selection")
-        case .fileExplorerOpenSelectionFinderAlias:
-            return String(localized: "shortcut.fileExplorerOpenSelectionFinderAlias.label", defaultValue: "File Explorer: Open Selection (Finder Alias)")
         case .toggleCanvasLayout:
             return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
         case .canvasRevealFocusedPane:
@@ -469,7 +415,6 @@ extension ShortcutAction {
         case .markdownZoomOut: return "Markdown Viewer: Zoom Out"
         case .markdownZoomReset: return "Markdown Viewer: Actual Size"
         case .find: return "Find…"
-        case .findInDirectory: return "Find in Directory…"
         case .findNext: return "Find Next"
         case .findPrevious: return "Find Previous"
         case .hideFind: return "Hide Find Bar"
