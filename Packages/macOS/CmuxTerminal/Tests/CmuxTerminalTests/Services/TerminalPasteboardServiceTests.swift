@@ -115,13 +115,18 @@ struct ClipboardWriteCaptureTests {
         #expect(captured == nil)
     }
 
-    @Test func selectionWritesRoundTripThroughSelectionPasteboard() {
-        let service = TerminalPasteboardService()
+    /// A program writing the selection (OSC 52 `s`, copy-on-select `primary`)
+    /// lands on the clipboard, and both locations read it back.
+    @Test func selectionWritesLandOnTheClipboard() {
+        let clipboard = ScratchPasteboard()
+        let service = TerminalPasteboardService(standardPasteboard: clipboard.pasteboard)
         let marker = "selection-\(UUID().uuidString)"
+
         service.writeString(marker, to: GHOSTTY_CLIPBOARD_SELECTION)
-        let board = service.pasteboard(for: GHOSTTY_CLIPBOARD_SELECTION)
-        #expect(board?.string(forType: .string) == marker)
+
+        #expect(clipboard.pasteboard.string(forType: .string) == marker)
         #expect(service.hasString(for: GHOSTTY_CLIPBOARD_SELECTION))
+        #expect(service.hasString(for: GHOSTTY_CLIPBOARD_STANDARD))
     }
 }
 
@@ -279,15 +284,12 @@ struct SelectionLocationTests {
 struct EmptyClipboardWriteTests {
     @Test(arguments: [GHOSTTY_CLIPBOARD_STANDARD.rawValue, GHOSTTY_CLIPBOARD_SELECTION.rawValue])
     func emptyWriteKeepsWhatTheUserCopied(locationRawValue: UInt32) throws {
-        // Arrange: scratch boards, so the user's real clipboard is never touched.
+        // Arrange: a scratch board stands in for the system clipboard, which
+        // serves both locations, so the user's real clipboard is never touched.
         let location = ghostty_clipboard_e(rawValue: locationRawValue)
-        let standard = ScratchPasteboard()
-        let selection = ScratchPasteboard()
-        let service = TerminalPasteboardService(
-            standardPasteboard: standard.pasteboard,
-            selectionPasteboard: selection.pasteboard
-        )
-        let board = location == GHOSTTY_CLIPBOARD_STANDARD ? standard.pasteboard : selection.pasteboard
+        let clipboard = ScratchPasteboard()
+        let service = TerminalPasteboardService(standardPasteboard: clipboard.pasteboard)
+        let board = clipboard.pasteboard
         let copied = "copied-\(UUID().uuidString)"
         service.writeString(copied, to: location)
         #expect(board.string(forType: .string) == copied)

@@ -1,6 +1,9 @@
 public import AppKit
 public import CmuxTerminalCore
 public import GhosttyKit
+import os
+
+nonisolated private let terminalClipboardLogger = Logger(subsystem: "com.cmuxterm.app", category: "clipboard")
 
 /// The terminal's pasteboard capability: clipboard reads and writes for the
 /// ghostty runtime, plus materialization of pasteboard images into owned
@@ -55,8 +58,6 @@ public final class TerminalPasteboardService: Sendable {
     // SAFETY: immutable reference; NSPasteboard handles are usable from any
     // thread and the legacy code already wrote to this pasteboard from
     // ghostty runtime threads.
-    nonisolated(unsafe) private let selectionPasteboard: NSPasteboard
-    // SAFETY: as above.
     nonisolated(unsafe) private let standardPasteboard: NSPasteboard
 
     /// The directory that owned temporary image files are written into.
@@ -80,19 +81,15 @@ public final class TerminalPasteboardService: Sendable {
     ///   - temporaryDirectory: Destination for owned temporary image files.
     ///     Tests inject a scratch directory; the app uses the user's
     ///     temporary directory.
-    ///   - standardPasteboard: The board standard-location writes go to.
+    ///   - standardPasteboard: The system clipboard, which serves both the
+    ///     standard and the selection location (see ``pasteboard(for:)``).
     ///     Tests inject a scratch board so they never touch the user's clipboard.
-    ///   - selectionPasteboard: The board selection-location writes go to.
     public init(
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        standardPasteboard: NSPasteboard = .general,
-        selectionPasteboard: NSPasteboard = NSPasteboard(
-            name: NSPasteboard.Name("com.mitchellh.ghostty.selection")
-        )
+        standardPasteboard: NSPasteboard = .general
     ) {
         self.temporaryDirectory = temporaryDirectory
         self.standardPasteboard = standardPasteboard
-        self.selectionPasteboard = selectionPasteboard
     }
 }
 
@@ -118,9 +115,17 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
         // An empty payload carries nothing to paste; writing it would only
         // wipe what the user copied. Remote programs send it as an OSC 52
         // write (`ESC ] 52 ; c ; BEL`), which xterm defines as "clear".
-        guard !string.isEmpty, let pasteboard = pasteboard(for: location) else { return }
+        guard !string.isEmpty, let pasteboard = pasteboard(for: location) else {
+            terminalClipboardLogger.notice(
+                "clipboard.write.skipped location=\(location.rawValue, privacy: .public) length=\(string.utf8.count, privacy: .public)"
+            )
+            return
+        }
         pasteboard.clearContents()
         pasteboard.setString(string, forType: .string)
+        terminalClipboardLogger.notice(
+            "clipboard.write location=\(location.rawValue, privacy: .public) length=\(string.utf8.count, privacy: .public) changeCount=\(pasteboard.changeCount, privacy: .public)"
+        )
     }
 
     /// Arms a one-shot diversion of the next standard-clipboard write that
@@ -147,12 +152,19 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
 
 extension TerminalPasteboardService {
     /// The pasteboard backing a ghostty clipboard location.
+    ///
+    /// The selection location shares the system clipboard. Ghostty 1.4.0 has no
+    /// selection clipboard on macOS: copy-on-select defaults to `none` and never
+    /// fills one, so a separate board would only hold whatever was selected
+    /// under an older Ghostty, and Cmd+Shift+V, Shift+Insert and middle-click
+    /// (`paste_from_selection`, `primary-paste`) would paste that instead of
+    /// what the user copied. A program writing the selection (OSC 52 `s`) lands
+    /// on the clipboard, as in iTerm2. The primary selection does not exist on
+    /// macOS.
     public func pasteboard(for location: ghostty_clipboard_e) -> NSPasteboard? {
         switch location {
-        case GHOSTTY_CLIPBOARD_STANDARD:
+        case GHOSTTY_CLIPBOARD_STANDARD, GHOSTTY_CLIPBOARD_SELECTION:
             return standardPasteboard
-        case GHOSTTY_CLIPBOARD_SELECTION:
-            return selectionPasteboard
         default:
             return nil
         }
