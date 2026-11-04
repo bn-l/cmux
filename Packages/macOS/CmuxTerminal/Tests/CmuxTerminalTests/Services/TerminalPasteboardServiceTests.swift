@@ -236,6 +236,41 @@ struct ImageMaterializationTests {
     }
 }
 
+// Ghostty 1.4.0 has no selection clipboard on macOS: copy-on-select defaults
+// to `none` there and nothing fills one. A separate selection board kept
+// whatever was last selected under the previous Ghostty, so Cmd+Shift+V,
+// Shift+Insert and middle-click pasted that stale text (seen: an old
+// `rooms.push("Hall");`) instead of what the user had just copied.
+@Suite("Selection location on macOS", .serialized)
+struct SelectionLocationTests {
+    @Test func pasteFromSelectionReadsWhatTheUserCopied() throws {
+        // Arrange: the user's copy sits on a scratch stand-in for the system clipboard.
+        let clipboard = ScratchPasteboard()
+        let service = TerminalPasteboardService(standardPasteboard: clipboard.pasteboard)
+        let copied = "copied-\(UUID().uuidString)"
+        clipboard.pasteboard.clearContents()
+        clipboard.pasteboard.setString(copied, forType: .string)
+
+        // Act: read the selection location the way a paste does.
+        let board = try #require(service.pasteboard(for: GHOSTTY_CLIPBOARD_SELECTION))
+        let pasted = service.stringContents(from: board)
+
+        // Assert
+        #expect(pasted == copied)
+        #expect(board == clipboard.pasteboard)
+    }
+
+    @Test func primarySelectionIsUnsupported() {
+        let clipboard = ScratchPasteboard()
+        let service = TerminalPasteboardService(standardPasteboard: clipboard.pasteboard)
+        clipboard.pasteboard.clearContents()
+        clipboard.pasteboard.setString("copied", forType: .string)
+
+        #expect(service.pasteboard(for: GHOSTTY_CLIPBOARD_PRIMARY) == nil)
+        #expect(!service.hasString(for: GHOSTTY_CLIPBOARD_PRIMARY))
+    }
+}
+
 // An OSC 52 write with an empty payload (`ESC ] 52 ; c ; BEL`) reaches the
 // write callback as an empty string. Programs on a remote host send it (seen
 // over ssh during `gh auth refresh`), and writing it would wipe whatever the
