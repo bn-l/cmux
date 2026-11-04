@@ -182,6 +182,7 @@ final class TerminalNotificationStore: ObservableObject {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
             refreshUnreadPresentation()
+            logReadStateChanges(from: oldValue)
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
     }
@@ -1121,6 +1122,34 @@ final class TerminalNotificationStore: ObservableObject {
                     NotificationSoundSettings.playSelectedSound()
                 }
             }
+        }
+    }
+
+    /// Logs each notification that arrives and each unread one that becomes
+    /// read, with the call stack of the change, so an alert that never showed
+    /// as unread can be traced in a Release build (`log show --predicate
+    /// 'subsystem=="com.cmuxterm.app" AND category=="notification"'`). Both
+    /// events are rare, so the stack capture stays off the typing path.
+    private func logReadStateChanges(from oldValue: [TerminalNotification]) {
+        let previous = Dictionary(oldValue.map { ($0.id, $0.isRead) }, uniquingKeysWith: { first, _ in first })
+        let added = notifications.filter { previous[$0.id] == nil }
+        let newlyRead = notifications.filter { $0.isRead && previous[$0.id] == false }
+        guard !added.isEmpty || !newlyRead.isEmpty else { return }
+        func describe(_ notification: TerminalNotification) -> String {
+            "id=\(notification.id.uuidString.prefix(8)) workspace=\(notification.tabId.uuidString.prefix(8)) " +
+                "surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil")"
+        }
+        for notification in added {
+            terminalNotificationLogger.notice(
+                "notification.added \(describe(notification), privacy: .public) unread=\(!notification.isRead, privacy: .public)"
+            )
+        }
+        guard !newlyRead.isEmpty else { return }
+        let caller = Thread.callStackSymbols.dropFirst(2).prefix(12).joined(separator: " | ")
+        for notification in newlyRead {
+            terminalNotificationLogger.notice(
+                "notification.markedRead \(describe(notification), privacy: .public) caller=\(caller, privacy: .public)"
+            )
         }
     }
 

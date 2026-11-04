@@ -171,6 +171,11 @@ enum GhosttyStartupAppearancePreviewState {
 // WindowBackgroundPolicy + CompositorBlurController. The transitional
 // process-wide instances live in WindowBackgroundComposition (app target).
 
+/// Clipboard reads and writes, without their contents: the location (0
+/// standard, 1 selection, 2 primary), what was asked for and how many bytes
+/// were served, so a paste of the wrong text can be traced in a Release build.
+nonisolated private let clipboardLogger = Logger(subsystem: "com.cmuxterm.app", category: "clipboard")
+
 private func cmuxRuntimeReadClipboardCallback(
     _ userdata: UnsafeMutableRawPointer?,
     _ location: ghostty_clipboard_e,
@@ -521,6 +526,9 @@ class GhosttyApp {
         let wantsText = (0..<max(mimesLen, 0)).contains { index in
             mimes?[index].map { String(cString: $0) == "text/plain" } ?? false
         }
+        clipboardLogger.notice(
+            "clipboard.read surface=\(callbackContext.surfaceId.uuidString.prefix(8), privacy: .public) location=\(location.rawValue, privacy: .public) list=\(list, privacy: .public) mimes=\(mimesLen, privacy: .public) wantsText=\(wantsText, privacy: .public)"
+        )
         if !wantsText {
             guard list else { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
             // A listing only: never read or upload the clipboard contents.
@@ -551,6 +559,9 @@ class GhosttyApp {
                         ) ?? false
                     }
                     let completionText = handledByMirror ? "" : text
+                    clipboardLogger.notice(
+                        "clipboard.read.complete surface=\(callbackContext.surfaceId.uuidString.prefix(8), privacy: .public) location=\(location.rawValue, privacy: .public) length=\(completionText.utf8.count, privacy: .public) mirror=\(handledByMirror, privacy: .public)"
+                    )
                     Self.completeTextClipboardRequest(
                         requestSurface,
                         text: completionText,
