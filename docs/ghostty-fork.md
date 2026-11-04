@@ -69,6 +69,12 @@ renderer-memory hooks) is not in this fork; cherry-pick it when cmux needs it.
   `ghostty_surface_deny_clipboard_request`, and actions such as
   `RESIZE_WINDOW` and `EXPORT_TERMINAL_IO`. The fork's
   `ghostty_surface_text_input` stays (typed text, not a paste).
+- `copy-on-select` changed meaning: on macOS the default is now `none` and
+  `true` means the system clipboard (it used to mean the private selection
+  board). Nothing fills a selection clipboard on macOS any more, so cmux serves
+  Ghostty's selection location from the system clipboard; otherwise
+  Cmd+Shift+V, Shift+Insert and middle-click pasted the last selection made
+  under the old pin.
 - `itijah` is vendored in `vendor/itijah` because its build.zig does not
   compile with Zig 0.17. `apprt.none` has a no-op `wakeup`.
 - 1.4.0's universal xcframework is macOS only (no iOS slices).
