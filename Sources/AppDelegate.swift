@@ -15523,6 +15523,9 @@ private extension NSWindow {
                event: currentEvent
            ) {
             pointerInitiatedTerminalFocus = true
+            if let currentEvent {
+                request.ghosttyView.notePointerFocusTransferBeforeResponderChange(for: currentEvent)
+            }
             AppDelegate.shared?.noteTerminalKeyboardFocusIntent(
                 workspaceId: request.workspaceId,
                 panelId: request.panelId,

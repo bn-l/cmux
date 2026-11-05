@@ -3856,6 +3856,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
     private var hasPendingLeftMouseRelease = false
+    /// Timestamp of the left-button press recorded as a focus transfer. See
+    /// `notePointerFocusTransferBeforeResponderChange(for:)`.
+    var pointerFocusTransferEventTimestamp: TimeInterval?
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -6755,7 +6758,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let debugPoint = convert(event.locationInWindow, from: nil)
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
-        let shouldForwardTerminalActivation = terminalPointerShouldForwardActivation()
+        let shouldForwardTerminalActivation = !takePointerFocusTransfer(for: event)
+            && terminalPointerShouldForwardActivation()
+        #if DEBUG
+        if !shouldForwardTerminalActivation {
+            cmuxDebugLog("terminal.mouseDown.swallowedFocusTransfer surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+        }
+        #endif
         // Treat pointer-down as explicit focus intent before forwarding any terminal activation.
         if let terminalSurface {
             AppDelegate.shared?.noteTerminalKeyboardFocusIntent(
@@ -7712,12 +7721,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func rightMouseUp(with event: NSEvent) {
         guard let surface = surface else { return }
-        if !ghostty_surface_mouse_captured(surface) {
-            super.rightMouseUp(with: event)
-            return
-        }
-
+        let isCaptured = ghostty_surface_mouse_captured(surface)
+        // Always release: capture can end between press and release, and a press
+        // left recorded in Ghostty turns all later hover into right-button drags.
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
+        if !isCaptured {
+            super.rightMouseUp(with: event)
+        }
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -7752,6 +7762,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
+        // Menu tracking consumes the mouse-up, so rightMouseUp never runs for this press.
+        // Ghostty does its right-click handling on the press, so release straight away.
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
 
         let menu = NSMenu()
         if onTriggerFlash != nil {
