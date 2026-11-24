@@ -3389,6 +3389,196 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(workspace.bonsplitController.tabs(inPane: rightPane).count, rightTabsAfterFirstOpen + 1)
     }
 
+    // MARK: app.openClicksInExistingPane
+
+    /// The reported case: two panes side by side, the click comes from the
+    /// right one, so there is no pane to its right.
+    private struct SideBySideClickLayout {
+        let workspace: Workspace
+        let leftPane: PaneID
+        let sourcePanelId: UUID
+    }
+
+    private func makeSideBySideClickLayout(sourceFile: URL) throws -> SideBySideClickLayout {
+        let workspace = Workspace()
+        let leftPane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let source = try XCTUnwrap(workspace.splitPaneWithFilePreview(
+            targetPane: leftPane,
+            orientation: .horizontal,
+            insertFirst: false,
+            filePath: sourceFile.path
+        ))
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+        return SideBySideClickLayout(workspace: workspace, leftPane: leftPane, sourcePanelId: source.id)
+    }
+
+    private func clickOpenDefaults(existingPane: Bool?) throws -> (UserDefaults, String) {
+        let suiteName = "cmux.click-open-existing-pane.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        if let existingPane {
+            AppCatalogSection().openClicksInExistingPane.set(existingPane, in: defaults)
+        }
+        return (defaults, suiteName)
+    }
+
+    func testCmdClickMarkdownSplitsWhenNoPaneIsToTheRightByDefault() throws {
+        // Arrange
+        let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
+        let markdownURL = try temporaryTextFile(contents: "# doc", encoding: .utf8, pathExtension: "md")
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: markdownURL)
+        }
+        let (defaults, suiteName) = try clickOpenDefaults(existingPane: nil)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let layout = try makeSideBySideClickLayout(sourceFile: sourceURL)
+        defer { layout.workspace.teardownAllPanels() }
+
+        // Act
+        let markdown = try XCTUnwrap(layout.workspace.openOrFocusMarkdownSplit(
+            from: layout.sourcePanelId,
+            filePath: markdownURL.path,
+            defaults: defaults
+        ))
+
+        // Assert: the setting is off by default, so the old split stays.
+        XCTAssertFalse(AppCatalogSection().openClicksInExistingPane.value(in: defaults))
+        XCTAssertEqual(layout.workspace.bonsplitController.allPaneIds.count, 3)
+        XCTAssertNotEqual(layout.workspace.paneId(forPanelId: markdown.id)?.id, layout.leftPane.id)
+    }
+
+    func testCmdClickMarkdownOpensInTheOtherPaneWhenTheSettingIsOn() throws {
+        // Arrange
+        let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
+        let markdownURL = try temporaryTextFile(contents: "# doc", encoding: .utf8, pathExtension: "md")
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: markdownURL)
+        }
+        let (defaults, suiteName) = try clickOpenDefaults(existingPane: true)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let layout = try makeSideBySideClickLayout(sourceFile: sourceURL)
+        defer { layout.workspace.teardownAllPanels() }
+        let leftTabsBefore = layout.workspace.bonsplitController.tabs(inPane: layout.leftPane).count
+
+        // Act
+        let markdown = try XCTUnwrap(layout.workspace.openOrFocusMarkdownSplit(
+            from: layout.sourcePanelId,
+            filePath: markdownURL.path,
+            defaults: defaults
+        ))
+
+        // Assert: no new pane; the viewer is a new, focused tab in the left pane.
+        XCTAssertEqual(layout.workspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(layout.workspace.paneId(forPanelId: markdown.id)?.id, layout.leftPane.id)
+        XCTAssertEqual(layout.workspace.bonsplitController.tabs(inPane: layout.leftPane).count, leftTabsBefore + 1)
+        XCTAssertEqual(layout.workspace.focusedPanelId, markdown.id)
+    }
+
+    func testCmdClickFilePreviewOpensInTheOtherPaneWhenTheSettingIsOn() throws {
+        // Arrange
+        let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
+        let previewURL = try temporaryTextFile(contents: "preview me", encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: previewURL)
+        }
+        let (defaults, suiteName) = try clickOpenDefaults(existingPane: true)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let layout = try makeSideBySideClickLayout(sourceFile: sourceURL)
+        defer { layout.workspace.teardownAllPanels() }
+
+        // Act
+        let preview = try XCTUnwrap(layout.workspace.openOrFocusFilePreviewSplit(
+            from: layout.sourcePanelId,
+            filePath: previewURL.path,
+            defaults: defaults
+        ))
+
+        // Assert
+        XCTAssertEqual(layout.workspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(layout.workspace.paneId(forPanelId: preview.id)?.id, layout.leftPane.id)
+    }
+
+    /// `[left | (top / bottom)]`, click in the bottom-right pane: the pane
+    /// beside it (left, sharing its rows) wins over the one above it.
+    func testClickOpenTargetPrefersThePaneBesideOverThePaneAbove() throws {
+        // Arrange
+        let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
+        let bottomURL = try temporaryTextFile(contents: "bottom", encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: bottomURL)
+        }
+        let (defaults, suiteName) = try clickOpenDefaults(existingPane: true)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let layout = try makeSideBySideClickLayout(sourceFile: sourceURL)
+        defer { layout.workspace.teardownAllPanels() }
+        let topRightPane = try XCTUnwrap(layout.workspace.paneId(forPanelId: layout.sourcePanelId))
+        let bottomRight = try XCTUnwrap(layout.workspace.splitPaneWithFilePreview(
+            targetPane: topRightPane,
+            orientation: .vertical,
+            insertFirst: false,
+            filePath: bottomURL.path
+        ))
+        XCTAssertEqual(layout.workspace.bonsplitController.allPaneIds.count, 3)
+
+        // Act
+        let target = layout.workspace.clickOpenTargetPane(fromPanelId: bottomRight.id, defaults: defaults)
+
+        // Assert
+        XCTAssertEqual(target?.id, layout.leftPane.id)
+    }
+
+    func testClickOpenTargetStillUsesThePaneToTheRightFirst() throws {
+        // Arrange: click from the left pane; the right pane exists.
+        let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        let (defaults, suiteName) = try clickOpenDefaults(existingPane: true)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let layout = try makeSideBySideClickLayout(sourceFile: sourceURL)
+        defer { layout.workspace.teardownAllPanels() }
+        let rightPane = try XCTUnwrap(layout.workspace.paneId(forPanelId: layout.sourcePanelId))
+        let leftPanelId = try XCTUnwrap(layout.workspace.panels.keys.first {
+            layout.workspace.paneId(forPanelId: $0)?.id == layout.leftPane.id
+        })
+
+        // Act
+        let target = layout.workspace.clickOpenTargetPane(fromPanelId: leftPanelId, defaults: defaults)
+
+        // Assert
+        XCTAssertEqual(target?.id, rightPane.id)
+    }
+
+    func testClickOpenWithOnePaneStillSplitsWhenTheSettingIsOn() throws {
+        // Arrange
+        let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
+        let markdownURL = try temporaryTextFile(contents: "# doc", encoding: .utf8, pathExtension: "md")
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: markdownURL)
+        }
+        let (defaults, suiteName) = try clickOpenDefaults(existingPane: true)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let onlyPane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let source = try XCTUnwrap(workspace.newFilePreviewSurface(inPane: onlyPane, filePath: sourceURL.path, focus: true))
+
+        // Act
+        let target = workspace.clickOpenTargetPane(fromPanelId: source.id, defaults: defaults)
+        let markdown = try XCTUnwrap(workspace.openOrFocusMarkdownSplit(
+            from: source.id,
+            filePath: markdownURL.path,
+            defaults: defaults
+        ))
+
+        // Assert
+        XCTAssertNil(target)
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertNotEqual(workspace.paneId(forPanelId: markdown.id)?.id, onlyPane.id)
+    }
+
     private func temporaryTextFile(
         contents: String,
         encoding: String.Encoding,

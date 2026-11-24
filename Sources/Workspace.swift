@@ -8034,10 +8034,13 @@ final class Workspace: Identifiable, ObservableObject {
     /// symlink pointing at the same file focus the same viewer.
     /// Returns `nil` when no existing viewer matches and split creation
     /// fails, so callers can fall back to the preferred editor / system opener.
+    /// A new viewer opens where ``clickOpenTargetPane(fromPanelId:defaults:)``
+    /// says, splitting the source pane only when it returns `nil`.
     @discardableResult
     func openOrFocusMarkdownSplit(
         from panelId: UUID,
-        filePath: String
+        filePath: String,
+        defaults: UserDefaults = .standard
     ) -> MarkdownPanel? {
         let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
@@ -8048,7 +8051,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+        if let targetPane = clickOpenTargetPane(fromPanelId: panelId, defaults: defaults) {
             return newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
         }
 
@@ -8308,10 +8311,13 @@ final class Workspace: Identifiable, ObservableObject {
         return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
     }
 
+    /// Opens or focuses a file preview for a Cmd-clicked file; a new preview
+    /// goes where ``clickOpenTargetPane(fromPanelId:defaults:)`` says.
     @discardableResult
     func openOrFocusFilePreviewSplit(
         from panelId: UUID,
-        filePath: String
+        filePath: String,
+        defaults: UserDefaults = .standard
     ) -> FilePreviewPanel? {
         let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
@@ -8322,7 +8328,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+        if let targetPane = clickOpenTargetPane(fromPanelId: panelId, defaults: defaults) {
             return newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
         }
 
@@ -8665,6 +8671,59 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return nil
+    }
+
+    /// The pane a Markdown file, file preview or web link Cmd-clicked in the
+    /// terminal `panelId` opens in, or `nil` to split that terminal's pane.
+    ///
+    /// The nearest pane to the right always wins. Without one, the
+    /// `app.openClicksInExistingPane` setting picks the nearest other pane
+    /// (``nearestOtherPane(fromPanelId:)``) instead of splitting, so an
+    /// already split workspace gets no narrower.
+    func clickOpenTargetPane(fromPanelId panelId: UUID, defaults: UserDefaults = .standard) -> PaneID? {
+        if let rightPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+            return rightPane
+        }
+        guard AppCatalogSection().openClicksInExistingPane.value(in: defaults) else { return nil }
+        return nearestOtherPane(fromPanelId: panelId)
+    }
+
+    /// The other pane closest to `panelId`'s pane: panes beside it (sharing
+    /// some of its rows) before panes above or below it, then the smallest
+    /// vertical and horizontal distance between centers. Bounds come from the
+    /// split tree's divider positions, so the choice does not depend on the
+    /// window's size. `nil` when the workspace has one pane.
+    func nearestOtherPane(fromPanelId panelId: UUID) -> PaneID? {
+        guard let sourcePane = paneId(forPanelId: panelId) else { return nil }
+        var paneBounds: [String: CGRect] = [:]
+        browserCollectNormalizedPaneBounds(
+            node: bonsplitController.treeSnapshot(),
+            availableRect: CGRect(x: 0, y: 0, width: 1, height: 1),
+            into: &paneBounds
+        )
+        guard let source = paneBounds[sourcePane.id.uuidString] else { return nil }
+
+        struct Candidate {
+            let pane: PaneID
+            let besideSource: Bool
+            let verticalDistance: CGFloat
+            let horizontalDistance: CGFloat
+        }
+        let candidates: [Candidate] = bonsplitController.allPaneIds.compactMap { pane in
+            guard pane.id != sourcePane.id, let rect = paneBounds[pane.id.uuidString] else { return nil }
+            return Candidate(
+                pane: pane,
+                besideSource: rect.minY < source.maxY && rect.maxY > source.minY,
+                verticalDistance: abs(rect.midY - source.midY),
+                horizontalDistance: abs(rect.midX - source.midX)
+            )
+        }
+        return candidates.min { lhs, rhs in
+            if lhs.besideSource != rhs.besideSource { return lhs.besideSource }
+            if lhs.verticalDistance != rhs.verticalDistance { return lhs.verticalDistance < rhs.verticalDistance }
+            if lhs.horizontalDistance != rhs.horizontalDistance { return lhs.horizontalDistance < rhs.horizontalDistance }
+            return lhs.pane.id.uuidString < rhs.pane.id.uuidString
+        }?.pane
     }
 
     /// Returns the top-right pane in the current split tree.

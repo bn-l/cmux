@@ -44411,6 +44411,256 @@
         }
       }
     },
+    "settings.app.openClicksInExistingPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الملفات والروابط المنقور عليها في جزء موجود"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvaraj kliknute datoteke i linkove u postojećem oknu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn klikkede filer og links i en eksisterende rude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angeklickte Dateien und Links in einem vorhandenen Panel öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Clicked Files and Links in an Existing Pane"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir archivos y enlaces pulsados en un panel existente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les fichiers et liens cliqués dans un volet existant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri file e link cliccati in un riquadro esistente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリックしたファイルとリンクを既存のペインで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកឯកសារ និងតំណភ្ជាប់ដែលបានចុច ក្នុងផ្ទាំងដែលមានស្រាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클릭한 파일과 링크를 기존 창에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne klikkede filer og lenker i en eksisterende rute"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwieraj kliknięte pliki i linki w istniejącym panelu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir arquivos e links clicados em um painel existente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывать нажатые файлы и ссылки в существующей панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดไฟล์และลิงก์ที่คลิกในบานหน้าต่างที่มีอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tıklanan dosya ve bağlantıları mevcut bir bölmede aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкривати натиснуті файли й посилання в наявній панелі"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在现有窗格中打开点击的文件和链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在現有窗格中開啟點按的檔案與連結"
+          }
+        }
+      }
+    },
+    "settings.app.openClicksInExistingPane.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما لا يوجد جزء على يمين الطرفية، تُفتح ملفات Markdown ومعاينات الملفات والروابط التي تنقر عليها مع Cmd كلسان في أقرب جزء آخر بدلاً من تقسيم جزء الطرفية. لا تزال مساحة العمل ذات الجزء الواحد تُقسَّم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada terminal nema okno s desne strane, Markdown datoteke, pregledi datoteka i linkovi otvoreni Cmd-klikom otvaraju se kao tab u najbližem drugom oknu umjesto da dijele okno terminala. Radni prostor s jednim oknom se i dalje dijeli."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en terminal ikke har en rude til højre, åbnes Markdown-filer, filforhåndsvisninger og links, der Cmd-klikkes, som en fane i den nærmeste anden rude i stedet for at opdele terminalens rude. Et arbejdsområde med én rude opdeles stadig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn rechts neben einem Terminal kein Panel liegt, öffnen sich per Cmd-Klick geöffnete Markdown-Dateien, Dateivorschauen und Links als Tab im nächstgelegenen anderen Panel, statt das Panel des Terminals zu teilen. Ein Arbeitsbereich mit nur einem Panel wird weiterhin geteilt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When a terminal has no pane to its right, Cmd-clicked Markdown files, file previews and links open as a tab in the nearest other pane instead of splitting the terminal's pane. A workspace with one pane still splits."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando un terminal no tiene ningún panel a su derecha, los archivos Markdown, las vistas previas de archivos y los enlaces abiertos con Cmd-clic se abren como pestaña en el otro panel más cercano en lugar de dividir el panel del terminal. Un espacio de trabajo con un solo panel se sigue dividiendo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsqu'aucun volet ne se trouve à droite d'un terminal, les fichiers Markdown, aperçus de fichiers et liens ouverts par Cmd-clic s'ouvrent dans un onglet du volet le plus proche au lieu de diviser le volet du terminal. Un espace de travail à un seul volet est toujours divisé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando un terminale non ha riquadri alla sua destra, i file Markdown, le anteprime dei file e i link aperti con Cmd-clic si aprono come scheda nel riquadro più vicino invece di dividere il riquadro del terminale. Un'area di lavoro con un solo riquadro viene comunque divisa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの右側にペインがない場合、Cmd-クリックした Markdown ファイル、ファイルプレビュー、リンクは、ターミナルのペインを分割する代わりに、最も近い別のペインにタブとして開きます。ペインが 1 つだけのワークスペースでは引き続き分割されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលស្ថានីយមិនមានផ្ទាំងនៅខាងស្ដាំ ឯកសារ Markdown ការមើលឯកសារជាមុន និងតំណភ្ជាប់ដែលបានចុចដោយ Cmd នឹងបើកជាផ្ទាំងថ្មីក្នុងផ្ទាំងផ្សេងទៀតដែលនៅជិតបំផុត ជំនួសឱ្យការបំបែកផ្ទាំងស្ថានីយ។ កន្លែងធ្វើការដែលមានផ្ទាំងតែមួយ នៅតែត្រូវបានបំបែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 오른쪽에 창이 없으면 Cmd-클릭한 Markdown 파일, 파일 미리보기, 링크가 터미널 창을 분할하는 대신 가장 가까운 다른 창에 탭으로 열립니다. 창이 하나뿐인 작업 공간은 여전히 분할됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en terminal ikke har en rute til høyre, åpnes Markdown-filer, filforhåndsvisninger og lenker som Cmd-klikkes, som en fane i den nærmeste andre ruten i stedet for å dele terminalens rute. Et arbeidsområde med én rute deles fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy po prawej stronie terminala nie ma panelu, pliki Markdown, podglądy plików i linki otwierane Cmd-kliknięciem otwierają się jako karta w najbliższym innym panelu zamiast dzielić panel terminala. Przestrzeń robocza z jednym panelem nadal jest dzielona."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando um terminal não tem painel à direita, arquivos Markdown, pré-visualizações de arquivos e links abertos com Cmd-clique abrem como aba no outro painel mais próximo em vez de dividir o painel do terminal. Uma área de trabalho com um só painel continua sendo dividida."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если справа от терминала нет панели, файлы Markdown, предпросмотры файлов и ссылки, открытые Cmd-щелчком, открываются вкладкой в ближайшей другой панели, а не разделяют панель терминала. Рабочее пространство с одной панелью по-прежнему разделяется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเทอร์มินัลไม่มีบานหน้าต่างทางขวา ไฟล์ Markdown ตัวอย่างไฟล์ และลิงก์ที่ Cmd-คลิก จะเปิดเป็นแท็บในบานหน้าต่างอื่นที่ใกล้ที่สุดแทนการแบ่งบานหน้าต่างของเทอร์มินัล เวิร์กสเปซที่มีบานหน้าต่างเดียวยังคงถูกแบ่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir terminalin sağında bölme yoksa Cmd ile tıklanan Markdown dosyaları, dosya önizlemeleri ve bağlantılar terminalin bölmesini bölmek yerine en yakın diğer bölmede sekme olarak açılır. Tek bölmeli bir çalışma alanı yine de bölünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо праворуч від термінала немає панелі, файли Markdown, попередні перегляди файлів і посилання, відкриті Cmd-клацанням, відкриваються вкладкою в найближчій іншій панелі замість поділу панелі термінала. Робоча область з однією панеллю все одно ділиться."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当终端右侧没有窗格时，按住 Cmd 点击的 Markdown 文件、文件预览和链接会以标签页形式在最近的其他窗格中打开，而不是拆分终端所在的窗格。只有一个窗格的工作区仍会拆分。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當終端機右側沒有窗格時，按住 Cmd 點按的 Markdown 檔案、檔案預覽與連結會以標籤頁形式在最近的其他窗格中開啟，而不是分割終端機所在的窗格。只有一個窗格的工作區仍會分割。"
+          }
+        }
+      }
+    },
     "settings.app.showAgentActivity": {
       "extractionState": "manual",
       "localizations": {
@@ -44883,6 +45133,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace 載入 指示器 左 右 位置"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.open-clicks-in-existing-pane": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab نقر ملف رابط معاينة جزء موجود آخر تقسيم لسان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab klik datoteka link pregled okno postojeće drugo podjela tab"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab klik fil link forhåndsvisning rude eksisterende anden opdeling fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab Klick Datei Link Vorschau Panel vorhanden anderes teilen Tab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab clic archivo enlace vista previa panel existente otro dividir pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab clic fichier lien aperçu volet existant autre diviser onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab clic file link anteprima riquadro esistente altro dividere scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab クリック ファイル リンク プレビュー ペイン 既存 別 分割 タブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab ចុច ឯកសារ តំណភ្ជាប់ ផ្ទាំង ការបំបែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab 클릭 파일 링크 미리보기 창 기존 다른 분할 탭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab klikk fil lenke forhåndsvisning rute eksisterende annen dele fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab kliknięcie plik link podgląd panel istniejący inny podział karta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab clique arquivo link pré-visualização painel existente outro dividir aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab щелчок файл ссылка предпросмотр панель существующая другая разделение вкладка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab คลิก ไฟล์ ลิงก์ ตัวอย่าง บานหน้าต่าง ที่มีอยู่ อื่น แบ่ง แท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab tıklama dosya bağlantı önizleme bölme mevcut diğer bölme sekme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab клацання файл посилання перегляд панель наявна інша поділ вкладка"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab 点击 文件 链接 预览 窗格 现有 其他 拆分 标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.openClicksInExistingPane cmd click ctrl click open markdown file preview link browser existing other opposite pane reuse split narrow tab 點按 檔案 連結 預覽 窗格 現有 其他 分割 標籤頁"
           }
         }
       }

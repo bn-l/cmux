@@ -108,6 +108,10 @@ enum AppSettingsFileMapping {
             jsonKey: "openMarkdownInCmuxViewer",
             defaultsKey: app.openMarkdownInCmuxViewer.userDefaultsKey
         ),
+        .init(
+            jsonKey: "openClicksInExistingPane",
+            defaultsKey: app.openClicksInExistingPane.userDefaultsKey
+        ),
         .init(jsonKey: "reorderOnNotification", defaultsKey: app.reorderOnNotification.userDefaultsKey),
         .init(
             jsonKey: "warnBeforeClosingTab",
@@ -390,6 +394,7 @@ extension CmuxSettingsFileStore {
         "app.preferredEditor",
         "app.openSupportedFilesInCmux",
         "app.openMarkdownInCmuxViewer",
+        "app.openClicksInExistingPane",
         "app.reorderOnNotification",
         "app.confirmQuit",
         "app.warnBeforeQuit",

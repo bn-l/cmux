@@ -115,6 +115,16 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "openMarkdownInCmuxViewer"
     )
 
+    /// Where a Markdown file, file preview or web link Cmd-clicked in a
+    /// terminal opens when no pane sits to the right of that terminal. Off
+    /// splits the terminal's pane; on opens a tab in the nearest other pane,
+    /// so an already split workspace gets no narrower.
+    public let openClicksInExistingPane = DefaultsKey<Bool>(
+        id: "app.openClicksInExistingPane",
+        defaultValue: false,
+        userDefaultsKey: "openClicksInExistingPane"
+    )
+
     /// App-wide magnification percent for cmux-owned fonts and chrome.
     public let globalFontMagnification = DefaultsKey<Int>(
         id: "app.globalFontMagnification",

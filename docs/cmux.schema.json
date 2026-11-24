@@ -702,6 +702,11 @@
           "default": true,
           "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
         },
+        "openClicksInExistingPane": {
+          "type": "boolean",
+          "default": false,
+          "description": "Where a Markdown file, file preview or web link Cmd-clicked in a terminal opens when no pane sits to the right of that terminal. When enabled, it opens as a tab in the nearest other pane (beside the terminal first, then above or below) instead of splitting the terminal's pane; a workspace with one pane still splits. A pane to the right is always used first."
+        },
         "globalFontMagnification": {
           "type": "integer",
           "minimum": 50,

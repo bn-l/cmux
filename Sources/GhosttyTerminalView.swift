@@ -2797,7 +2797,7 @@ class GhosttyApp {
         #endif
 
         let openedInBrowser: Bool
-        if let targetPane = workspace.preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
+        if let targetPane = workspace.clickOpenTargetPane(fromPanelId: sourcePanelId) {
             #if DEBUG
             cmuxDebugLog("link.openURL opening in existing browser pane=\(targetPane)")
             #endif

@@ -38,6 +38,7 @@ public struct AppSection: View {
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
+    @State private var openClicksInExistingPane: DefaultsValueModel<Bool>
     @State private var globalFontMagnification: DefaultsValueModel<Int>
     @State private var markdownFontSize: DefaultsValueModel<Int>
     @State private var markdownFontFamily: DefaultsValueModel<String>
@@ -91,6 +92,7 @@ public struct AppSection: View {
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
+        _openClicksInExistingPane = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openClicksInExistingPane))
         _globalFontMagnification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.globalFontMagnification))
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
         _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
@@ -139,7 +141,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, equalizeSplitsOnCreate, equalizeSplitsOnDividerDoubleClick, paneResizeStep, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, jumpShowsWorkspaceName, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, equalizeSplitsOnCreate, equalizeSplitsOnDividerDoubleClick, paneResizeStep, fileDrop, preferredEditor, openSupported, openMarkdown, openClicksInExistingPane, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, jumpShowsWorkspaceName, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }
         }
     }
@@ -441,6 +443,19 @@ public struct AppSection: View {
                 Toggle("", isOn: Binding(get: { openMarkdown.current }, set: { openMarkdown.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Open Clicked Files and Links in an Existing Pane
+            SettingsCardRow(
+                configurationReview: .json("app.openClicksInExistingPane"),
+                String(localized: "settings.app.openClicksInExistingPane", defaultValue: "Open Clicked Files and Links in an Existing Pane"),
+                subtitle: String(localized: "settings.app.openClicksInExistingPane.subtitle", defaultValue: "When a terminal has no pane to its right, Cmd-clicked Markdown files, file previews and links open as a tab in the nearest other pane instead of splitting the terminal's pane. A workspace with one pane still splits.")
+            ) {
+                Toggle("", isOn: Binding(get: { openClicksInExistingPane.current }, set: { openClicksInExistingPane.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsOpenClicksInExistingPaneToggle")
             }
             SettingsCardDivider()
 
